@@ -1,0 +1,68 @@
+{% if late %}<div class="flash flash-error"><i data-lucide="alarm-clock"></i><b>{{ late }}</b> chuyến trễ mốc hành trình (quá giờ dự kiến + 60 phút).</div>{% endif %}
+<div class="text-muted" style="font-size:12px;margin:-6px 0 14px">Cập nhật lúc {{ now|hm }}</div>
+
+{% if view == "kanban" %}
+<div class="kanban">
+  {% for c in cols %}
+  <div class="kcol">
+    <div class="kcol-head" style="--kc:{{ c.color }}"><span class="dot-i" style="background:{{ c.color }}"></span>{{ c.title }}<span class="n">{{ c.trips|length }}</span></div>
+    {% for t in c.trips %}
+    <a href="/app/inbound/trips/{{ t.pk }}" class="kcard" {% if t.is_late %}style="border-color:var(--danger)"{% endif %}>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        {% if t.is_late %}<span class="badge badge-danger">Trễ mốc</span>{% else %}{% status_badge t %}{% endif %}
+        <span class="text-muted" style="font-size:12px">{{ t.code }}</span>
+      </div>
+      <h4>{{ t.po.supplier.name|truncatechars:32 }}</h4>
+      <div class="text-muted" style="font-size:12px">{{ t.route.name }}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:12px 0 4px">
+        <div class="bar" style="flex:1"><i style="width:{{ t.ms_pct }}%;background:{% if t.is_late %}var(--danger){% else %}var(--primary){% endif %}"></i></div>
+        <span style="font-size:12px" class="text-muted">{{ t.ms_done }}/{{ t.ms_total }} mốc</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px">
+        <span style="display:flex;align-items:center;gap:6px"><span class="avatar sm">{{ t.driver.name|slice:":1" }}</span>{{ t.vehicle.plate }}</span>
+        <span class="text-muted" style="display:flex;gap:4px;align-items:center"><i data-lucide="clock" style="width:13px"></i>ETA {{ t.eta|hm }}</span>
+      </div>
+      <div class="text-muted" style="font-size:11px;margin-top:6px">{{ t.total_ton|floatformat:2 }} tấn{% if t.slot %} · Bến {{ t.slot.dock.code }} {{ t.slot.start_at|hm }}{% endif %}</div>
+    </a>
+    {% empty %}<div class="text-muted" style="text-align:center;font-size:12px;padding:20px 0">Trống</div>{% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+{% elif view == "table" %}
+<div class="card"><div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Chuyến</th><th>PO / NCC</th><th>Xe · Tài xế</th><th>Tuyến</th><th class="num">Tấn</th><th>Mốc</th><th>Xuất phát</th><th>ETA</th><th>Trạng thái</th></tr></thead>
+  <tbody>{% for t in trips %}
+    <tr class="{% if t.is_late %}row-danger{% endif %}"><td><a class="code" href="/app/inbound/trips/{{ t.pk }}">{{ t.code }}</a></td>
+      <td><a href="/app/purchase/orders/{{ t.po.pk }}" class="text-primary">{{ t.po.code }}</a><div class="text-muted" style="font-size:12px">{{ t.po.supplier.name }}</div></td>
+      <td>{{ t.vehicle.plate }}<div class="text-muted" style="font-size:12px">{{ t.driver.name }}</div></td><td>{{ t.route.name }}</td>
+      <td class="num">{{ t.total_ton|floatformat:2 }}</td><td>{{ t.ms_done }}/{{ t.ms_total }}</td><td>{{ t.planned_departure|vn_dt }}</td><td><b>{{ t.eta|vn_dt }}</b></td>
+      <td>{% status_badge t %}{% if t.is_late %} <span class="badge badge-danger">Trễ</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="9" class="empty">Không có chuyến.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+
+{% else %}
+<div class="card card-body">
+  <div style="position:relative;overflow-x:auto">
+    <div style="min-width:1100px;position:relative">
+      <div style="display:grid;grid-template-columns:180px repeat(24,1fr);font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:8px">
+        <div>Chuyến</div>{% for h in timeline.hours %}<div>{{ h }}</div>{% endfor %}
+      </div>
+      <div style="position:relative">
+        <div class="now-line" style="left:calc(180px + (100% - 180px) * {{ timeline.now|floatformat:4 }} / 100);width:2px;height:auto;top:0;bottom:0;right:auto"></div>
+        {% for r in timeline.rows %}
+        <div style="display:grid;grid-template-columns:180px 1fr;align-items:center;border-bottom:1px solid var(--line-soft);height:46px">
+          <div><a class="code" href="/app/inbound/trips/{{ r.t.pk }}" style="font-weight:600">{{ r.t.code }}</a><div class="text-muted" style="font-size:11px">{{ r.t.vehicle.plate }}</div></div>
+          <div style="position:relative;height:100%">
+            <div style="position:absolute;left:calc({{ r.left|floatformat:4 }}% - 60px);top:9px;width:120px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;{% if r.t.is_late %}background:var(--danger-bg);color:var(--danger-ink){% else %}background:var(--primary-50);color:var(--primary){% endif %}">
+              ETA {{ r.t.eta|hm }}
+            </div>
+          </div>
+        </div>
+        {% empty %}<div class="empty">Không có chuyến dự kiến tới trong 24 giờ.</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="text-muted" style="font-size:12px;margin-top:10px"><span class="dot-i" style="background:var(--danger)"></span> Vạch đỏ = thời điểm hiện tại</div>
+</div>
+{% endif %}

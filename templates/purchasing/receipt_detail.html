@@ -1,0 +1,49 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-27 · <a href="/app/warehouse/receipts">Phiếu nhập</a> /</div><h1 class="page-title">{{ gr.code }} {% status_badge gr %}</h1>
+    <div class="page-sub">{{ gr.po.code }} · {{ gr.po.supplier.name }} · {% if gr.trip %}{{ gr.trip.code }} · xe {{ gr.trip.vehicle.plate }} · {% endif %}{{ gr.warehouse.name }}</div></div>
+  <div class="toolbar">
+    <a href="?pdf=1" target="_blank" class="btn btn-outline"><i data-lucide="printer"></i>In phiếu</a>
+    {% if gr.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt chênh lệch & nhập kho</button></form>{% endif %}
+    {% if gr.status == "DRAFT" or gr.status == "PENDING_APPROVAL" %}{% include "partials/cancel_form.html" %}{% endif %}
+  </div>
+</div>
+{% if gr.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i>Có dòng lệch > {{ limit }}% so với số lượng dự kiến – chờ Director duyệt.</div>{% endif %}
+<form method="post" class="card" x-data>{% csrf_token %}
+  <div class="card-head"><h3 class="card-title">Kiểm nhận hàng</h3><span class="text-muted" style="font-size:12px">Dòng lệch > {{ limit }}% được tô màu · hàng hỏng chuyển khu cách ly</span></div>
+  <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Sản phẩm</th><th class="num">SL dự kiến</th><th class="num" style="width:130px">SL thực nhận</th><th class="num" style="width:120px">SL hỏng</th><th class="num">Chênh lệch</th><th class="num">% lệch</th><th style="width:160px">Vị trí cất</th>{% if user.can_see_price %}<th class="num">Đơn giá</th>{% endif %}</tr></thead>
+    <tbody>{% for l in lines %}
+      <tr x-data="{r: {{ l.qty_received }}, d: {{ l.qty_damaged }}, e: {{ l.qty_expected }} }"
+          :class="e && Math.abs(r-d-e)/e*100 > {{ limit }} ? 'row-danger' : (r-d != e ? 'row-warn' : '')">
+        <td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td>
+        <td class="num">{{ l.qty_expected|qty }} {{ l.product.base_uom.code }}</td>
+        {% if gr.status == "DRAFT" %}
+        <td><input class="input input-sm num" type="number" step="0.001" min="0" name="r_{{ l.pk }}" x-model.number="r"></td>
+        <td><input class="input input-sm num" type="number" step="0.001" min="0" name="d_{{ l.pk }}" x-model.number="d"></td>
+        <td class="num" x-text="(r-d-e).toLocaleString('vi-VN')" :style="(r-d-e) < 0 ? 'color:var(--danger-ink);font-weight:600' : ''"></td>
+        <td class="num" x-text="e ? (Math.abs(r-d-e)/e*100).toFixed(1)+'%' : '—'"></td>
+        <td><select class="input input-sm" name="loc_{{ l.pk }}">{% for loc in locations %}<option value="{{ loc.pk }}" {% if loc.pk == l.location_id %}selected{% endif %}>{{ loc.code }}</option>{% endfor %}</select></td>
+        {% else %}
+        <td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_damaged|qty }}</td><td class="num">{{ l.variance|qty }}</td><td class="num">{{ l.variance_pct|pct }}</td><td>{{ l.location.code }}</td>
+        {% endif %}
+        {% if user.can_see_price %}<td class="num">{{ l.unit_cost|vnd }}</td>{% endif %}
+      </tr>
+    {% endfor %}</tbody>
+  </table></div></div>
+  <div class="card-body" style="display:flex;gap:12px;align-items:flex-end;justify-content:space-between;flex-wrap:wrap">
+    <div class="field" style="flex:1;max-width:520px"><label>Ghi chú</label><input name="note" value="{{ gr.note }}" {% if gr.status != "DRAFT" %}disabled{% endif %}></div>
+    {% if gr.status == "DRAFT" %}<div class="toolbar">
+      <button name="op" value="save" class="btn btn-outline">Lưu nháp</button>
+      <button name="op" value="submit" class="btn btn-primary"><i data-lucide="package-check"></i>Xác nhận nhập kho</button></div>{% endif %}
+  </div>
+</form>
+{% if gr.status == "POSTED" %}
+<div class="grid g-2" style="margin-top:20px">
+  <div class="card card-body"><dl class="dl"><dt>Ghi sổ lúc</dt><dd>{{ gr.posted_at|vn_dt }}</dd><dt>Lead time thực tế</dt><dd>{{ gr.lead_time_days|floatformat:2 }} ngày</dd><dt>Người duyệt</dt><dd>{{ gr.approved_by|default:"—" }}</dd></dl></div>
+  <div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Khiếu nại (Claim)</h3>
+    {% for c in claims %}<div style="display:flex;justify-content:space-between;padding:6px 0"><span><b>{{ c.code }}</b> · {{ c.get_claim_type_display }} · {{ c.get_against_display }}</span>{% if user.can_see_price %}<b>{{ c.amount|vnd }}</b>{% endif %}</div>{% empty %}<div class="text-muted">Không có khiếu nại.</div>{% endfor %}</div>
+</div>
+{% endif %}
+{% endblock %}

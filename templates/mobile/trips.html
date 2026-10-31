@@ -1,0 +1,24 @@
+{% extends "mobile/base.html" %}
+{% block heading %}Xin chào, {{ driver.name }}{% endblock %}
+{% block content %}
+<div class="card card-body" style="margin-bottom:16px;display:flex;justify-content:space-between">
+  <div><div class="lbl">Bằng lái</div><b>{{ driver.license_class }} · {{ driver.license_no }}</b></div>
+  <div style="text-align:right"><div class="lbl">Hạn</div>{% if driver.license_valid %}<span class="badge badge-success">{{ driver.license_expiry|vn_d }}</span>{% else %}<span class="badge badge-danger">Hết hạn</span>{% endif %}</div>
+</div>
+<h3 style="margin:18px 4px 10px;font-size:15px">Chuyến nhận hàng (Inbound)</h3>
+{% for t in ib %}
+<a href="/m/inbound/{{ t.pk }}" class="card card-body" style="display:block;margin-bottom:10px">
+  <div style="display:flex;justify-content:space-between;align-items:center"><b>{{ t.code }}</b>{% status_badge t %}</div>
+  <div style="margin-top:6px;font-weight:500">{{ t.po.supplier.name }}</div>
+  <div class="text-muted" style="font-size:13px">{{ t.route.name }} · xe {{ t.vehicle.plate }}</div>
+  <div class="text-muted" style="font-size:13px;margin-top:6px;display:flex;justify-content:space-between"><span>Xuất phát {{ t.planned_departure|vn_dt }}</span><span>ETA {{ t.eta|hm }}</span></div>
+</a>
+{% empty %}<div class="card card-body text-muted" style="text-align:center">Không có chuyến Inbound.</div>{% endfor %}
+<h3 style="margin:22px 4px 10px;font-size:15px">Chuyến giao hàng (Outbound)</h3>
+{% for t in ob %}
+<a href="/m/outbound/{{ t.pk }}" class="card card-body" style="display:block;margin-bottom:10px">
+  <div style="display:flex;justify-content:space-between;align-items:center"><b>{{ t.code }}</b>{% status_badge t %}</div>
+  <div class="text-muted" style="font-size:13px;margin-top:6px">Ngày {{ t.planned_date|vn_d }} · xe {{ t.vehicle.plate }} · {{ t.stops.all|length }} điểm giao</div>
+</a>
+{% empty %}<div class="card card-body text-muted" style="text-align:center">Không có chuyến giao.</div>{% endfor %}
+{% endblock %}

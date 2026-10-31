@@ -1,0 +1,25 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/accounting/invoices">Hóa đơn bán</a> /</div><h1 class="page-title">{{ inv.code }} {% status_badge inv %}</h1>
+    <div class="page-sub">{{ inv.customer.name }} · ngày {{ inv.invoice_date|vn_d }} · hạn {{ inv.due_date|vn_d }}</div></div>
+  <div class="toolbar">
+    <a href="?pdf=1" target="_blank" class="btn btn-outline"><i data-lucide="printer"></i>In / PDF</a>
+    {% if inv.status == "DRAFT" %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" onclick="return confirm('Xóa hóa đơn nháp?')">Xóa</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="post"><button class="btn btn-primary"><i data-lucide="book-check"></i>Ghi sổ</button></form>
+    {% elif inv.status == "POSTED" %}{% include "partials/cancel_form.html" %}{% endif %}
+  </div>
+</div>
+{% if inv.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ inv.cancel_reason }}</div>{% endif %}
+<div class="grid g-main">
+  <div class="card"><table class="tbl">
+    <thead><tr><th>Sản phẩm</th><th>Điểm giao</th><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+    <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td>{{ l.delivery_line.stop.trip.code|default:"" }}<div class="text-muted" style="font-size:12px">{{ l.delivery_line.stop.site.name|default:"" }}</div></td><td class="num">{{ l.qty|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td colspan="4" class="num">Cộng tiền hàng</td><td class="num">{{ inv.subtotal|vnd }}</td></tr><tr><td colspan="4" class="num">VAT {{ inv.vat_rate|floatformat:0 }}%</td><td class="num">{{ inv.vat_amount|vnd }}</td></tr><tr><td colspan="4" class="num">Tổng thanh toán</td><td class="num">{{ inv.total|vnd }}</td></tr></tfoot>
+  </table></div>
+  <div class="card card-body" style="align-self:start"><dl class="dl"><dt>Tổng</dt><dd>{{ inv.total|vnd }}</dd><dt>Đã thu</dt><dd>{{ inv.paid_amount|vnd }}</dd><dt>Còn lại</dt><dd><b>{{ inv.balance|vnd }}</b></dd></dl>
+    <div class="divider"></div><div class="lbl" style="margin-bottom:8px">Phiếu thu phân bổ</div>
+    {% for a in allocs %}<div style="display:flex;justify-content:space-between;padding:4px 0"><span>{{ a.payment.code }} · {{ a.payment.paid_at|vn_d }}</span><b>{{ a.amount|vnd }}</b></div>{% empty %}<div class="text-muted">Chưa có.</div>{% endfor %}</div>
+</div>
+{% endblock %}

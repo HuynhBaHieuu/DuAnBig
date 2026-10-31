@@ -1,0 +1,44 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/purchase/orders">Đơn mua</a> /</div><h1 class="page-title">{{ title }}</h1></div></div>
+<form method="post" class="card card-body" x-data="poForm()">{% csrf_token %}
+  <div class="grid g-3" style="margin-bottom:18px">
+    <div class="field"><label>Nhà cung cấp *</label><select name="supplier" x-model="supplier" @change="reprice()" required><option value="">— Chọn —</option>{% for s in suppliers %}<option value="{{ s.pk }}" {% if po.supplier_id == s.pk %}selected{% endif %}>{{ s.code }} – {{ s.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Kho nhận *</label><select name="warehouse">{% for w in warehouses %}<option value="{{ w.pk }}" {% if po.warehouse_id == w.pk %}selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Tuyến vận chuyển</label><select name="route"><option value="">Theo NCC</option>{% for r in routes %}<option value="{{ r.pk }}" {% if po.route_id == r.pk %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Ngày đặt</label><input type="date" name="order_date" value="{{ po.order_date|date:'Y-m-d' }}"></div>
+    <div class="field"><label>Ngày bốc hẹn tại NCC</label><input type="date" name="pickup_date" value="{{ po.pickup_date|date:'Y-m-d' }}"></div>
+    <div class="field"><label>Ghi chú</label><input name="note" value="{{ po.note|default:'' }}"></div>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Sản phẩm</th><th style="width:150px" class="num">Số lượng</th><th style="width:170px" class="num">Đơn giá (₫)</th><th style="width:170px" class="num">Thành tiền</th><th style="width:50px"></th></tr></thead>
+    <tbody><template x-for="(r,i) in rows" :key="i"><tr>
+      <td><select class="input" name="product" x-model="r.product" @change="r.price = priceOf(r.product) ?? r.price" required><option value="">— Chọn sản phẩm —</option>{% for p in products %}<option value="{{ p.pk }}">{{ p.code }} – {{ p.name }} ({{ p.base_uom.code }})</option>{% endfor %}</select></td>
+      <td><input class="input num" type="number" step="0.001" min="0" name="qty" x-model.number="r.qty" required></td>
+      <td><input class="input num" type="number" step="1" min="0" name="price" x-model.number="r.price" required></td>
+      <td class="num" x-text="fmt(r.qty*r.price)"></td>
+      <td><button type="button" class="btn btn-outline btn-sm" @click="rows.splice(i,1)" x-show="rows.length>1">✕</button></td>
+    </tr></template></tbody>
+    <tfoot><tr><td colspan="3"><button type="button" class="btn btn-soft btn-sm" @click="rows.push({product:'',qty:0,price:0})"><i data-lucide="plus"></i>Thêm dòng</button></td><td class="num" x-text="fmt(total())"></td><td></td></tr></tfoot>
+  </table>
+  <div class="flash flash-warning" style="margin-top:14px" x-show="total() >= {{ threshold }}"><i data-lucide="shield-alert"></i>Giá trị ≥ {{ threshold|money_short }} – PO sẽ cần Director duyệt.</div>
+  <div class="toolbar" style="margin-top:16px;justify-content:flex-end"><a href="/app/purchase/orders" class="btn btn-outline">Hủy</a><button class="btn btn-primary">Lưu đơn mua (nháp)</button></div>
+</form>
+{{ prices|json_script:"prices" }}{{ lines_json|json_script:"lines" }}
+{% endblock %}
+{% block scripts %}
+<script>
+function poForm() {
+  const prices = JSON.parse(document.getElementById("prices").textContent);
+  const init = JSON.parse(document.getElementById("lines").textContent);
+  return {
+    supplier: "{{ po.supplier_id|default:'' }}",
+    rows: init.length ? init : [{ product: "", qty: 0, price: 0 }],
+    priceOf(p) { return (prices[this.supplier] || {})[p]; },
+    reprice() { this.rows.forEach(r => { const v = this.priceOf(r.product); if (v != null) r.price = v; }); },
+    total() { return this.rows.reduce((s, r) => s + (r.qty || 0) * (r.price || 0), 0); },
+    fmt(v) { return Math.round(v || 0).toLocaleString("vi-VN") + " ₫"; },
+  };
+}
+</script>
+{% endblock %}

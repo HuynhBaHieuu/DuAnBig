@@ -1,0 +1,84 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-12 · Kho hàng</div><h1 class="page-title">Tham số SS / ROP</h1>
+    <div class="page-sub">Celery tính lại lúc 01:00 hằng đêm · FULL: SS = Z·√(LT·σD² + D̄²·σLT²) · ROP = D̄·LT + SS · tự sinh PR khi Dự báo ≤ ROP</div></div>
+  {% if sel %}<form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}">{% csrf_token %}<input type="hidden" name="op" value="run_all">
+    <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Chạy tính toàn bộ ngay</button></form>{% endif %}
+</div>
+<div class="grid" style="grid-template-columns:minmax(300px,380px) 1fr">
+  <div class="card" style="align-self:start">
+    <div class="card-head"><h3 class="card-title">Sản phẩm</h3>
+      <div class="toolbar"><a href="?" class="badge {% if request.GET.level != 'low' %}badge-primary{% else %}badge-gray{% endif %}">Tất cả</a><a href="?level=low" class="badge {% if request.GET.level == 'low' %}badge-primary{% else %}badge-gray{% endif %}">Cần đặt</a></div></div>
+    <div style="max-height:70vh;overflow:auto;padding:10px 8px 8px">
+      {% for r in rows %}
+      <a href="?product={{ r.product.pk }}{% if request.GET.level %}&level={{ request.GET.level }}{% endif %}" class="nav-item {% if r.product.pk == sel_id %}active{% endif %}" style="align-items:flex-start">
+        <span class="dot-i" style="margin-top:6px;background:{% if r.level == 'OK' %}var(--success){% elif r.level == 'BELOW_ROP' %}var(--warn){% else %}var(--danger){% endif %}"></span>
+        <div style="flex:1;min-width:0"><div style="color:var(--ink);font-weight:600">{{ r.product.code }}</div><div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.product.name }}</div></div>
+        <div class="num" style="font-size:12px">{{ r.projected|qty }}<div>/ {{ r.rop|qty }}</div></div>
+      </a>
+      {% empty %}<div class="empty">Không có sản phẩm theo dõi ROP.</div>{% endfor %}
+    </div>
+  </div>
+
+  {% if sel %}
+  <div class="grid" style="align-content:start">
+    <div class="card card-body">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div><div class="text-muted" style="font-size:12px">{{ sel.product.code }}</div><h2 style="margin:2px 0 0;font-size:20px">{{ sel.product.name }}</h2></div>
+        <span class="badge badge-{{ sel.level_tone }}" style="font-size:13px">{{ sel.level_label }}</span>
+      </div>
+      <div class="grid g-5" style="margin-top:18px;gap:12px">
+        <div><div class="lbl">Khả dụng</div><div style="font-size:20px;font-weight:700">{{ sel.available|qty }}</div></div>
+        <div><div class="lbl">Đang về</div><div style="font-size:20px;font-weight:700" class="text-primary">{{ sel.incoming|qty }}</div></div>
+        <div><div class="lbl">Dự báo</div><div style="font-size:20px;font-weight:700">{{ sel.projected|qty }}</div></div>
+        <div><div class="lbl">SS / ROP</div><div style="font-size:20px;font-weight:700">{{ sel.ss|qty }} / {{ sel.rop|qty }}</div></div>
+        <div><div class="lbl">Đặt gợi ý (Q)</div><div style="font-size:20px;font-weight:700;color:var(--warn-ink)">{{ sel.suggested_q|qty }}</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Nhu cầu xuất theo ngày & tồn dự báo</h3><span class="text-muted" style="font-size:12px">D̄ = {{ rp.d_avg|qty }}/ngày · σD = {{ rp.d_std|qty }}</span></div>
+      <div class="card-body"><div style="height:280px"><canvas id="demand"></canvas></div></div>
+    </div>
+    <form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}" class="card card-body">{% csrf_token %}
+      <h3 class="card-title" style="margin-bottom:14px">Thiết lập tham số</h3>
+      <div class="grid g-4" style="gap:14px">
+        <div class="field"><label>Phương pháp</label><select name="method">{% for v, l in rp.METHODS %}<option value="{{ v }}" {% if rp.method == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="field"><label>Hệ số Z (mức phục vụ)</label><input name="z" type="number" step="0.01" value="{{ rp.z }}"></div>
+        <div class="field"><label>Chu kỳ xem xét (ngày)</label><input name="review_days" type="number" value="{{ rp.review_days }}"></div>
+        <div class="field"><label>Lịch sử tính (ngày)</label><input name="history_days" type="number" value="{{ rp.history_days }}"></div>
+        <div class="field"><label>Lead time mặc định (ngày)</label><input name="lead_time_days" type="number" step="0.01" value="{{ rp.lead_time_days }}"></div>
+        <div class="field"><label>SS nhập tay (ghi đè)</label><input name="manual_ss" type="number" step="0.001" value="{{ rp.manual_ss|default_if_none:'' }}"></div>
+        <div class="field"><label>ROP nhập tay (ghi đè)</label><input name="manual_rop" type="number" step="0.001" value="{{ rp.manual_rop|default_if_none:'' }}"></div>
+        <div class="field"><label>Lead time thực tế</label><div style="padding:9px 0;font-weight:600">{{ rp.lead_time_days }} ± {{ rp.lt_std_days }} ngày</div></div>
+      </div>
+      <div class="toolbar" style="margin-top:16px;justify-content:space-between">
+        <span class="text-muted" style="font-size:12px">Tính lần cuối: {{ rp.calculated_at|vn_dt }}</span>
+        <button class="btn btn-primary">Lưu & tính lại</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{{ chart|json_script:"chart-data" }}
+{% endblock %}
+{% block scripts %}
+<script>
+  const c = JSON.parse(document.getElementById("chart-data").textContent);
+  if (c) {
+    const n = c.labels.length, line = v => Array(n).fill(v);
+    new Chart(document.getElementById("demand"), {
+      data: { labels: c.labels, datasets: [
+        { type: "bar", label: "Nhu cầu xuất", data: c.demand, backgroundColor: TONE.primary + "99", borderRadius: 4, yAxisID: "y" },
+        { type: "line", label: "Tồn dự báo", data: c.projected, borderColor: TONE.info, pointRadius: 0, tension: .3, spanGaps: true, yAxisID: "y1" },
+        { type: "line", label: "ROP", data: line(c.rop), borderColor: TONE.warn, borderDash: [6, 4], pointRadius: 0, yAxisID: "y1" },
+        { type: "line", label: "SS", data: line(c.ss), borderColor: TONE.danger, borderDash: [6, 4], pointRadius: 0, yAxisID: "y1" },
+      ]},
+      options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } } },
+        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } }, y: { beginAtZero: true, grid: { color: TONE.line }, title: { display: true, text: "Xuất/ngày" } },
+                  y1: { position: "right", beginAtZero: true, grid: { display: false }, title: { display: true, text: "Tồn" } } } }
+    });
+  }
+</script>
+{% endblock %}

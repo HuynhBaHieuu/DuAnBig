@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="portal-top">
+  <div style="max-width:1200px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:28px">
+    <a href="/portal/" style="display:flex;align-items:center;gap:10px"><div class="brand-mark"><span></span><span></span><span></span><span></span></div><div class="brand-name">TRACON 80</div><span class="badge badge-primary">Cổng khách hàng</span></a>
+    <nav class="portal-nav" style="flex:1">
+      {% with p=request.path %}
+      <a href="/portal/" class="{% if p == '/portal/' %}active{% endif %}">Tổng quan</a>
+      <a href="/portal/order" class="{% if p == '/portal/order' %}active{% endif %}">Đặt hàng / Kế hoạch tuần</a>
+      <a href="/portal/orders" class="{% if '/portal/orders' in p %}active{% endif %}">Theo dõi đơn & ETA</a>
+      <a href="/portal/documents" class="{% if p == '/portal/documents' %}active{% endif %}">Chứng từ</a>
+      <a href="/portal/debts" class="{% if p == '/portal/debts' %}active{% endif %}">Công nợ</a>
+      {% endwith %}
+    </nav>
+    <div class="user-chip"><div><div class="name">{{ user.display_name }}</div><div class="role">{{ user.customer.name }}</div></div>
+      <form method="post" action="/logout">{% csrf_token %}<button class="avatar" style="border:0;cursor:pointer" title="Đăng xuất">{{ user.initials }}</button></form></div>
+  </div>
+</header>
+<main style="max-width:1200px;margin:0 auto;padding:28px 24px 60px">
+  {% include "partials/messages.html" %}
+  {% block content %}{% endblock %}
+</main>
+{% endblock %}

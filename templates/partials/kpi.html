@@ -1,0 +1,6 @@
+<div class="card kpi">
+  <div class="ico tone-{{ tone|default:'primary' }}"><i data-lucide="{{ icon|default:'activity' }}"></i></div>
+  <div class="label">{{ label }}</div>
+  <div class="value">{{ value }}</div>
+  {% if foot %}<div class="foot">{{ foot }}</div>{% endif %}
+</div>

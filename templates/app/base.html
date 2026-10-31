@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="shell">
+  <aside class="sidebar">
+    <a href="/app/dashboard" class="brand">
+      <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+      <div class="brand-name">TRACON 80</div>
+    </a>
+    <nav>
+      {% for g in menu %}
+        {% if g.group %}<div class="nav-group">{{ g.group }}</div>{% endif %}
+        {% for it in g.items %}
+          <a href="{{ it.url }}" class="nav-item {% if it.active %}active{% endif %}">
+            <i data-lucide="{{ it.icon }}"></i><span>{{ it.label }}</span>
+            {% if it.url == "/app/alerts" and alert_count %}<span class="count">{{ alert_count }}</span>{% endif %}
+          </a>
+        {% endfor %}
+      {% endfor %}
+    </nav>
+    <div class="sidebar-card">
+      <div class="bulb"><i data-lucide="lightbulb"></i></div>
+      <div style="font-weight:600">Không dùng GPS</div>
+      <div class="text-muted" style="font-size:12px;margin:6px 0 12px">Inbound theo dõi bằng mốc hành trình + ảnh xác thực của tài xế.</div>
+      <a href="/app/inbound/board" class="btn btn-primary btn-sm" style="width:100%">Mở bảng điều phối</a>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <form class="search" action="/app/search" method="get">
+        <i data-lucide="search"></i>
+        <input name="q" value="{{ request.GET.q|default:'' }}" placeholder="Tìm mã chứng từ, sản phẩm, khách hàng...">
+      </form>
+      <div style="flex:1"></div>
+      <a href="/app/alerts" class="icon-btn" title="Cảnh báo"><i data-lucide="bell"></i>{% if alert_count %}<span class="dot"></span>{% endif %}</a>
+      <a href="/app/reports/" class="icon-btn" title="Báo cáo"><i data-lucide="bar-chart-3"></i></a>
+      <div class="user-chip" x-data="{o:false}" style="position:relative">
+        <div>
+          <div class="name">{{ user.display_name }}</div>
+          <div class="role">{{ user.get_role_display }}</div>
+        </div>
+        <button class="avatar" style="border:0;cursor:pointer" @click="o=!o">{{ user.initials }}</button>
+        <div x-show="o" x-cloak @click.outside="o=false" class="card" style="position:absolute;right:0;top:50px;width:210px;padding:8px;z-index:50">
+          <a href="/app/profile" class="nav-item"><i data-lucide="key-round"></i>Đổi mật khẩu</a>
+          <form method="post" action="/logout">{% csrf_token %}<button class="nav-item" style="width:100%;border:0;background:none;cursor:pointer;font:inherit"><i data-lucide="log-out"></i>Đăng xuất</button></form>
+        </div>
+      </div>
+    </header>
+    <main class="content">
+      {% include "partials/messages.html" %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+{% endblock %}

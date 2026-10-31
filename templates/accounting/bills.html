@@ -1,0 +1,15 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-42 · Kế toán</div><h1 class="page-title">Hóa đơn mua & đối chiếu 3 bên</h1><div class="page-sub">Tự động đối chiếu PO – GRN – Bill · chặn ghi sổ nếu lệch (MISMATCH) chưa được Director chấp nhận</div></div>
+  <div class="toolbar"><a href="/app/accounting/bills/new?type=GOODS" class="btn btn-primary"><i data-lucide="file-plus"></i>HĐ vật tư</a><a href="/app/accounting/bills/new?type=FREIGHT" class="btn btn-soft"><i data-lucide="truck"></i>HĐ cước vận chuyển</a></div>
+</div>
+<div class="tabs"><a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả</a>{% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }} <span class="n">{{ counts|get_item:v|default:0 }}</span></a>{% endfor %}</div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Mã</th><th>Loại</th><th>Đối tác</th><th>Số HĐ NCC</th><th>Ngày</th><th>Hạn TT</th><th class="num">Tổng</th><th class="num">Còn phải trả</th><th>Đối chiếu / trạng thái</th></tr></thead>
+  <tbody>{% for b in page_obj %}
+    <tr class="{% if b.status == 'MISMATCH' %}row-danger{% endif %}"><td><a class="code" href="/app/accounting/bills/{{ b.pk }}">{{ b.code }}</a></td><td>{{ b.get_bill_type_display }}</td><td>{{ b.partner.name }}</td><td>{{ b.vendor_invoice_no }}</td>
+      <td>{{ b.bill_date|vn_d }}</td><td>{{ b.due_date|vn_d }}</td><td class="num">{{ b.total|vnd }}</td><td class="num">{{ b.balance|vnd }}</td><td>{% status_badge b %}</td></tr>
+  {% empty %}<tr><td colspan="9" class="empty">Chưa có hóa đơn mua.</td></tr>{% endfor %}</tbody>
+</table>{% include "partials/pager.html" %}</div>
+{% endblock %}

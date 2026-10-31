@@ -1,0 +1,60 @@
+{% extends "mobile/base.html" %}
+{% block back %}<a href="{% if stop %}/m/outbound/{{ trip.pk }}{% else %}/m/trips{% endif %}" style="color:#fff"><i data-lucide="arrow-left"></i></a>{% endblock %}
+{% block kicker %}Giao hàng · {{ trip.planned_date|vn_d }}{% endblock %}
+{% block content %}
+{% if not stop %}
+<div class="card card-body" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">{% status_badge trip %}<span class="text-muted">Xe {{ trip.vehicle.plate }}</span></div>
+{% if trip.status != "IN_TRANSIT" and trip.status != "COMPLETED" %}<div class="flash flash-info"><i data-lucide="info"></i>Chuyến chưa xuất kho – chờ kho soạn hàng và ghi sổ phiếu xuất.</div>{% endif %}
+{% for s in stops %}
+<a href="{% if s.status == 'PENDING' and trip.status == 'IN_TRANSIT' %}?stop={{ s.pk }}{% else %}#{% endif %}" class="card card-body" style="display:block;margin-bottom:10px">
+  <div style="display:flex;gap:12px;align-items:flex-start">
+    <span class="avatar">{{ s.seq }}</span>
+    <div style="flex:1"><div style="display:flex;justify-content:space-between"><b>{{ s.so.customer.name }}</b>{% status_badge s %}</div>
+      <div style="font-size:13px">{{ s.site.name }}</div><div class="text-muted" style="font-size:12px">{{ s.site.address }} · {{ s.site.contact_name }} {{ s.site.contact_phone }}</div>
+      <div style="font-size:12px;margin-top:6px">{% for l in s.lines.all %}<span class="badge badge-gray" style="margin:0 4px 4px 0">{{ l.so_line.product.code }} × {{ l.qty_planned|qty }}</span>{% endfor %}</div></div>
+  </div>
+</a>
+{% endfor %}
+
+{% else %}
+<form method="post" enctype="multipart/form-data" x-data="pod()" @submit="check($event)">{% csrf_token %}
+  <input type="hidden" name="stop" value="{{ stop.pk }}"><input type="hidden" name="failed" :value="failed ? 1 : 0">
+  <div class="card card-body" style="margin-bottom:12px">
+    <div class="lbl">Điểm giao {{ stop.seq }} · {{ stop.so.code }}</div>
+    <div style="font-size:18px;font-weight:700">{{ stop.so.customer.name }}</div>
+    <div class="text-muted" style="font-size:13px">{{ stop.site.name }} · {{ stop.site.address }}</div>
+  </div>
+  <div class="card card-body" style="margin-bottom:12px" x-show="!failed">
+    <div class="lbl" style="margin-bottom:8px">Số lượng thực giao</div>
+    {% for l in stop_lines %}<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="flex:1"><b>{{ l.so_line.product.code }}</b><div class="text-muted" style="font-size:12px">Trên xe: {{ l.qty_planned|qty }} {{ l.so_line.product.base_uom.code }}</div></div>
+      <input class="input num" style="width:120px;font-size:18px;padding:10px" type="number" step="0.001" min="0" max="{{ l.qty_planned }}" name="q_{{ l.pk }}" value="{{ l.qty_planned }}"></div>{% endfor %}
+  </div>
+  <div class="card card-body" style="margin-bottom:12px;display:flex;flex-direction:column;gap:10px">
+    <input class="input" name="receiver_name" placeholder="Họ tên người nhận" :required="!failed">
+    <label class="btn btn-soft btn-lg" style="cursor:pointer" x-show="!failed"><i data-lucide="camera"></i><span x-text="photo ? 'Đã chụp ảnh ✓' : 'Chụp ảnh giao hàng (bắt buộc)'"></span>
+      <input type="file" name="photo" accept="image/*" capture="environment" style="display:none" @change="photo=true"></label>
+    <div x-show="!failed"><div class="lbl" style="margin-bottom:6px;display:flex;justify-content:space-between"><span>Chữ ký người nhận</span><a href="#" @click.prevent="pad.clear()" class="text-primary">Ký lại</a></div>
+      <canvas class="sig-pad" x-ref="sig"></canvas><input type="hidden" name="signature" x-ref="sigval"></div>
+    <textarea class="input" name="note" rows="2" placeholder="Ghi chú (lý do giao thiếu / thất bại)"></textarea>
+  </div>
+  <button class="btn btn-primary big-btn" x-show="!failed"><i data-lucide="check-circle-2"></i>Xác nhận đã giao</button>
+  <div style="text-align:center;margin:14px 0">
+    <a href="#" class="text-muted" @click.prevent="failed=!failed" x-text="failed ? '← Quay lại giao hàng' : 'Không giao được? Báo giao thất bại'"></a></div>
+  <button class="btn btn-danger big-btn" x-show="failed" x-cloak>Xác nhận giao thất bại – hàng chở về kho</button>
+</form>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+function pod() {
+  return { failed: false, photo: false, pad: null,
+    init() { this.$nextTick(() => { this.pad = signaturePad(this.$refs.sig, this.$refs.sigval); }); },
+    check(e) {
+      if (this.failed) return true;
+      if (!this.photo) { alert("Vui lòng chụp ảnh giao hàng."); e.preventDefault(); return false; }
+      if (!this.$refs.sigval.value) { alert("Vui lòng lấy chữ ký người nhận."); e.preventDefault(); return false; }
+      return true;
+    } };
+}
+</script>
+{% endblock %}

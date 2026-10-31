@@ -1,0 +1,14 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">Soạn hàng & xuất kho</h1><div class="page-sub">Lệnh soạn theo vị trí FIFO → xác nhận soạn → ghi sổ phiếu xuất (GIN)</div></div></div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Chuyến</th><th>Ngày giao</th><th>Xe · Tài xế</th><th>Lệnh soạn</th><th>Phiếu xuất</th><th>Trạng thái chuyến</th><th></th></tr></thead>
+  <tbody>{% for t in page_obj %}
+    <tr><td class="code">{{ t.code }}</td><td>{{ t.planned_date|vn_d }}</td><td>{{ t.vehicle.plate }}<div class="text-muted" style="font-size:12px">{{ t.driver.name }}</div></td>
+      <td>{% if t.picking %}{{ t.picking.code }} {% status_badge t.picking %}{% endif %}</td>
+      <td>{% if t.goods_issue %}{{ t.goods_issue.code }} {% status_badge t.goods_issue %}{% else %}—{% endif %}</td>
+      <td>{% status_badge t %}</td>
+      <td class="num">{% if t.picking %}<a href="/app/fulfillment/picking/{{ t.picking.pk }}" class="btn {% if t.status == 'PICKING' or t.status == 'READY' %}btn-primary{% else %}btn-soft{% endif %} btn-sm">{% if t.status == "PICKING" %}Soạn hàng{% elif t.status == "READY" %}Xuất kho{% else %}Xem{% endif %}</a>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="7" class="empty">Chưa có lệnh soạn hàng.</td></tr>{% endfor %}</tbody>
+</table>{% include "partials/pager.html" %}</div>
+{% endblock %}

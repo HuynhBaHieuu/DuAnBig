@@ -1,0 +1,14 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/purchase/requisitions">Đề xuất mua</a> /</div><h1 class="page-title">{{ pr.code }} {% status_badge pr %}</h1>
+    <div class="page-sub">{{ pr.get_source_display }} · tạo {{ pr.created_at|vn_dt }} · cần {{ pr.need_date|vn_d }} {% if pr.note %}· {{ pr.note }}{% endif %}</div></div>
+  {% if pr.status == "SUBMITTED" or pr.status == "DRAFT" %}{% include "partials/cancel_form.html" %}{% endif %}
+</div>
+{% if pr.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ pr.cancel_reason }}</div>{% endif %}
+<div class="card"><table class="tbl">
+  <thead><tr><th>Sản phẩm</th><th class="num">Số lượng</th><th>ĐVT</th><th>NCC gợi ý</th><th>Đã lập PO</th></tr></thead>
+  <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty }}</td><td>{{ l.product.base_uom.code }}</td>
+    <td>{{ l.suggested_supplier.name|default:"—" }}</td><td>{% if l.po_line %}<a class="code" href="/app/purchase/orders/{{ l.po_line.po.pk }}">{{ l.po_line.po.code }}</a>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

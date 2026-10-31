@@ -1,0 +1,21 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-44 · Kế toán</div><h1 class="page-title">Công nợ & tuổi nợ</h1><div class="page-sub">Tính theo số ngày quá hạn thanh toán của từng chứng từ</div></div>
+  <div class="toolbar">
+    <div class="toolbar" style="background:var(--input);padding:4px;border-radius:8px"><a href="?kind=AR" class="btn btn-sm {% if kind == 'AR' %}btn-primary{% endif %}">Phải thu</a><a href="?kind=AP" class="btn btn-sm {% if kind == 'AP' %}btn-primary{% endif %}">Phải trả</a></div>
+    <a href="?kind={{ kind }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Excel</a>
+  </div>
+</div>
+<div class="grid g-5" style="margin-bottom:20px">
+  {% for b, l in buckets %}<div class="card kpi"><div class="label">{{ l }}</div><div class="value" style="font-size:20px;{% if b == 'over' or b == 'd90' %}color:var(--danger-ink){% elif b != 'current' %}color:var(--warn-ink){% endif %}">{{ totals|get_item:b|money_short }}</div></div>{% endfor %}
+</div>
+<div class="card"><div class="table-wrap"><table class="tbl">
+  <thead><tr><th>{% if kind == "AR" %}Khách hàng{% else %}Nhà cung cấp / nhà xe{% endif %}</th><th class="num">Số CT</th>{% for b, l in buckets %}<th class="num">{{ l }}</th>{% endfor %}<th class="num">Tổng</th>{% if kind == "AR" %}<th class="num">Hạn mức</th>{% endif %}</tr></thead>
+  <tbody>{% for r in rows %}<tr><td><b>{{ r.partner.name }}</b></td><td class="num">{{ r.docs }}</td>
+    <td class="num">{{ r.current|vnd }}</td><td class="num">{{ r.d30|vnd }}</td><td class="num">{{ r.d60|vnd }}</td><td class="num" style="color:var(--danger-ink)">{{ r.d90|vnd }}</td><td class="num" style="color:var(--danger-ink)">{{ r.over|vnd }}</td>
+    <td class="num"><b>{{ r.total|vnd }}</b></td>{% if kind == "AR" %}<td class="num {% if r.total > r.partner.credit_limit %}text-primary{% endif %}">{{ r.partner.credit_limit|vnd }}</td>{% endif %}</tr>
+  {% empty %}<tr><td colspan="9" class="empty">Không có công nợ.</td></tr>{% endfor %}</tbody>
+  <tfoot><tr><td colspan="2">Tổng cộng</td>{% for b, l in buckets %}<td class="num">{{ totals|get_item:b|vnd }}</td>{% endfor %}<td class="num">{{ totals.total|vnd }}</td>{% if kind == "AR" %}<td></td>{% endif %}</tr></tfoot>
+</table></div></div>
+{% endblock %}

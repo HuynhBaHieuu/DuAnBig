@@ -1,0 +1,14 @@
+<form method="post" action="{{ action|default:'' }}" x-data="{o:false}" style="display:inline">{% csrf_token %}
+  <input type="hidden" name="op" value="cancel">
+  <button type="button" class="btn btn-danger" @click="o=true"><i data-lucide="x-circle"></i>{{ label|default:"Hủy chứng từ" }}</button>
+  <div x-show="o" x-cloak style="position:fixed;inset:0;background:rgba(13,6,45,.35);display:grid;place-items:center;z-index:60">
+    <div class="card card-body" style="width:420px" @click.outside="o=false">
+      <h3 class="card-title" style="margin-bottom:12px">{{ label|default:"Hủy chứng từ" }}</h3>
+      <div class="field"><label>Lý do (bắt buộc)</label><textarea name="reason" rows="3" required></textarea></div>
+      <div class="toolbar" style="justify-content:flex-end;margin-top:16px">
+        <button type="button" class="btn btn-outline" @click="o=false">Đóng</button>
+        <button class="btn btn-primary" style="background:var(--danger)">Xác nhận</button>
+      </div>
+    </div>
+  </div>
+</form>

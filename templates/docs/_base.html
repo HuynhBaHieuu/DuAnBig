@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><title>{% block title %}{% endblock %}</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  body { font-family: "Inter", "DejaVu Sans", Arial, sans-serif; color: #060606; font-size: 12px; margin: 0; }
+  .wrap { max-width: 800px; margin: 24px auto; padding: 0 16px; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #E65F2B; padding-bottom: 12px; }
+  .brand { font-size: 20px; font-weight: 700; color: #E65F2B; }
+  h1 { font-size: 20px; margin: 18px 0 4px; text-align: center; letter-spacing: .02em; }
+  .meta { text-align: center; color: #787486; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th { background: #F2EAE5; color: #E65F2B; text-align: left; padding: 7px; font-size: 11px; }
+  td { padding: 7px; border-bottom: 1px solid #EEEEF2; }
+  .num { text-align: right; white-space: nowrap; }
+  .info { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin-top: 12px; }
+  .info b { color: #787486; font-weight: 500; display: inline-block; min-width: 110px; }
+  .sign { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; margin-top: 40px; }
+  .sign div { height: 90px; }
+  tfoot td { font-weight: 700; }
+  .print { position: fixed; right: 20px; top: 20px; background: #E65F2B; color: #fff; border: 0; padding: 10px 16px; border-radius: 6px; cursor: pointer; }
+  @media print { .print { display: none; } .wrap { margin: 0; } }
+</style></head>
+<body><button class="print" onclick="window.print()">In / Lưu PDF</button>
+<div class="wrap">
+  <div class="head"><div><div class="brand">TRACON 80</div><div style="color:#787486">Công ty TNHH TRACON 80</div></div>
+    <div style="text-align:right;color:#787486">{% block code %}{% endblock %}</div></div>
+  {% block content %}{% endblock %}
+</div></body></html>

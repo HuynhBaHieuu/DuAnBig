@@ -1,0 +1,19 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-24 · Inbound</div>
+    <h1 class="page-title">Bảng điều phối Inbound <span class="badge badge-primary" style="font-size:12px"><span class="htmx-indicator">⟳</span> Tự làm mới 60s</span></h1>
+    <div class="page-sub">Theo dõi chuyến bằng mốc hành trình thủ công (FACTORY → LOADED → CHECKPOINT → GATE) – không GPS</div></div>
+  <div class="toolbar">
+    <form class="toolbar"><input type="hidden" name="view" value="{{ view }}"><input class="input" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Mã chuyến, biển số, NCC" style="width:230px"></form>
+    <div class="toolbar" style="background:var(--input);padding:4px;border-radius:8px">
+      <a href="?view=kanban" class="btn btn-sm {% if view == 'kanban' %}btn-primary{% endif %}"><i data-lucide="columns-3"></i>Kanban</a>
+      <a href="?view=table" class="btn btn-sm {% if view == 'table' %}btn-primary{% endif %}"><i data-lucide="table"></i>Bảng</a>
+      <a href="?view=timeline" class="btn btn-sm {% if view == 'timeline' %}btn-primary{% endif %}"><i data-lucide="gantt-chart"></i>Timeline 24h</a>
+    </div>
+  </div>
+</div>
+<div id="board" hx-get="{{ request.get_full_path }}" hx-trigger="every 60s" hx-swap="innerHTML">
+  {% include "purchasing/_board_body.html" %}
+</div>
+{% endblock %}

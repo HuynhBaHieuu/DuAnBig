@@ -1,0 +1,15 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">Kết quả tìm kiếm</h1><div class="page-sub">Từ khóa: “{{ q }}” · {{ results|length }} kết quả</div></div></div>
+<div class="card">
+  <table class="tbl">
+    <thead><tr><th>Loại</th><th>Mã</th><th>Mô tả</th></tr></thead>
+    <tbody>
+    {% for r in results %}
+      <tr><td><span class="badge badge-primary">{{ r.type }}</span></td><td><a class="code" href="{{ r.url }}">{{ r.code }}</a></td>
+        <td>{{ r.name|default:"" }}{% if r.obj %}{% status_badge r.obj %}{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="3" class="empty">Không tìm thấy kết quả.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

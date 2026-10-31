@@ -1,0 +1,83 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-34 · Fulfillment</div><h1 class="page-title">Kế hoạch giao hàng</h1>
+    <div class="page-sub">Kéo đơn từ cột trái thả vào chuyến xe bên phải · hệ thống chặn vượt tải trọng · phát lệnh soạn hàng theo FIFO</div></div>
+  <form class="toolbar"><input type="date" class="input" name="date" value="{{ date }}" onchange="this.form.submit()" style="width:170px"></form>
+</div>
+<div class="grid" style="grid-template-columns:minmax(320px,400px) 1fr" x-data="planner()">
+  <div class="kcol" style="align-self:start;max-height:78vh;overflow:auto">
+    <div class="kcol-head"><span class="dot-i" style="background:var(--primary)"></span>Đơn chờ giao<span class="n">{{ orders|length }}</span></div>
+    {% for o in orders %}
+    <div class="dragcard" draggable="true" @dragstart="drag({{ o.pk }}, $event)">
+      <div style="display:flex;justify-content:space-between;align-items:center"><a href="/app/sales/orders/{{ o.pk }}" class="code" style="font-weight:600">{{ o.code }}</a>
+        <span class="badge {% if o.requested_date <= today_date %}badge-danger{% else %}badge-gray{% endif %}">Cần {{ o.requested_date|vn_d }}</span></div>
+      <div style="font-weight:500;margin-top:6px">{{ o.customer.name }}</div>
+      <div class="text-muted" style="font-size:12px">{{ o.site.name }} · {{ o.site.address|truncatechars:40 }}</div>
+      <div style="font-size:12px;margin-top:8px">{% for l in o.plan_lines %}<span class="badge badge-gray" style="margin:0 4px 4px 0">{{ l.product.code }} × {{ l.qty_to_plan|qty }}</span>{% endfor %}</div>
+      <div class="text-muted" style="font-size:12px;display:flex;justify-content:space-between"><span>{{ o.plan_ton|floatformat:2 }} tấn</span><span>Ưu tiên CT: {{ o.site.priority }}</span></div>
+    </div>
+    {% empty %}<div class="empty">Không có đơn chờ giao.</div>{% endfor %}
+  </div>
+
+  <div class="grid" style="align-content:start">
+    <form method="post" class="card card-body toolbar">{% csrf_token %}<input type="hidden" name="op" value="new_trip"><input type="hidden" name="planned_date" value="{{ date }}">
+      <b style="margin-right:8px">Thêm chuyến</b>
+      <select class="input" name="vehicle" style="width:200px" required>{% for v in vehicles %}<option value="{{ v.pk }}">{{ v.plate }} · {{ v.capacity_ton }}t</option>{% endfor %}</select>
+      <select class="input" name="driver" style="width:200px" required>{% for d in drivers %}<option value="{{ d.pk }}">{{ d.name }}{% if not d.license_valid %} (bằng hết hạn){% endif %}</option>{% endfor %}</select>
+      <button class="btn btn-primary"><i data-lucide="plus"></i>Tạo chuyến</button>
+    </form>
+    <div class="grid g-2">
+    {% for t in trips %}
+      <div class="card">
+        <div class="card-head">
+          <div><h3 class="card-title">{{ t.code }} · {{ t.vehicle.plate }}</h3><div class="text-muted" style="font-size:12px">{{ t.driver.name }} · {{ t.driver.phone }}</div></div>
+          {% status_badge t %}
+        </div>
+        <div class="card-body">
+          {% with ton=t.total_ton %}
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Tải: <b>{{ ton|floatformat:2 }}</b> / {{ t.vehicle.capacity_ton }} tấn</span><span>{{ t.stops.all|length }} điểm giao</span></div>
+          <div class="bar" style="margin-bottom:14px"><i style="width:{% widthratio ton t.vehicle.capacity_ton 100 %}%;background:var(--primary)"></i></div>
+          {% endwith %}
+          <div class="dropzone" data-trip="{{ t.pk }}" {% if t.status == "PLANNED" %}@dragover.prevent="$el.classList.add('over')" @dragleave="$el.classList.remove('over')" @drop.prevent="drop({{ t.pk }}, $el)"{% endif %}>
+            {% for s in t.stops.all %}
+            <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;margin-bottom:6px">
+              <span class="avatar sm">{{ s.seq }}</span>
+              <div style="flex:1;min-width:0"><b>{{ s.so.code }}</b> · {{ s.so.customer.name|truncatechars:24 }}<div class="text-muted" style="font-size:12px">{{ s.site.name }}</div>
+                <div style="font-size:11px" class="text-muted">{% for l in s.lines.all %}{{ l.so_line.product.code }}×{{ l.qty_planned|qty }} {% endfor %}</div></div>
+              {% if t.status == "PLANNED" %}<button type="button" class="btn btn-outline btn-sm" @click="remove({{ s.pk }})">✕</button>{% else %}{% status_badge s %}{% endif %}
+            </div>
+            {% empty %}<div class="text-muted" style="text-align:center;padding:16px 0;font-size:13px">{% if t.status == "PLANNED" %}Thả đơn vào đây{% else %}—{% endif %}</div>{% endfor %}
+          </div>
+          {% if t.status == "PLANNED" %}
+          <div class="toolbar" style="margin-top:12px;justify-content:space-between">
+            <form method="post">{% csrf_token %}<input type="hidden" name="op" value="cancel_trip"><input type="hidden" name="trip" value="{{ t.pk }}"><button class="btn btn-danger btn-sm">Hủy chuyến</button></form>
+            <form method="post">{% csrf_token %}<input type="hidden" name="op" value="release"><input type="hidden" name="trip" value="{{ t.pk }}"><button class="btn btn-primary btn-sm" {% if not t.stops.all %}disabled{% endif %}><i data-lucide="clipboard-list"></i>Phát lệnh soạn hàng</button></form>
+          </div>
+          {% elif t.picking %}<a href="/app/fulfillment/picking/{{ t.picking.pk }}" class="btn btn-soft btn-sm" style="margin-top:12px">Xem lệnh soạn {{ t.picking.code }}</a>{% endif %}
+        </div>
+      </div>
+    {% empty %}<div class="card card-body empty" style="grid-column:span 2">Chưa có chuyến nào trong ngày {{ date }}. Tạo chuyến ở trên.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function planner() {
+  return {
+    so: null,
+    drag(id, e) { this.so = id; e.dataTransfer.setData("text/plain", id); },
+    async drop(trip, el) {
+      el.classList.remove("over");
+      try { await postJSON(location.pathname, { op: "add", trip, so: this.so }); location.reload(); }
+      catch (err) { alert(err.message); }
+    },
+    async remove(stop) {
+      try { await postJSON(location.pathname, { op: "remove", stop }); location.reload(); }
+      catch (err) { alert(err.message); }
+    },
+  };
+}
+</script>
+{% endblock %}

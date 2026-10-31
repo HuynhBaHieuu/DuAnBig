@@ -1,0 +1,7 @@
+{% for m in messages %}
+<div class="flash flash-{{ m.tags|default:'info' }}" x-data="{s:true}" x-show="s">
+  <i data-lucide="{% if m.tags == 'success' %}check-circle-2{% elif m.tags == 'error' %}alert-octagon{% elif m.tags == 'warning' %}alert-triangle{% else %}info{% endif %}"></i>
+  <div style="flex:1">{{ m }}</div>
+  <button @click="s=false" style="background:none;border:0;cursor:pointer;color:inherit">✕</button>
+</div>
+{% endfor %}

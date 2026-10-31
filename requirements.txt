@@ -1,0 +1,11 @@
+Django>=5.1,<5.2
+djangorestframework>=3.15
+psycopg[binary]>=3.2
+dj-database-url>=2.2
+python-dotenv>=1.0
+Pillow>=10.0
+celery>=5.4
+redis>=5.0
+openpyxl>=3.1
+# WeasyPrint (PDF) cần GTK runtime trên Windows – cài thêm khi deploy Linux:
+# weasyprint>=62

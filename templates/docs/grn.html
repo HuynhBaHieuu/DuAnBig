@@ -1,0 +1,15 @@
+{% extends "docs/_base.html" %}
+{% block title %}{{ gr.code }}{% endblock %}
+{% block code %}Số: <b>{{ gr.code }}</b><br>Ngày: {{ gr.received_at|vn_dt }}{% endblock %}
+{% block content %}
+<h1>PHIẾU NHẬP KHO</h1><div class="meta">Goods Receipt Note</div>
+<div class="info">
+  <div><b>Theo PO:</b> {{ gr.po.code }}</div><div><b>Nhà cung cấp:</b> {{ gr.po.supplier.name }}</div>
+  <div><b>Chuyến:</b> {{ gr.trip.code|default:"—" }}</div><div><b>Xe:</b> {{ gr.trip.vehicle.plate|default:"—" }}</div>
+  <div><b>Kho:</b> {{ gr.warehouse.name }}</div><div><b>Trạng thái:</b> {{ gr.get_status_display }}</div>
+</div>
+<table><thead><tr><th>#</th><th>Mã hàng</th><th>Tên hàng</th><th>Vị trí</th><th class="num">Dự kiến</th><th class="num">Thực nhận</th><th class="num">Hỏng</th><th class="num">Chênh lệch</th></tr></thead>
+<tbody>{% for l in lines %}<tr><td>{{ forloop.counter }}</td><td>{{ l.product.code }}</td><td>{{ l.product.name }}</td><td>{{ l.location.code }}</td><td class="num">{{ l.qty_expected|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_damaged|qty }}</td><td class="num">{{ l.variance|qty }}</td></tr>{% endfor %}</tbody></table>
+<p>Ghi chú: {{ gr.note }}</p>
+<div class="sign"><div><b>Tài xế giao</b><br>{{ gr.trip.driver.name|default:"" }}</div><div><b>Thủ kho</b><br>{{ gr.created_by|default:"" }}</div><div><b>Giám đốc</b><br>{{ gr.approved_by|default:"" }}</div></div>
+{% endblock %}

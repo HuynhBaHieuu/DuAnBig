@@ -1,0 +1,11 @@
+{% extends "portal/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs">MH-93</div><h1 class="page-title">Theo dõi đơn hàng</h1></div>
+  <form class="toolbar"><select class="input" name="site" onchange="this.form.submit()" style="width:240px"><option value="">Tất cả công trình</option>{% for s in sites %}<option value="{{ s.pk }}" {% if request.GET.site == s.pk|stringformat:"d" %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></form></div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Mã đơn</th><th>Công trình</th><th>Loại</th><th>Ngày đặt</th><th>Ngày cần</th><th>Trạng thái</th></tr></thead>
+  <tbody>{% for o in orders %}<tr><td><a href="/portal/orders/{{ o.pk }}" class="code">{{ o.code }}</a></td><td>{{ o.site.name }}</td><td>{% if o.is_weekly_plan %}Kế hoạch tuần{% else %}Đơn hàng{% endif %}</td>
+    <td>{{ o.order_date|vn_d }}</td><td>{{ o.requested_date|vn_d }}</td><td>{% status_badge o %}</td></tr>
+  {% empty %}<tr><td colspan="6" class="empty">Chưa có đơn hàng.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

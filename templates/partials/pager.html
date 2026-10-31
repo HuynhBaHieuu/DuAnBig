@@ -1,0 +1,9 @@
+{% if page_obj.has_other_pages %}
+<div class="toolbar" style="justify-content:space-between;padding:14px 20px;border-top:1px solid var(--line-soft)">
+  <span class="text-muted">Trang {{ page_obj.number }}/{{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} bản ghi</span>
+  <div class="toolbar">
+    {% if page_obj.has_previous %}<a class="btn btn-outline btn-sm" href="?{{ qs }}&page={{ page_obj.previous_page_number }}">‹ Trước</a>{% endif %}
+    {% if page_obj.has_next %}<a class="btn btn-outline btn-sm" href="?{{ qs }}&page={{ page_obj.next_page_number }}">Sau ›</a>{% endif %}
+  </div>
+</div>
+{% endif %}

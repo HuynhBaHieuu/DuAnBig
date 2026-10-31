@@ -1,0 +1,19 @@
+<div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;padding:6px 0">
+  <table class="tbl" style="max-width:560px;background:#fff;border-radius:10px">
+    <thead><tr><th>Vị trí</th><th>Khu</th><th>Loại</th><th class="num">Tồn</th><th>Nhập sớm nhất (FIFO)</th></tr></thead>
+    <tbody>{% for q in quants %}
+      <tr><td class="code">{{ q.location.code }}</td><td>{{ q.location.get_zone_display }}</td><td>{{ q.location.get_loc_type_display }}</td>
+        <td class="num">{{ q.on_hand|qty }}</td><td class="text-muted">{{ q.in_date_first|vn_dt }}</td></tr>
+    {% empty %}<tr><td colspan="5" class="empty">Không có tồn tại vị trí nào.</td></tr>{% endfor %}</tbody>
+  </table>
+  {% if user.role == "WAREHOUSE" or user.role == "DIRECTOR" or user.role == "ADMIN" %}{% if quants %}
+  <form method="post" action="/app/inventory/transfer" class="card card-body" style="width:340px">{% csrf_token %}
+    <input type="hidden" name="product" value="{{ pk }}">
+    <div class="card-title" style="margin-bottom:10px">Chuyển vị trí</div>
+    <div class="field" style="margin-bottom:8px"><label>Từ</label><select name="from">{% for q in quants %}<option value="{{ q.location.pk }}">{{ q.location.code }} ({{ q.on_hand|qty }})</option>{% endfor %}</select></div>
+    <div class="field" style="margin-bottom:8px"><label>Đến</label><select name="to">{% for l in locations %}<option value="{{ l.pk }}">{{ l.code }} – {{ l.get_loc_type_display }}</option>{% endfor %}</select></div>
+    <div class="field" style="margin-bottom:12px"><label>Số lượng</label><input name="qty" type="number" step="0.001" min="0.001" required></div>
+    <button class="btn btn-primary btn-sm">Chuyển</button>
+  </form>
+  {% endif %}{% endif %}
+</div>

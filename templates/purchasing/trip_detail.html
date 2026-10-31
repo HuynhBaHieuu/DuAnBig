@@ -1,0 +1,92 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/inbound/board">Điều phối Inbound</a> /</div>
+    <h1 class="page-title">{{ trip.code }} {% status_badge trip %}{% if trip.is_late %} <span class="badge badge-danger">Trễ mốc</span>{% endif %}</h1>
+    <div class="page-sub">{{ trip.route.name }} · <a class="text-primary" href="/app/purchase/orders/{{ trip.po.pk }}">{{ trip.po.code }}</a> · {{ trip.po.supplier.name }}</div></div>
+  <div class="toolbar">
+    {% if trip.status == "PLANNED" or trip.status == "AT_FACTORY" %}{% if user.role != "WAREHOUSE" %}{% include "partials/cancel_form.html" with label="Hủy chuyến" %}{% endif %}{% endif %}
+    {% if not slot and trip.status != "RECEIVED" and trip.status != "CANCELLED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="propose_slot"><button class="btn btn-outline"><i data-lucide="calendar-plus"></i>Đề xuất lịch hạ tải</button></form>{% endif %}
+  </div>
+</div>
+<div class="grid g-4" style="margin-bottom:20px">
+  {% include "partials/kpi.html" with label="ETA hiện tại" value=trip.eta|vn_dt icon="clock" tone="primary" %}
+  {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|stringformat:"s"|add:" tấn" icon="truck" tone="info" %}
+  {% include "partials/kpi.html" with label="Tài xế" value=trip.driver.name foot=trip.driver.phone icon="user" tone="warn" %}
+  {% include "partials/kpi.html" with label="Tổng tải" value=trip.total_ton|floatformat:2|add:" tấn" foot=trip.carrier.name|default:"Xe nội bộ" icon="weight" tone="success" %}
+</div>
+<div class="grid g-main">
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Mốc hành trình</h3><span class="text-muted" style="font-size:12px">Tài xế cập nhật trên di động kèm ảnh</span></div>
+      <div class="card-body"><div class="steps">
+        {% for m in milestones %}
+        <div class="step {% if m.actual_at %}done{% elif next_ms and m.pk == next_ms.pk %}current{% endif %}">
+          <div class="circle">{% if m.actual_at %}✓{% else %}{{ m.seq }}{% endif %}</div>
+          <div style="flex:1">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <b>{{ m.name }} {% if m.photo_required %}<span class="badge badge-gray"><i data-lucide="camera" style="width:12px"></i>Bắt buộc ảnh</span>{% endif %}</b>
+              <span class="text-muted" style="font-size:12px">Dự kiến {{ m.planned_at|vn_dt }}</span>
+            </div>
+            {% if m.actual_at %}
+              <div style="font-size:13px;margin-top:4px">Thực tế <b>{{ m.actual_at|vn_dt }}</b>
+                {% if m.delay_min > 60 %}<span class="badge badge-danger">trễ {{ m.delay_min }}’</span>{% elif m.delay_min > 0 %}<span class="badge badge-warn">trễ {{ m.delay_min }}’</span>{% else %}<span class="badge badge-success">đúng giờ</span>{% endif %}
+                · {{ m.by_user|default:"" }} {% if m.note %}· {{ m.note }}{% endif %}</div>
+              {% if m.photo %}<a href="{{ m.photo.url }}" target="_blank"><img src="{{ m.photo.url }}" style="margin-top:8px;height:80px;border-radius:8px;object-fit:cover"></a>{% endif %}
+            {% elif next_ms and m.pk == next_ms.pk and user.role != "WAREHOUSE" %}
+              <form method="post" enctype="multipart/form-data" class="toolbar" style="margin-top:8px">{% csrf_token %}
+                <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ m.pk }}">
+                <input type="file" name="photo" accept="image/*" {% if m.photo_required %}required{% endif %} style="font-size:12px">
+                <input class="input input-sm" name="note" placeholder="Ghi chú (vd: tài xế báo qua điện thoại)" style="width:240px">
+                <button class="btn btn-soft btn-sm">Cập nhật thay tài xế</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Hàng trên chuyến</h3></div>
+      <div class="card-body" style="padding:12px 0 0"><table class="tbl">
+        <thead><tr><th>Sản phẩm</th><th class="num">SL kế hoạch</th><th class="num">SL thực bốc</th></tr></thead>
+        <tbody>{% for l in lines %}<tr><td><b>{{ l.po_line.product.code }}</b> {{ l.po_line.product.name }}</td><td class="num">{{ l.qty_planned|qty }}</td><td class="num">{{ l.qty_loaded|qty }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card card-body">
+      <h3 class="card-title" style="margin-bottom:12px">Lịch hạ tải</h3>
+      {% if slot %}<dl class="dl"><dt>Bến</dt><dd>{{ slot.dock.code }} – {{ slot.dock.name }}</dd><dt>Khung giờ</dt><dd>{{ slot.start_at|vn_dt }} – {{ slot.end_at|hm }}</dd>
+        <dt>Trạng thái</dt><dd>{% status_badge slot %}</dd><dt>Check-in</dt><dd>{{ slot.checked_in_at|vn_dt }}</dd>{% if slot.wait_minutes is not None %}<dt>Chờ hạ tải</dt><dd>{{ slot.wait_minutes }} phút</dd>{% endif %}</dl>
+        <a href="/app/warehouse/slots?date={{ slot.start_at|date:'Y-m-d' }}" class="btn btn-soft btn-sm" style="margin-top:12px">Mở lịch hạ tải</a>
+      {% else %}<div class="text-muted">Hệ thống tự đề xuất khi ETA ≤ 4 giờ.</div>{% endif %}
+      {% for g in receipts %}<div class="divider"></div><a href="/app/warehouse/receipts/{{ g.pk }}" style="display:flex;justify-content:space-between"><b>{{ g.code }}</b>{% status_badge g %}</a>{% endfor %}
+    </div>
+    <div class="card card-body">
+      <h3 class="card-title" style="margin-bottom:12px">Sự cố</h3>
+      {% for i in incidents %}
+      <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
+        <div style="display:flex;justify-content:space-between"><b>{{ i.get_incident_type_display }}</b>{% if i.is_resolved %}<span class="badge badge-success">Đã xử lý</span>{% else %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="resolve"><input type="hidden" name="incident" value="{{ i.pk }}"><button class="btn btn-soft btn-sm">Đã xử lý</button></form>{% endif %}</div>
+        <div class="text-muted" style="font-size:12px">{{ i.reported_at|vn_dt }} · +{{ i.delay_minutes }}’ · {{ i.reported_by|default:"" }}</div>
+        <div style="font-size:13px">{{ i.description }}</div>
+      </div>
+      {% empty %}<div class="text-muted" style="margin-bottom:10px">Chưa có sự cố.</div>{% endfor %}
+      {% if trip.status != "RECEIVED" and trip.status != "CANCELLED" and user.role != "WAREHOUSE" %}
+      <form method="post" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;margin-top:12px" x-data="{o:false}">{% csrf_token %}
+        <button type="button" class="btn btn-outline btn-sm" @click="o=!o"><i data-lucide="siren"></i>Ghi nhận sự cố</button>
+        <template x-if="o"><div style="display:flex;flex-direction:column;gap:8px">
+          <input type="hidden" name="op" value="incident">
+          <select class="input" name="incident_type">{% for v, l in incident_types %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+          <input class="input" type="number" name="delay_minutes" placeholder="Ước tính trễ (phút)">
+          <textarea class="input" name="description" rows="2" placeholder="Mô tả"></textarea>
+          <button class="btn btn-primary btn-sm">Lưu sự cố</button></div></template>
+      </form>{% endif %}
+    </div>
+    <div class="card card-body">
+      <h3 class="card-title" style="margin-bottom:12px">Lịch sử ETA</h3>
+      {% for e in eta_logs %}<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span>{{ e.reason }}</span><b>{{ e.new_eta|vn_dt }}</b></div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

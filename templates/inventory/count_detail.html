@@ -1,0 +1,33 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/inventory/counts">Kiểm kê</a> /</div>
+    <h1 class="page-title">{{ ic.code }} {% status_badge ic %}</h1>
+    <div class="page-sub">{{ ic.warehouse.name }} · {{ lines|length }} dòng · {% if blind %}<b class="text-primary">Chế độ đếm mù – tồn sổ được ẩn</b>{% endif %}</div></div>
+  <div class="toolbar">
+    {% if ic.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt & sinh bút toán ADJ</button></form>
+    {% endif %}
+    {% if ic.status != "APPROVED" and ic.status != "CANCELLED" %}{% include "partials/cancel_form.html" %}{% endif %}
+  </div>
+</div>
+{% if ic.status == "RECOUNT" %}<div class="flash flash-warning"><i data-lucide="alert-triangle"></i>Có dòng lệch > {{ limit }}% so với tồn sổ – nhập số đếm lần 2 cho các dòng được tô màu.</div>{% endif %}
+<form method="post" class="card">{% csrf_token %}<input type="hidden" name="op" value="count">
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Vị trí</th><th>Sản phẩm</th><th>ĐVT</th>{% if not blind %}<th class="num">Tồn sổ</th>{% endif %}<th class="num">Đếm lần 1</th><th class="num">Đếm lần 2</th>{% if not blind %}<th class="num">Chênh lệch</th><th class="num">% lệch</th>{% endif %}</tr></thead>
+    <tbody>{% for l in lines %}
+      <tr class="{% if l.variance_pct and l.variance_pct > limit %}row-warn{% endif %}">
+        <td class="code">{{ l.location.code }}</td><td>{{ l.product.code }} <span class="text-muted">{{ l.product.name }}</span></td><td>{{ l.product.base_uom.code }}</td>
+        {% if not blind %}<td class="num">{{ l.book_qty|qty }}</td>{% endif %}
+        <td class="num">{% if ic.status == "COUNTING" %}<input class="input input-sm num" style="width:110px" name="c_{{ l.pk }}" type="number" step="0.001" value="{{ l.count1|default_if_none:'' }}">{% else %}{{ l.count1|qty }}{% endif %}</td>
+        <td class="num">{% if ic.status == "RECOUNT" and l.variance_pct > limit %}<input class="input input-sm num" style="width:110px" name="c_{{ l.pk }}" type="number" step="0.001" value="{{ l.count2|default_if_none:'' }}" required>{% else %}{{ l.count2|qty }}{% endif %}</td>
+        {% if not blind %}<td class="num">{% if l.final_qty is not None %}{{ l.final_qty|sub:l.book_qty|qty }}{% endif %}</td><td class="num">{{ l.variance_pct|pct }}</td>{% endif %}
+      </tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <div class="card-body toolbar" style="justify-content:space-between">
+    {% if not blind and user.can_see_cost %}<span>Giá trị điều chỉnh dự kiến: <b>{{ adj_value|vnd }}</b></span>{% else %}<span></span>{% endif %}
+    {% if ic.status == "COUNTING" or ic.status == "RECOUNT" %}<button class="btn btn-primary">Lưu số đếm & hoàn tất lần {% if ic.status == "COUNTING" %}1{% else %}2{% endif %}</button>{% endif %}
+  </div>
+</form>
+{% endblock %}

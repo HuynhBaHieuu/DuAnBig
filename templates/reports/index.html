@@ -1,0 +1,15 @@
+{% extends "app/base.html" %}
+{% block content %}
+{% include "reports/_nav.html" %}
+<div class="grid g-4">
+  {% for k in kpis %}
+  <a href="{{ k.url }}" class="card kpi" style="gap:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><span class="badge badge-primary">{{ k.code }}</span>
+      {% if k.ok is None %}<span class="badge badge-gray">Chưa có dữ liệu</span>{% elif k.ok %}<span class="badge badge-success">Đạt</span>{% else %}<span class="badge badge-danger">Chưa đạt</span>{% endif %}</div>
+    <div class="label">{{ k.label }}</div>
+    <div class="value" style="{% if k.ok is False %}color:var(--danger-ink){% elif k.ok %}color:var(--success-ink){% endif %}">{% if k.value is None %}—{% else %}{{ k.value|floatformat:1 }}{{ k.unit }}{% endif %}</div>
+    <div class="foot">Mục tiêu {% if k.higher %}≥{% else %}≤{% endif %} {{ k.target }}{{ k.unit }}</div>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

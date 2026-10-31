@@ -1,0 +1,13 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/master/">Danh mục</a> /</div><h1 class="page-title">{{ title }}</h1></div>
+  <div class="toolbar"><form class="toolbar"><input class="input" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Tìm..." style="width:220px"></form>
+    {% if can_edit %}<a href="/app/master/{{ slug }}/new" class="btn btn-primary"><i data-lucide="plus"></i>Thêm mới</a>{% endif %}</div></div>
+<div class="card"><div class="table-wrap"><table class="tbl">
+  <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}{% if has_active %}<th>Trạng thái</th>{% endif %}<th></th></tr></thead>
+  <tbody>{% for r in rows %}<tr>{% for c in r.cells %}<td>{% if forloop.first %}<b>{{ c }}</b>{% else %}{{ c }}{% endif %}</td>{% endfor %}
+    {% if has_active %}<td>{% if r.obj.is_active %}<span class="badge badge-success">Đang dùng</span>{% else %}<span class="badge badge-gray">Ngưng</span>{% endif %}</td>{% endif %}
+    <td class="num">{% if can_edit %}<a href="/app/master/{{ slug }}/{{ r.obj.pk }}" class="btn btn-soft btn-sm">Sửa</a>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="12" class="empty">Chưa có dữ liệu.</td></tr>{% endfor %}</tbody>
+</table></div>{% include "partials/pager.html" %}</div>
+{% endblock %}

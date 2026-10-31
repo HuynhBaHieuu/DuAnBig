@@ -1,0 +1,29 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="page-title">Đề xuất mua (PR)</h1><div class="page-sub">PR sinh tự động khi tồn dự báo ≤ ROP hoặc tạo thủ công → gộp thành PO theo nhà cung cấp</div></div>
+  <a href="/app/purchase/requisitions/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo PR thủ công</a>
+</div>
+<div class="tabs">
+  <a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả</a>
+  {% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }}</a>{% endfor %}
+</div>
+<form method="post" action="/app/purchase/requisitions/convert" class="card" x-data="{n:0}">{% csrf_token %}
+  <div class="card-head">
+    <span class="text-muted">Chọn các PR “Đã gửi” để gộp thành đơn mua</span>
+    <div class="toolbar">
+      <select name="warehouse" class="input" style="width:180px">{% for w in warehouses %}<option value="{{ w.pk }}">Nhập về: {{ w.name }}</option>{% endfor %}</select>
+      <button class="btn btn-primary" :disabled="n==0"><i data-lucide="git-merge"></i>Gộp thành PO (<span x-text="n"></span>)</button>
+    </div>
+  </div>
+  <div class="card-body" style="padding:12px 0 0"><table class="tbl">
+    <thead><tr><th style="width:36px"></th><th>Mã PR</th><th>Nguồn</th><th>Số dòng</th><th>Ngày cần</th><th>Người đề xuất</th><th>Ngày tạo</th><th>Trạng thái</th></tr></thead>
+    <tbody>{% for pr in page_obj %}
+      <tr><td>{% if pr.status == "SUBMITTED" %}<input type="checkbox" name="pr" value="{{ pr.pk }}" @change="n += $event.target.checked ? 1 : -1">{% endif %}</td>
+        <td><a class="code" href="/app/purchase/requisitions/{{ pr.pk }}">{{ pr.code }}</a></td>
+        <td>{% if pr.source == "AUTO" %}<span class="badge badge-info"><i data-lucide="bot" style="width:12px"></i>Tự động ROP</span>{% else %}<span class="badge badge-gray">Thủ công</span>{% endif %}</td>
+        <td>{{ pr.n }}</td><td>{{ pr.need_date|vn_d }}</td><td>{{ pr.requested_by|default:"SYSTEM" }}</td><td class="text-muted">{{ pr.created_at|vn_dt }}</td><td>{% status_badge pr %}</td></tr>
+    {% empty %}<tr><td colspan="8" class="empty">Chưa có đề xuất mua.</td></tr>{% endfor %}</tbody>
+  </table>{% include "partials/pager.html" %}</div>
+</form>
+{% endblock %}

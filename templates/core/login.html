@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Đăng nhập{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <div class="login-art">
+    <div style="display:flex;align-items:center;gap:12px;position:relative;z-index:1">
+      <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
+      <div class="brand-name" style="color:#fff">TRACON 80</div>
+    </div>
+    <div style="position:relative;z-index:1;max-width:460px">
+      <h1 style="font-size:40px;line-height:1.15;margin:0 0 16px;letter-spacing:-.02em">Quản lý chuỗi cung ứng, <span style="color:var(--primary)">kho & đơn hàng</span></h1>
+      <p style="opacity:.8;font-size:16px;line-height:1.6;margin:0">Mua hàng → Inbound theo mốc hành trình → Nhập kho → Đơn bán → Giao hàng POD → Công nợ. Một hệ thống cho toàn bộ TRACON 80.</p>
+      <div style="display:flex;gap:28px;margin-top:36px">
+        <div><div style="font-size:26px;font-weight:700">9</div><div style="opacity:.7;font-size:13px">vai trò RBAC</div></div>
+        <div><div style="font-size:26px;font-weight:700">13</div><div style="opacity:.7;font-size:13px">module nghiệp vụ</div></div>
+        <div><div style="font-size:26px;font-weight:700">0</div><div style="opacity:.7;font-size:13px">phụ thuộc GPS</div></div>
+      </div>
+    </div>
+    <div style="opacity:.6;font-size:12px;position:relative;z-index:1">© Công ty TNHH TRACON 80</div>
+  </div>
+  <div class="login-form">
+    <form method="post" style="width:100%;max-width:380px">{% csrf_token %}
+      <h2 style="font-size:28px;margin:0 0 6px">Đăng nhập</h2>
+      <p class="text-muted" style="margin:0 0 28px">Chào mừng trở lại! Nhập tài khoản được cấp.</p>
+      {% if error %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i><div>{{ error }}</div></div>{% endif %}
+      <div class="field" style="margin-bottom:16px"><label>Tên đăng nhập</label>
+        <input name="username" autofocus required value="{{ request.POST.username|default:'' }}" placeholder="vd: director"></div>
+      <div class="field" style="margin-bottom:24px" x-data="{s:false}"><label>Mật khẩu</label>
+        <div style="position:relative">
+          <input :type="s?'text':'password'" name="password" required placeholder="••••••••">
+          <button type="button" @click="s=!s" style="position:absolute;right:10px;top:9px;border:0;background:none;color:var(--muted);cursor:pointer;font-size:12px" x-text="s?'Ẩn':'Hiện'"></button>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-lg" style="width:100%">Đăng nhập</button>
+      <p class="text-muted" style="font-size:12px;margin-top:20px;text-align:center">Tài khoản sẽ bị khóa 15 phút nếu nhập sai mật khẩu 5 lần.</p>
+    </form>
+  </div>
+</div>
+{% endblock %}

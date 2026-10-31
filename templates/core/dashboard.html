@@ -1,0 +1,98 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="crumbs">{{ today|date:"l, d/m/Y" }}</div>
+    <h1 class="page-title">Xin chào, {{ user.display_name }} 👋</h1>
+    <div class="page-sub">Tổng quan dành cho vai trò <b class="text-primary">{{ user.get_role_display }}</b></div>
+  </div>
+</div>
+
+<div class="grid g-4" style="margin-bottom:24px">
+  {% for k in kpis %}
+  <div class="card kpi">
+    <div class="ico tone-{{ k.tone }}"><i data-lucide="{{ k.icon }}"></i></div>
+    <div class="label">{{ k.label }}</div>
+    <div class="value">{% if k.fmt == "money" %}{{ k.value|money_short }}{% else %}{{ k.value }}{% endif %}</div>
+    {% if k.foot %}<div class="foot">{{ k.foot }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="grid g-main">
+  <div class="grid" style="align-content:start">
+    {% for c in charts %}
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">{{ c.title }}</h3></div>
+      <div class="card-body"><div style="height:{% if c.type == 'doughnut' %}240{% else %}280{% endif %}px"><canvas id="ch-{{ c.id }}"></canvas></div></div>
+    </div>
+    {% empty %}
+    <div class="card card-body empty">Chưa có biểu đồ cho vai trò này.</div>
+    {% endfor %}
+
+    {% if recent_trips %}
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Chuyến Inbound sắp tới</h3><a href="/app/inbound/board" class="btn btn-soft btn-sm">Bảng điều phối</a></div>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Chuyến</th><th>NCC</th><th>Xe</th><th>Trạng thái</th><th>ETA</th></tr></thead>
+        <tbody>
+        {% for t in recent_trips %}
+          <tr class="{% if t.is_late %}row-danger{% endif %}">
+            <td><a class="code" href="/app/inbound/trips/{{ t.pk }}">{{ t.code }}</a></td>
+            <td>{{ t.po.supplier.name }}</td><td>{{ t.vehicle.plate }}</td>
+            <td>{% status_badge t %} {% if t.is_late %}<span class="badge badge-danger">Trễ mốc</span>{% endif %}</td>
+            <td>{{ t.eta|vn_dt }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Việc cần làm</h3><span class="badge badge-primary">{{ todos|length }}</span></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+        {% for t in todos %}
+        <a href="{{ t.url }}" style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;border:1px solid var(--line-soft)" class="hover:shadow">
+          <div class="tone-{{ t.tone }}" style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex-shrink:0"><i data-lucide="{{ t.icon }}" style="width:18px"></i></div>
+          <div style="flex:1;font-weight:500">{{ t.label }}</div>
+          <span class="badge badge-{{ t.tone }}" style="font-weight:700">{{ t.count }}</span>
+        </a>
+        {% empty %}
+        <div class="empty"><i data-lucide="party-popper"></i><div style="margin-top:8px">Không có việc tồn đọng. Tuyệt vời!</div></div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Cảnh báo mới</h3><a href="/app/alerts" class="text-primary" style="font-size:13px">Xem tất cả</a></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
+        {% for a in alerts %}
+        <a href="{{ a.url|default:'/app/alerts' }}" style="display:flex;gap:10px">
+          <span class="dot-i" style="margin-top:6px;background:{% if a.level == 'CRIT' %}var(--danger){% elif a.level == 'WARN' %}var(--warn){% else %}var(--primary){% endif %}"></span>
+          <div><div style="font-weight:500">{{ a.title }}</div><div class="text-muted" style="font-size:12px">{{ a.created_at|vn_dt }} · {{ a.message|truncatechars:70 }}</div></div>
+        </a>
+        {% empty %}<div class="text-muted">Không có cảnh báo.</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{{ charts|json_script:"charts-data" }}
+{% endblock %}
+{% block scripts %}
+<script>
+  const PALETTE = [TONE.primary, TONE.warn, TONE.success, TONE.danger, TONE.info, TONE.purple, TONE.yellow, TONE.ink];
+  JSON.parse(document.getElementById("charts-data").textContent).forEach(c => {
+    const el = document.getElementById("ch-" + c.id); if (!el) return;
+    const ds = c.datasets.map((d, i) => c.type === "doughnut"
+      ? { label: d.label, data: d.data, backgroundColor: PALETTE, borderWidth: 0 }
+      : { label: d.label, data: d.data, backgroundColor: TONE[d.color] || PALETTE[i], borderColor: TONE[d.color] || PALETTE[i],
+          borderRadius: 6, tension: .35, fill: false, pointRadius: 3, maxBarThickness: 28 });
+    new Chart(el, { type: c.type, data: { labels: c.labels, datasets: ds },
+      options: { maintainAspectRatio: false, cutout: c.type === "doughnut" ? "68%" : undefined,
+        plugins: { legend: { display: c.type === "doughnut" || ds.length > 1, position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } } },
+        scales: c.type === "doughnut" ? {} : { x: { grid: { display: false } }, y: { grid: { color: TONE.line }, beginAtZero: true } } } });
+  });
+</script>
+{% endblock %}

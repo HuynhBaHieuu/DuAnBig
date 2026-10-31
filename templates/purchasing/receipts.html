@@ -1,0 +1,17 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">Phiếu nhập kho (GRN)</h1><div class="page-sub">Phiếu được mở khi thủ kho check-in xe tại lịch hạ tải</div></div>
+  <a href="/app/warehouse/slots" class="btn btn-primary"><i data-lucide="calendar-clock"></i>Lịch hạ tải</a></div>
+<div class="tabs">
+  <a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả</a>
+  {% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }}</a>{% endfor %}
+</div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Mã GRN</th><th>PO / NCC</th><th>Chuyến · Xe</th><th>Nhận lúc</th><th>Ghi sổ</th><th class="num">Lead time</th><th>Trạng thái</th></tr></thead>
+  <tbody>{% for g in page_obj %}
+    <tr><td><a class="code" href="/app/warehouse/receipts/{{ g.pk }}">{{ g.code }}</a></td><td>{{ g.po.code }}<div class="text-muted" style="font-size:12px">{{ g.po.supplier.name }}</div></td>
+      <td>{{ g.trip.code|default:"—" }}<div class="text-muted" style="font-size:12px">{{ g.trip.vehicle.plate|default:"" }}</div></td>
+      <td>{{ g.received_at|vn_dt }}</td><td>{{ g.posted_at|vn_dt }}</td><td class="num">{% if g.lead_time_days %}{{ g.lead_time_days|floatformat:1 }} ngày{% else %}—{% endif %}</td><td>{% status_badge g %}</td></tr>
+  {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu nhập.</td></tr>{% endfor %}</tbody>
+</table>{% include "partials/pager.html" %}</div>
+{% endblock %}

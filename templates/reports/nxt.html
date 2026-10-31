@@ -1,0 +1,10 @@
+{% extends "app/base.html" %}
+{% block content %}
+{% include "reports/_nav.html" with export=1 %}
+<div class="card"><div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Mã</th><th>Tên hàng</th><th>ĐVT</th><th class="num">Tồn đầu</th><th class="num">Nhập</th><th class="num">Xuất</th><th class="num">Tồn cuối</th>{% if user.can_see_cost %}<th class="num">Giá trị (BQ)</th>{% endif %}</tr></thead>
+  <tbody>{% for r in rows %}<tr><td class="code">{{ r.p.code }}</td><td>{{ r.p.name }}</td><td>{{ r.p.base_uom.code }}</td><td class="num">{{ r.open|qty }}</td>
+    <td class="num" style="color:var(--success-ink)">{{ r.in|qty }}</td><td class="num" style="color:var(--warn-ink)">{{ r.out|qty }}</td><td class="num"><b>{{ r.close|qty }}</b></td>{% if user.can_see_cost %}<td class="num">{{ r.value|vnd }}</td>{% endif %}</tr>
+  {% empty %}<tr><td colspan="8" class="empty">Không có biến động trong kỳ.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% endblock %}

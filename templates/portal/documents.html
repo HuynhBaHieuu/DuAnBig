@@ -1,0 +1,15 @@
+{% extends "portal/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs">MH-94</div><h1 class="page-title">Chứng từ</h1><div class="page-sub">Tải hóa đơn PDF và biên bản giao hàng (POD)</div></div></div>
+<div class="grid g-2">
+  <div class="card"><div class="card-head"><h3 class="card-title">Hóa đơn</h3></div><table class="tbl">
+    <thead><tr><th>Số HĐ</th><th>Ngày</th><th class="num">Tổng</th><th></th></tr></thead>
+    <tbody>{% for i in invoices %}<tr><td class="code">{{ i.code }}</td><td>{{ i.invoice_date|vn_d }}</td><td class="num">{{ i.total|vnd }}</td><td class="num"><a href="/portal/invoices/{{ i.pk }}/pdf" target="_blank" class="btn btn-soft btn-sm"><i data-lucide="download"></i>PDF</a></td></tr>
+    {% empty %}<tr><td colspan="4" class="empty">Chưa có hóa đơn.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="card"><div class="card-head"><h3 class="card-title">Biên bản giao hàng (POD)</h3></div><table class="tbl">
+    <thead><tr><th>Đơn</th><th>Công trình</th><th>Giao lúc</th><th></th></tr></thead>
+    <tbody>{% for s in pods %}<tr><td class="code">{{ s.so.code }}</td><td>{{ s.site.name }}</td><td>{{ s.delivered_at|vn_dt }}</td>
+      <td class="num">{% if s.pod_photo %}<a href="{{ s.pod_photo.url }}" target="_blank" class="btn btn-soft btn-sm">Ảnh</a>{% endif %}{% if s.pod_signature %} <a href="{{ s.pod_signature.url }}" target="_blank" class="btn btn-soft btn-sm">Chữ ký</a>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="4" class="empty">Chưa có POD.</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% endblock %}

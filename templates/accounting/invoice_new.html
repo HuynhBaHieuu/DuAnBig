@@ -1,0 +1,16 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/accounting/invoices">Hóa đơn bán</a> /</div><h1 class="page-title">Lập hóa đơn từ điểm giao</h1>
+  <div class="page-sub">Chỉ các dòng đã giao (POD) của đơn B2B chưa lập hóa đơn. Đơn nội bộ công trình không xuất hóa đơn.</div></div></div>
+{% for g in groups %}
+<form method="post" class="card" style="margin-bottom:20px">{% csrf_token %}<input type="hidden" name="customer" value="{{ g.customer.pk }}">
+  <div class="card-head"><div><h3 class="card-title">{{ g.customer.name }}</h3><div class="text-muted" style="font-size:12px">MST {{ g.customer.tax_code }} · hạn TT {{ g.customer.payment_terms_days }} ngày</div></div>
+    <div class="toolbar"><b>{{ g.total|vnd }}</b><span class="text-muted">(chưa VAT)</span><button class="btn btn-primary"><i data-lucide="file-plus"></i>Lập hóa đơn</button></div></div>
+  <div class="card-body" style="padding:12px 0 0"><table class="tbl">
+    <thead><tr><th style="width:36px"></th><th>Đơn</th><th>Chuyến / điểm giao</th><th>Ngày giao</th><th>Sản phẩm</th><th class="num">SL giao</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+    <tbody>{% for dl in g.lines %}<tr><td><input type="checkbox" name="dl" value="{{ dl.pk }}" checked></td><td>{{ dl.stop.so.code }}</td><td>{{ dl.stop.trip.code }}<div class="text-muted" style="font-size:12px">{{ dl.stop.site.name }}</div></td>
+      <td>{{ dl.stop.delivered_at|vn_dt }}</td><td>{{ dl.so_line.product.code }}</td><td class="num">{{ dl.qty_delivered|qty }}</td><td class="num">{{ dl.so_line.unit_price|vnd }}</td><td class="num">{{ dl.qty_delivered|mul:dl.so_line.unit_price|vnd }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</form>
+{% empty %}<div class="card card-body empty">Không có điểm giao nào chờ lập hóa đơn.</div>{% endfor %}
+{% endblock %}

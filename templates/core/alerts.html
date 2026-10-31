@@ -1,0 +1,27 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="page-title">Cảnh báo</h1><div class="page-sub">Trễ mốc hành trình, dưới ROP, chứng từ chờ duyệt, sự cố...</div></div>
+  <div class="toolbar">
+    <a href="?" class="btn {% if request.GET.all != '1' %}btn-primary{% else %}btn-outline{% endif %}">Đang mở</a>
+    <a href="?all=1" class="btn {% if request.GET.all == '1' %}btn-primary{% else %}btn-outline{% endif %}">Tất cả</a>
+  </div>
+</div>
+<div class="card">
+  <table class="tbl">
+    <thead><tr><th>Thời gian</th><th>Mức</th><th>Loại</th><th>Nội dung</th><th></th></tr></thead>
+    <tbody>
+    {% for a in page_obj %}
+      <tr>
+        <td class="text-muted">{{ a.created_at|vn_dt }}</td>
+        <td>{% if a.level == "CRIT" %}<span class="badge badge-danger">Nghiêm trọng</span>{% elif a.level == "WARN" %}<span class="badge badge-warn">Cảnh báo</span>{% else %}<span class="badge badge-primary">Thông tin</span>{% endif %}</td>
+        <td><code style="font-size:12px">{{ a.alert_type }}</code></td>
+        <td><a href="{{ a.url|default:'#' }}" style="font-weight:500">{{ a.title }}</a><div class="text-muted" style="font-size:12px">{{ a.message }}</div></td>
+        <td class="num">{% if not a.is_resolved %}<form method="post" action="/app/alerts/{{ a.pk }}/resolve">{% csrf_token %}<button class="btn btn-soft btn-sm">Đã xử lý</button></form>{% else %}<span class="badge badge-success">Đã xử lý</span>{% endif %}</td>
+      </tr>
+    {% empty %}<tr><td colspan="5" class="empty">Không có cảnh báo.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% include "partials/pager.html" %}
+</div>
+{% endblock %}

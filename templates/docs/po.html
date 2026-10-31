@@ -1,0 +1,15 @@
+{% extends "docs/_base.html" %}
+{% block title %}{{ po.code }}{% endblock %}
+{% block code %}Số: <b>{{ po.code }}</b><br>Ngày: {{ po.order_date|vn_d }}{% endblock %}
+{% block content %}
+<h1>ĐƠN ĐẶT HÀNG</h1><div class="meta">Purchase Order</div>
+<div class="info">
+  <div><b>Nhà cung cấp:</b> {{ po.supplier.name }}</div><div><b>Mã số thuế:</b> {{ po.supplier.tax_code }}</div>
+  <div><b>Địa chỉ:</b> {{ po.supplier.address }}</div><div><b>Điện thoại:</b> {{ po.supplier.phone }}</div>
+  <div><b>Ngày bốc hẹn:</b> {{ po.pickup_date|vn_d }}</div><div><b>Kho nhận:</b> {{ po.warehouse.name }}</div>
+</div>
+<table><thead><tr><th>#</th><th>Mã hàng</th><th>Tên hàng</th><th>ĐVT</th><th class="num">Số lượng</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+<tbody>{% for l in po.lines.all %}<tr><td>{{ forloop.counter }}</td><td>{{ l.product.code }}</td><td>{{ l.product.name }}</td><td>{{ l.product.base_uom.code }}</td><td class="num">{{ l.qty|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+<tfoot><tr><td colspan="6" class="num">Tổng cộng (chưa VAT)</td><td class="num">{{ po.total_amount|vnd }}</td></tr></tfoot></table>
+<div class="sign"><div><b>Người lập</b><br>{{ po.created_by|default:"" }}</div><div><b>Giám đốc duyệt</b><br>{{ po.approved_by|default:"" }}</div><div><b>Nhà cung cấp xác nhận</b></div></div>
+{% endblock %}

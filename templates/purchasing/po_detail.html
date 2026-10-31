@@ -1,0 +1,49 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/purchase/orders">Đơn mua</a> /</div><h1 class="page-title">{{ po.code }} {% status_badge po %}</h1>
+    <div class="page-sub">{{ po.supplier.name }} · đặt {{ po.order_date|vn_d }} · bốc hẹn {{ po.pickup_date|vn_d }} · nhập {{ po.warehouse.name }}</div></div>
+  <div class="toolbar">
+    <a href="?pdf=1" target="_blank" class="btn btn-outline"><i data-lucide="printer"></i>In / PDF</a>
+    {% if user.role != "ACCOUNTANT" %}
+    {% if po.status == "DRAFT" %}
+      <a href="/app/purchase/orders/{{ po.pk }}/edit" class="btn btn-outline"><i data-lucide="pencil"></i>Sửa</a>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" onclick="return confirm('Xóa PO nháp?')">Xóa</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="submit"><button class="btn btn-primary"><i data-lucide="send"></i>Gửi duyệt</button></form>
+    {% endif %}
+    {% if po.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="reject"><button class="btn btn-danger">Từ chối</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt PO</button></form>
+    {% endif %}
+    {% if po.status == "APPROVED" %}
+      <form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="op" value="send"><input type="date" class="input" name="pickup_date" value="{{ po.pickup_date|date:'Y-m-d' }}" style="width:160px" required><button class="btn btn-primary"><i data-lucide="send"></i>Gửi NCC</button></form>
+    {% endif %}
+    {% if po.status == "SENT" or po.status == "PARTIAL" %}<a href="/app/inbound/trips/new?po={{ po.pk }}" class="btn btn-primary"><i data-lucide="truck"></i>Lập chuyến Inbound</a>{% endif %}
+    {% if po.status in "DRAFT PENDING_APPROVAL APPROVED SENT" %}{% include "partials/cancel_form.html" %}{% endif %}
+    {% endif %}
+  </div>
+</div>
+{% if po.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i>PO giá trị {{ po.total_amount|vnd }} ≥ {{ threshold|money_short }} – chờ Director duyệt.</div>{% endif %}
+{% if po.cancel_reason %}<div class="flash flash-error">Lý do hủy/từ chối: {{ po.cancel_reason }}</div>{% endif %}
+<div class="grid g-main">
+  <div class="card">
+    <div class="card-head"><h3 class="card-title">Dòng hàng</h3></div>
+    <div class="card-body" style="padding:12px 0 0"><table class="tbl">
+      <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã xếp chuyến</th><th class="num">Đã nhận</th><th class="num">Đã lập bill</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+      <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
+        <td class="num">{{ l.qty_on_trips|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_billed|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><td colspan="6">Tổng cộng</td><td class="num">{{ po.total_amount|vnd }}</td></tr></tfoot>
+    </table></div>
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card card-body"><dl class="dl">
+      <dt>Nhà cung cấp</dt><dd>{{ po.supplier }}</dd><dt>Tuyến</dt><dd>{{ po.route.name|default:"—" }}</dd>
+      <dt>Người lập</dt><dd>{{ po.created_by|default:"—" }}</dd><dt>Người duyệt</dt><dd>{{ po.approved_by|default:"—" }} {{ po.approved_at|vn_dt }}</dd>
+      <dt>Gửi NCC</dt><dd>{{ po.sent_at|vn_dt }}</dd><dt>Ghi chú</dt><dd>{{ po.note|default:"—" }}</dd></dl></div>
+    <div class="card"><div class="card-head"><h3 class="card-title">Chuyến Inbound</h3></div><div class="card-body">
+      {% for t in trips %}<a href="/app/inbound/trips/{{ t.pk }}" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft)"><span><b>{{ t.code }}</b> · {{ t.vehicle.plate }}</span>{% status_badge t %}</a>{% empty %}<div class="text-muted">Chưa có chuyến.</div>{% endfor %}</div></div>
+    <div class="card"><div class="card-head"><h3 class="card-title">Phiếu nhập</h3></div><div class="card-body">
+      {% for g in receipts %}<a href="/app/warehouse/receipts/{{ g.pk }}" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft)"><b>{{ g.code }}</b>{% status_badge g %}</a>{% empty %}<div class="text-muted">Chưa có phiếu nhập.</div>{% endfor %}</div></div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "app/base.html" %}
+{% block content %}
+{% include "reports/_nav.html" %}
+<div class="grid g-3" style="margin-bottom:20px">
+  {% include "partials/kpi.html" with label="Chờ hạ tải TB" value=d.avg|floatformat:0|add:" phút" icon="timer" tone="primary" %}
+  {% include "partials/kpi.html" with label="Chờ lâu nhất" value=d.max|default:0|stringformat:"s"|add:" phút" icon="alarm-clock" tone="danger" %}
+  {% include "partials/kpi.html" with label="Lượt chờ > 30 phút" value=d.over30 icon="triangle-alert" tone="warn" %}
+</div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Chuyến</th><th>Xe</th><th>NCC</th><th>Bến</th><th>Tới cổng</th><th>Check-in</th><th class="num">Chờ (phút)</th><th class="num">Hạ tải (phút)</th></tr></thead>
+  <tbody>{% for r in d.rows %}<tr class="{% if r.wait > 30 %}row-warn{% endif %}"><td><a href="/app/inbound/trips/{{ r.s.trip.pk }}" class="code">{{ r.s.trip.code }}</a></td><td>{{ r.s.trip.vehicle.plate }}</td><td>{{ r.s.trip.po.supplier.name }}</td><td>{{ r.s.dock.code }}</td>
+    <td>{{ r.s.trip.arrived_at|vn_dt }}</td><td>{{ r.s.checked_in_at|vn_dt }}</td><td class="num"><b>{{ r.wait }}</b></td><td class="num">{{ r.unload|default_if_none:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="8" class="empty">Chưa có dữ liệu check-in.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-22 · Mua hàng</div><h1 class="page-title">Đơn mua hàng (PO)</h1><div class="page-sub">PO ≥ 50 triệu cần Director duyệt trước khi gửi nhà cung cấp</div></div>
+  {% if user.role != "ACCOUNTANT" %}<a href="/app/purchase/orders/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo đơn mua</a>{% endif %}
+</div>
+<div class="tabs">
+  <a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả <span class="n">{{ total }}</span></a>
+  {% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }} <span class="n">{{ counts|get_item:v|default:0 }}</span></a>{% endfor %}
+</div>
+<div class="card">
+  <div class="card-head"><form class="toolbar"><input type="hidden" name="status" value="{{ request.GET.status|default:'' }}"><input class="input" style="width:280px" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Mã PO, nhà cung cấp"><button class="btn btn-soft">Tìm</button></form></div>
+  <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Mã PO</th><th>Nhà cung cấp</th><th>Ngày đặt</th><th>Ngày bốc hẹn</th><th class="num">Giá trị</th><th style="width:160px">Đã nhận</th><th>Trạng thái</th></tr></thead>
+    <tbody>{% for po in page_obj %}
+      <tr><td><a class="code" href="/app/purchase/orders/{{ po.pk }}">{{ po.code }}</a></td><td>{{ po.supplier.name }}</td><td>{{ po.order_date|vn_d }}</td><td>{{ po.pickup_date|vn_d }}</td>
+        <td class="num"><b>{{ po.total_amount|vnd }}</b></td>
+        <td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="flex:1"><i style="width:{{ po.received_pct }}%;background:var(--success)"></i></div><span class="text-muted" style="font-size:12px">{{ po.received_pct }}%</span></div></td>
+        <td>{% status_badge po %}</td></tr>
+    {% empty %}<tr><td colspan="7" class="empty">Không có đơn mua.</td></tr>{% endfor %}</tbody>
+  </table></div>{% include "partials/pager.html" %}</div>
+</div>
+{% endblock %}

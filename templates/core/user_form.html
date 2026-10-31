@@ -1,0 +1,21 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/admin/users">Tài khoản</a> /</div><h1 class="page-title">{{ title }}</h1></div></div>
+<div class="card card-body" style="max-width:760px">
+  <form method="post">{% csrf_token %}
+    <div class="grid g-2">
+      {% for f in form %}
+        <div class="field">{% if f.field.widget.input_type == "checkbox" %}<label style="display:flex;gap:8px;align-items:center">{{ f }} {{ f.label }}</label>{% else %}<label>{{ f.label }}</label>{{ f }}{% endif %}{{ f.errors }}</div>
+      {% endfor %}
+    </div>
+    {% if sites %}
+    <div class="divider"></div>
+    <div class="lbl" style="margin-bottom:8px">Công trình được phép truy cập</div>
+    <div class="grid g-2">{% for s in sites %}<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="sites" value="{{ s.pk }}" {% if s.pk in granted %}checked{% endif %}> {{ s }}</label>{% endfor %}</div>
+    {% endif %}
+    {{ form.non_field_errors }}
+    <div class="toolbar" style="margin-top:20px"><button class="btn btn-primary">Lưu</button><a href="/app/admin/users" class="btn btn-outline">Quay lại</a></div>
+  </form>
+</div>
+<style>.field select,.field input[type=text],.field input[type=email],.field input[type=password]{width:100%}</style>
+{% endblock %}

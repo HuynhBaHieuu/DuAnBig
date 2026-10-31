@@ -1,0 +1,14 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">Trả hàng (RT)</h1><div class="page-sub">Phát sinh khi giao thất bại / khách nhận thiếu tại POD · thủ kho nhập lại kho → hệ thống tự giữ hàng lại cho backorder</div></div></div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Mã</th><th>Đơn / Khách hàng</th><th>Chuyến</th><th>Lý do</th><th>Hàng trả</th><th>Trạng thái</th><th></th></tr></thead>
+  <tbody>{% for r in page_obj %}
+    <tr><td class="code">{{ r.code }}</td><td><a href="/app/sales/orders/{{ r.so.pk }}" class="text-primary">{{ r.so.code }}</a><div class="text-muted" style="font-size:12px">{{ r.so.customer.name }}</div></td>
+      <td>{{ r.stop.trip.code|default:"—" }}</td><td>{{ r.reason }}</td>
+      <td style="font-size:12px">{% for l in r.lines.all %}<div>{{ l.product.code }} × {{ l.qty|qty }} → {{ l.location.code }}</div>{% endfor %}</td>
+      <td>{% status_badge r %}</td>
+      <td class="num">{% if r.status == "DRAFT" and user.role != "DISPATCHER" %}<form method="post">{% csrf_token %}<input type="hidden" name="ret" value="{{ r.pk }}"><input type="hidden" name="op" value="post"><button class="btn btn-primary btn-sm">Nhập lại kho</button></form>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="7" class="empty">Không có phiếu trả hàng.</td></tr>{% endfor %}</tbody>
+</table>{% include "partials/pager.html" %}</div>
+{% endblock %}

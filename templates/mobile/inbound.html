@@ -1,0 +1,49 @@
+{% extends "mobile/base.html" %}
+{% block back %}<a href="/m/trips" style="color:#fff"><i data-lucide="arrow-left"></i></a>{% endblock %}
+{% block kicker %}{{ trip.po.supplier.name }}{% endblock %}
+{% block content %}
+<div class="card card-body" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between">{% status_badge trip %}<span class="text-muted">ETA <b style="color:var(--ink)">{{ trip.eta|vn_dt }}</b></span></div>
+  <div class="text-muted" style="font-size:13px;margin-top:8px">{{ trip.route.name }} · {{ trip.vehicle.plate }} · {{ trip.total_ton|floatformat:2 }} tấn</div>
+</div>
+
+{% if next_ms %}
+<form method="post" enctype="multipart/form-data" class="card card-body" style="margin-bottom:14px" x-data="{f:null}">{% csrf_token %}
+  <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ next_ms.pk }}">
+  <div class="lbl">Mốc tiếp theo · dự kiến {{ next_ms.planned_at|hm }}</div>
+  <div style="font-size:22px;font-weight:700;margin:4px 0 12px">{{ next_ms.name }}</div>
+  {% if next_ms.code == "LOADED" %}
+    <div class="lbl" style="margin-bottom:6px">Số lượng thực bốc</div>
+    {% for l in lines %}<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div style="flex:1;font-size:14px"><b>{{ l.po_line.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.po_line.product.name|truncatechars:30 }}</div></div>
+      <input class="input num" style="width:120px;font-size:18px" type="number" step="0.001" name="l_{{ l.pk }}" value="{{ l.qty_planned }}"><span class="text-muted" style="font-size:12px">{{ l.po_line.product.base_uom.code }}</span></div>{% endfor %}
+  {% endif %}
+  <label class="btn btn-soft btn-lg" style="width:100%;margin:6px 0 10px;cursor:pointer">
+    <i data-lucide="camera"></i><span x-text="f ? 'Đã chọn ảnh ✓' : 'Chụp ảnh xác thực{% if next_ms.photo_required %} (bắt buộc){% endif %}'"></span>
+    <input type="file" name="photo" accept="image/*" capture="environment" style="display:none" @change="f=$event.target.files[0]" {% if next_ms.photo_required %}required{% endif %}>
+  </label>
+  <input class="input" name="note" placeholder="Ghi chú (không bắt buộc)" style="margin-bottom:12px">
+  <button class="btn btn-primary big-btn"><i data-lucide="map-pin-check"></i>Xác nhận: {{ next_ms.name }}</button>
+</form>
+{% elif trip.status != "CANCELLED" %}
+<div class="card card-body" style="text-align:center;margin-bottom:14px"><i data-lucide="check-circle-2" style="width:40px;height:40px;color:var(--success-ink)"></i><div style="font-weight:600;margin-top:8px">Đã hoàn thành các mốc hành trình</div><div class="text-muted" style="font-size:13px">Chờ kho hạ tải theo lịch.</div></div>
+{% endif %}
+
+<div class="card card-body" style="margin-bottom:14px"><div class="steps">
+  {% for m in milestones %}<div class="step {% if m.actual_at %}done{% elif next_ms and m.pk == next_ms.pk %}current{% endif %}" style="padding-bottom:14px">
+    <div class="circle">{% if m.actual_at %}✓{% else %}{{ m.seq }}{% endif %}</div>
+    <div><b>{{ m.name }}</b><div class="text-muted" style="font-size:12px">{% if m.actual_at %}Lúc {{ m.actual_at|hm }}{% else %}Dự kiến {{ m.planned_at|hm }}{% endif %}</div></div></div>{% endfor %}
+</div></div>
+
+{% if trip.status != "RECEIVED" and trip.status != "CANCELLED" %}
+<form method="post" enctype="multipart/form-data" class="card card-body" x-data="{o:false}">{% csrf_token %}<input type="hidden" name="op" value="incident">
+  <button type="button" class="btn btn-danger" style="width:100%" @click="o=!o"><i data-lucide="siren"></i>Báo sự cố</button>
+  <div x-show="o" x-cloak style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+    <select class="input" name="incident_type">{% for v, l in incident_types %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+    <input class="input" type="number" name="delay_minutes" placeholder="Ước tính trễ bao nhiêu phút?">
+    <textarea class="input" name="description" rows="2" placeholder="Mô tả ngắn"></textarea>
+    <input type="file" name="photo" accept="image/*" capture="environment">
+    <button class="btn btn-primary">Gửi báo cáo</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

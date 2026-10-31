@@ -1,0 +1,35 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/purchase/orders/{{ po.pk }}">{{ po.code }}</a> /</div><h1 class="page-title">Lập chuyến Inbound</h1>
+  <div class="page-sub">{{ po.supplier.name }} · hệ thống chặn nếu tổng tấn > tải trọng xe hoặc bằng lái hết hạn</div></div></div>
+<form method="post" class="grid g-main" x-data="tripForm()">{% csrf_token %}<input type="hidden" name="po" value="{{ po.pk }}">
+  <div class="card">
+    <div class="card-head"><h3 class="card-title">Hàng xếp lên xe</h3></div>
+    <div class="card-body" style="padding:12px 0 0"><table class="tbl">
+      <thead><tr><th>Sản phẩm</th><th class="num">Còn chưa xếp</th><th class="num">kg/ĐV</th><th style="width:150px" class="num">SL xếp chuyến</th></tr></thead>
+      <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|sub:l.qty_on_trips|qty }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.product.unit_weight_kg|qty }}</td>
+        <td><input class="input num" type="number" step="0.001" min="0" name="q_{{ l.pk }}" value="{{ l.qty|sub:l.qty_on_trips }}" data-kg="{{ l.product.unit_weight_kg }}" @input="calc()"></td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+      <div>Tổng: <b x-text="ton.toFixed(2)"></b> tấn / tải trọng <b x-text="cap"></b> tấn</div>
+      <div class="bar" style="width:220px"><i :style="`width:${Math.min(100, cap ? ton/cap*100 : 0)}%;background:${ton > cap ? 'var(--danger)' : 'var(--success)'}`"></i></div>
+    </div>
+    <div class="flash flash-error" style="margin:0 20px 20px" x-show="cap && ton > cap" x-cloak><i data-lucide="alert-octagon"></i>Vượt tải trọng xe!</div>
+  </div>
+  <div class="card card-body" style="align-self:start;display:flex;flex-direction:column;gap:14px">
+    <div class="field"><label>Tuyến *</label><select name="route" required>{% for r in routes %}<option value="{{ r.pk }}" {% if po.route_id == r.pk %}selected{% endif %}>{{ r.name }} ({{ r.std_hours }}h)</option>{% endfor %}</select></div>
+    <div class="field"><label>Nhà xe 3PL</label><select name="carrier"><option value="">Theo xe</option>{% for c in carriers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Xe *</label><select name="vehicle" required @change="cap = +$event.target.selectedOptions[0].dataset.cap; calc()"><option value="">— Chọn xe —</option>{% for v in vehicles %}<option value="{{ v.pk }}" data-cap="{{ v.capacity_ton }}">{{ v.plate }} · {{ v.capacity_ton }}t · {{ v.carrier.name|default:"Nội bộ" }}</option>{% endfor %}</select></div>
+    <div class="field"><label>Tài xế *</label><select name="driver" required>{% for d in drivers %}<option value="{{ d.pk }}" {% if not d.license_valid %}style="color:var(--danger)"{% endif %}>{{ d.name }} · bằng {{ d.license_class }} hạn {{ d.license_expiry|vn_d }}{% if not d.license_valid %} (HẾT HẠN){% endif %}</option>{% endfor %}</select></div>
+    <div class="field"><label>Giờ xuất phát dự kiến *</label><input type="datetime-local" name="planned_departure" required value="{{ po.pickup_date|default:today|date:'Y-m-d' }}T07:00"></div>
+    <button class="btn btn-primary" :disabled="cap && ton > cap"><i data-lucide="truck"></i>Lập chuyến</button>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+function tripForm() { return { ton: 0, cap: 0,
+  init() { this.calc(); },
+  calc() { this.ton = [...document.querySelectorAll("[data-kg]")].reduce((s, i) => s + (+i.value || 0) * (+i.dataset.kg) / 1000, 0); } }; }
+</script>
+{% endblock %}

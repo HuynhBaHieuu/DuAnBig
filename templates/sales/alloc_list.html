@@ -1,0 +1,11 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">Phân bổ khi thiếu hàng</h1><div class="page-sub">Hệ thống đề xuất theo quy tắc ưu tiên (mốc phạt → mức ưu tiên công trình → FIFO) · Director duyệt · phần thiếu thành backorder</div></div></div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Mã</th><th>Sản phẩm</th><th>Quy tắc</th><th class="num">Khả dụng</th><th class="num">Nhu cầu</th><th class="num">Số đơn</th><th>Ngày tạo</th><th>Trạng thái</th></tr></thead>
+  <tbody>{% for a in page_obj %}
+    <tr><td><a class="code" href="/app/sales/allocations/{{ a.pk }}">{{ a.code }}</a></td><td><b>{{ a.product.code }}</b> {{ a.product.name }}</td><td>{{ a.get_priority_rule_display }}</td>
+      <td class="num">{{ a.available_qty|qty }}</td><td class="num">{{ a.demand_qty|qty }}</td><td class="num">{{ a.n }}</td><td class="text-muted">{{ a.created_at|vn_dt }}</td><td>{% status_badge a %}</td></tr>
+  {% empty %}<tr><td colspan="8" class="empty">Không có đề xuất phân bổ.</td></tr>{% endfor %}</tbody>
+</table>{% include "partials/pager.html" %}</div>
+{% endblock %}

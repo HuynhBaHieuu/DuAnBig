@@ -1,0 +1,57 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/sales/orders">Đơn bán</a> /</div><h1 class="page-title">{{ so.code }} {% status_badge so %}</h1>
+    <div class="page-sub">{{ so.customer.name }} · {{ so.site.name }} · {{ so.get_order_type_display }} · cần giao {{ so.requested_date|vn_d }}{% if so.source == "PORTAL" %} · từ cổng khách hàng{% endif %}</div></div>
+  {% if user.role != "ACCOUNTANT" %}<div class="toolbar">
+    {% if so.status == "DRAFT" %}
+      <a href="/app/sales/orders/{{ so.pk }}/edit" class="btn btn-outline"><i data-lucide="pencil"></i>Sửa</a>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" onclick="return confirm('Xóa đơn nháp?')">Xóa</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="submit"><button class="btn btn-primary"><i data-lucide="check"></i>Xác nhận đơn</button></form>
+    {% endif %}
+    {% if so.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="reject"><button class="btn btn-danger">Từ chối</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt đơn</button></form>
+    {% endif %}
+    {% if so.status == "CONFIRMED" or so.status == "PARTIAL" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="reserve"><button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Chạy lại ATP</button></form>{% endif %}
+    {% if so.status in "DRAFT PENDING_APPROVAL CONFIRMED" %}{% include "partials/cancel_form.html" with label="Hủy đơn" %}{% endif %}
+  </div>{% endif %}
+</div>
+{% if so.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i><div><b>Cần Director duyệt:</b><ul style="margin:4px 0 0;padding-left:18px">{% for r in so.approval_reasons %}<li>{{ r }}</li>{% endfor %}</ul></div></div>{% endif %}
+{% if so.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ so.cancel_reason }}</div>{% endif %}
+<div class="grid g-main">
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Dòng hàng & ATP</h3></div>
+      <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã giữ</th><th class="num">Đã xếp chuyến</th><th class="num">Đã giao</th><th class="num">Đã lập HĐ</th><th>Tình trạng</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+        <tbody>{% for l in lines %}<tr class="{% if l.atp_status == 'BACKORDER' %}row-danger{% elif l.atp_status == 'SHORT' %}row-warn{% endif %}">
+          <td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
+          <td class="num">{{ l.reserved_qty|qty }}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
+          <td>{% if l.atp_status %}{% code_badge l.atp_status l.get_atp_status_display %}{% if l.backorder_qty %}<div class="text-muted" style="font-size:11px">thiếu {{ l.backorder_qty|qty }}</div>{% endif %}{% else %}—{% endif %}</td>
+          <td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+        <tfoot><tr><td colspan="8">Tổng cộng</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>
+      </table></div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Giao hàng</h3></div>
+      <div class="card-body">{% for s in stops %}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line-soft)">
+          <div><b>{{ s.trip.code }}</b> · {{ s.trip.vehicle.plate }} · {{ s.trip.planned_date|vn_d }}<div class="text-muted" style="font-size:12px">{% if s.delivered_at %}Giao {{ s.delivered_at|vn_dt }} · người nhận {{ s.receiver_name }}{% else %}{{ s.trip.get_status_display }}{% endif %}</div></div>
+          <div class="toolbar">{% if s.pod_photo %}<a href="{{ s.pod_photo.url }}" target="_blank" class="btn btn-soft btn-sm">Ảnh POD</a>{% endif %}{% if s.pod_signature %}<a href="{{ s.pod_signature.url }}" target="_blank" class="btn btn-soft btn-sm">Chữ ký</a>{% endif %}{% status_badge s %}</div>
+        </div>
+      {% empty %}<div class="text-muted">Chưa xếp chuyến giao.</div>{% endfor %}</div>
+    </div>
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card card-body"><dl class="dl">
+      <dt>Khách hàng</dt><dd>{{ so.customer }}</dd><dt>Công trình</dt><dd>{{ so.site.name }}<div class="text-muted" style="font-size:12px">{{ so.site.address }}</div></dd>
+      <dt>Ưu tiên CT</dt><dd>{{ so.site.priority }}{% if so.site.penalty_date %} · mốc phạt {{ so.site.penalty_date|vn_d }}{% endif %}</dd>
+      <dt>Người lập</dt><dd>{{ so.created_by|default:"—" }}</dd><dt>Người duyệt</dt><dd>{{ so.approved_by|default:"—" }}</dd><dt>Ghi chú</dt><dd>{{ so.note|default:"—" }}</dd></dl></div>
+    {% if so.order_type == "B2B" %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Tín dụng khách hàng</h3><dl class="dl">
+      <dt>Hạn mức</dt><dd>{{ so.customer.credit_limit|vnd }}</dd><dt>Nợ hiện tại</dt><dd>{{ debt|vnd }}</dd>
+      <dt>Quá hạn > 30 ngày</dt><dd style="color:{% if overdue %}var(--danger-ink){% endif %}">{{ overdue|vnd }}</dd></dl></div>{% endif %}
+    {% if allocs %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Phân bổ thiếu hàng</h3>{% for a in allocs %}<a href="/app/sales/allocations/{{ a.pk }}" style="display:flex;justify-content:space-between;padding:6px 0"><b>{{ a.code }}</b>{% status_badge a %}</a>{% endfor %}</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

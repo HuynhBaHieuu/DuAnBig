@@ -1,0 +1,27 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-31 · Bán hàng</div><h1 class="page-title">Đơn bán hàng (SO)</h1><div class="page-sub">B2B kiểm tra hạn mức & giá sàn · INTERNAL dùng giá vốn, không tính hạn mức, không xuất hóa đơn</div></div>
+  {% if user.role != "ACCOUNTANT" %}<a href="/app/sales/orders/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo đơn bán</a>{% endif %}
+</div>
+<div class="tabs">
+  <a class="tab {% if not request.GET.status and not request.GET.stock %}active{% endif %}" href="?">Tất cả <span class="n">{{ total }}</span></a>
+  {% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }} <span class="n">{{ counts|get_item:v|default:0 }}</span></a>{% endfor %}
+  <a class="tab {% if request.GET.stock == 'short' %}active{% endif %}" href="?stock=short">⚠ Thiếu / Backorder</a>
+</div>
+<div class="card">
+  <div class="card-head"><form class="toolbar"><input class="input" style="width:300px" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Mã SO, khách hàng, công trình"><button class="btn btn-soft">Tìm</button></form></div>
+  <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Mã SO</th><th>Khách hàng / Công trình</th><th>Loại</th><th>Nguồn</th><th>Ngày cần</th><th class="num">Giá trị</th><th>Tình trạng hàng</th><th>Trạng thái</th></tr></thead>
+    <tbody>{% for so in page_obj %}
+      <tr><td><a class="code" href="/app/sales/orders/{{ so.pk }}">{{ so.code }}</a></td>
+        <td>{{ so.customer.name }}<div class="text-muted" style="font-size:12px">{{ so.site.name }}</div></td>
+        <td>{% if so.order_type == "INTERNAL" %}<span class="badge badge-info">Nội bộ</span>{% else %}<span class="badge badge-primary">B2B</span>{% endif %}</td>
+        <td>{% if so.source == "PORTAL" %}<span class="badge badge-warn">{% if so.is_weekly_plan %}KH tuần{% else %}Cổng KH{% endif %}</span>{% else %}<span class="text-muted">Nội bộ</span>{% endif %}</td>
+        <td>{{ so.requested_date|vn_d }}</td><td class="num"><b>{{ so.total_amount|vnd }}</b></td>
+        <td>{% with s=so.stock_status %}{% if s == "OK" %}<span class="badge badge-success">Đủ</span>{% elif s == "SHORT" %}<span class="badge badge-warn">Thiếu</span>{% elif s == "BACKORDER" %}<span class="badge badge-danger">Backorder</span>{% else %}—{% endif %}{% endwith %}</td>
+        <td>{% status_badge so %}</td></tr>
+    {% empty %}<tr><td colspan="8" class="empty">Không có đơn bán.</td></tr>{% endfor %}</tbody>
+  </table></div>{% include "partials/pager.html" %}</div>
+</div>
+{% endblock %}

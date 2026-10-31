@@ -1,0 +1,31 @@
+{% load static %}<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ title|default:"TRACON 80" }}{% endblock %} · TRACON 80 WMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: { extend: { colors: {
+        primary: "var(--primary)", ink: "var(--ink)", muted: "var(--muted)", line: "var(--line)",
+        warn: "var(--warn)", success: "var(--success)", danger: "var(--danger)", info: "var(--info)"
+      } } }
+    }
+  </script>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=2">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  {% block head %}{% endblock %}
+</head>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+{% block body %}{% endblock %}
+<script src="{% static 'js/app.js' %}?v=2"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,22 @@
+{% extends "portal/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/portal/orders">Theo dõi đơn</a> /</div><h1 class="page-title">{{ so.code }} {% status_badge so %}</h1><div class="page-sub">{{ so.site.name }} · cần giao {{ so.requested_date|vn_d }}</div></div></div>
+<div class="card card-body" style="margin-bottom:20px">
+  <div style="display:grid;grid-template-columns:repeat({{ steps|length }},1fr);gap:8px">
+    {% for label, done in steps %}<div style="text-align:center"><div style="height:6px;border-radius:99px;background:{% if done %}var(--primary){% else %}var(--line-soft){% endif %};margin-bottom:8px"></div><span style="font-size:13px;{% if done %}font-weight:600{% else %}color:var(--muted){% endif %}">{{ label }}</span></div>{% endfor %}
+  </div>
+</div>
+<div class="grid g-main">
+  <div class="card"><table class="tbl">
+    <thead><tr><th>Vật tư</th><th class="num">Đặt</th><th class="num">Đã giao</th>{% if show_price %}<th class="num">Đơn giá</th><th class="num">Thành tiền</th>{% endif %}</tr></thead>
+    <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.delivered_qty|qty }}</td>{% if show_price %}<td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td>{% endif %}</tr>{% endfor %}</tbody>
+    {% if show_price %}<tfoot><tr><td colspan="4">Tổng (chưa VAT)</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>{% endif %}
+  </table></div>
+  <div class="card card-body" style="align-self:start"><h3 class="card-title" style="margin-bottom:12px">Chuyến giao & ETA</h3>
+    {% for s in stops %}<div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
+      <div style="display:flex;justify-content:space-between"><b>{{ s.trip.code }}</b>{% status_badge s %}</div>
+      <div class="text-muted" style="font-size:13px">Ngày {{ s.trip.planned_date|vn_d }} · xe {{ s.trip.vehicle.plate }} · tài xế {{ s.trip.driver.name }}</div>
+      {% if s.delivered_at %}<div style="font-size:13px">Đã giao {{ s.delivered_at|vn_dt }} · người nhận {{ s.receiver_name }}</div>{% else %}<div style="font-size:13px">{{ s.trip.get_status_display }}</div>{% endif %}
+    </div>{% empty %}<div class="text-muted">Đơn chưa được xếp chuyến giao.</div>{% endfor %}</div>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><h1 class="page-title">Danh mục</h1><div class="page-sub">Không xóa cứng – danh mục ngưng dùng được tắt bằng trạng thái “is_active”</div></div></div>
+{% for g, items in groups %}
+<h3 style="font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:24px 0 12px">{{ g }}</h3>
+<div class="grid g-4">{% for it in items %}
+  <a href="/app/master/{{ it.slug }}/" class="card kpi"><div class="label">{{ it.label }}</div><div class="value" style="font-size:22px">{{ it.count }}</div>
+    <div class="foot">{% if it.edit %}<span class="badge badge-primary">Được chỉnh sửa</span>{% else %}<span class="badge badge-gray">Chỉ xem</span>{% endif %}</div></a>
+{% endfor %}</div>
+{% endfor %}
+{% endblock %}

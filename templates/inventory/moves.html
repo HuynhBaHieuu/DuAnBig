@@ -1,0 +1,25 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="page-title">Sổ kho</h1><div class="page-sub">Bất biến – mọi biến động đi qua post_stock_move()</div></div>
+  <a href="?{{ qs }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất Excel</a>
+</div>
+<div class="card">
+  <div class="card-head"><form class="toolbar">
+    <input class="input" style="width:230px" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Sản phẩm / chứng từ">
+    <select class="input" style="width:170px" name="type"><option value="">Mọi loại</option>{% for v, l in types %}<option value="{{ v }}" {% if request.GET.type == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <input class="input" type="date" name="from" value="{{ request.GET.from|default:'' }}" style="width:160px">
+    <input class="input" type="date" name="to" value="{{ request.GET.to|default:'' }}" style="width:160px">
+    <button class="btn btn-soft">Lọc</button></form></div>
+  <div class="card-body" style="padding:12px 0 0"><div class="table-wrap">
+  <table class="tbl">
+    <thead><tr><th>Thời gian</th><th>Sản phẩm</th><th>Vị trí</th><th>Loại</th><th>Chứng từ</th><th class="num">SL</th><th class="num">Tồn sau</th>{% if user.can_see_cost %}<th class="num">Giá vốn</th>{% endif %}<th>Người thực hiện</th></tr></thead>
+    <tbody>{% for m in page_obj %}
+      <tr><td class="text-muted">{{ m.at|vn_dt }}</td><td><b>{{ m.product.code }}</b> <span class="text-muted">{{ m.product.name|truncatechars:30 }}</span></td><td>{{ m.location.code }}</td>
+        <td>{% if m.qty > 0 %}<span class="badge badge-success">{{ m.get_move_type_display }}</span>{% else %}<span class="badge badge-warn">{{ m.get_move_type_display }}</span>{% endif %}</td>
+        <td>{{ m.note }}</td><td class="num" style="color:{% if m.qty > 0 %}var(--success-ink){% else %}var(--danger-ink){% endif %};font-weight:600">{% if m.qty > 0 %}+{% endif %}{{ m.qty|qty }}</td>
+        <td class="num">{{ m.balance_after|qty }}</td>{% if user.can_see_cost %}<td class="num">{{ m.unit_cost|vnd }}</td>{% endif %}<td class="text-muted">{{ m.user|default:"SYSTEM" }}</td></tr>
+    {% empty %}<tr><td colspan="9" class="empty">Chưa có bút toán.</td></tr>{% endfor %}</tbody>
+  </table></div>{% include "partials/pager.html" %}</div>
+</div>
+{% endblock %}

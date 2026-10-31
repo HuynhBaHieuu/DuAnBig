@@ -1,0 +1,67 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-10 · Kho hàng</div><h1 class="page-title">Tồn kho</h1>
+    <div class="page-sub">Tồn thực · Đã giữ · Khả dụng = Tồn thực − Đã giữ · Đang về · Dự báo = Khả dụng + Đang về</div></div>
+  <div class="toolbar">
+    <a href="?{{ request.GET.urlencode }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất Excel</a>
+  </div>
+</div>
+
+<div class="grid g-4" style="margin-bottom:20px">
+  {% if user.can_see_cost %}{% include "partials/kpi.html" with label="Giá trị tồn (giá vốn BQ)" value=value|money_short icon="warehouse" tone="primary" %}
+  {% else %}{% include "partials/kpi.html" with label="Mã hàng đang theo dõi" value=rows|length icon="boxes" tone="primary" %}{% endif %}
+  {% include "partials/kpi.html" with label="Dưới điểm đặt hàng (ROP)" value=counts.BELOW_ROP icon="trending-down" tone="warn" %}
+  {% include "partials/kpi.html" with label="Dưới tồn an toàn (SS)" value=counts.BELOW_SS icon="shield-alert" tone="danger" %}
+  {% include "partials/kpi.html" with label="Hết hàng khả dụng" value=counts.STOCKOUT icon="package-x" tone="danger" %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <form class="toolbar" style="flex:1">
+      <input class="input" style="width:260px" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Mã / tên sản phẩm">
+      <select class="input" style="width:200px" name="cat" onchange="this.form.submit()"><option value="">Mọi nhóm hàng</option>
+        {% for c in categories %}<option value="{{ c.pk }}" {% if request.GET.cat == c.pk|stringformat:"d" %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+      <select class="input" style="width:170px" name="level" onchange="this.form.submit()"><option value="">Mọi tình trạng</option>
+        <option value="low" {% if request.GET.level == "low" %}selected{% endif %}>Cần đặt hàng</option>
+        {% for k, v in levels.items %}<option value="{{ k }}" {% if request.GET.level == k %}selected{% endif %}>{{ v.0 }}</option>{% endfor %}</select>
+      <button class="btn btn-soft">Lọc</button>
+    </form>
+  </div>
+  <div class="card-body" style="padding:12px 0 0">
+  <div class="table-wrap">
+  <table class="tbl" x-data="{open:null}">
+    <thead><tr><th>Sản phẩm</th><th>ĐVT</th><th class="num">Tồn thực</th><th class="num">Đã giữ</th><th class="num">Khả dụng</th>
+      <th class="num">Đang về</th><th class="num">Dự báo</th><th>SS / ROP</th><th class="num">Đủ (ngày)</th><th>Tình trạng</th>{% if user.can_see_cost %}<th class="num">Giá vốn BQ</th>{% endif %}</tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr style="cursor:pointer" hx-get="/app/inventory/stock/{{ r.product.pk }}/locations" hx-target="#loc-{{ r.product.pk }}" hx-swap="innerHTML"
+          @click="open = open === {{ r.product.pk }} ? null : {{ r.product.pk }}">
+        <td><div class="code">{{ r.product.code }}</div><div class="text-muted" style="font-size:12px">{{ r.product.name }}</div></td>
+        <td>{{ r.product.base_uom.code }}</td>
+        <td class="num">{{ r.on_hand|qty }}{% if r.quarantine %}<div class="text-muted" style="font-size:11px">+{{ r.quarantine|qty }} cách ly</div>{% endif %}</td>
+        <td class="num">{{ r.reserved|qty }}</td>
+        <td class="num"><b>{{ r.available|qty }}</b></td>
+        <td class="num text-primary">{{ r.incoming|qty }}</td>
+        <td class="num">{{ r.projected|qty }}</td>
+        <td style="min-width:170px">
+          <div class="ropbar" title="Dự báo {{ r.projected|qty }} · SS {{ r.ss|qty }} · ROP {{ r.rop|qty }}">
+            <div class="fill" style="width:{{ r.bar.fill }}%;background:{% if r.level == 'OK' %}var(--success){% elif r.level == 'BELOW_ROP' %}var(--warn){% else %}var(--danger){% endif %}"></div>
+            <div class="mark ss" style="left:{{ r.bar.ss|clamp_pct }}%"></div><div class="mark rop" style="left:{{ r.bar.rop|clamp_pct }}%"></div>
+          </div>
+          <div class="text-muted" style="font-size:11px;margin-top:4px">SS {{ r.ss|qty }} · ROP {{ r.rop|qty }}</div>
+        </td>
+        <td class="num">{% if r.days_cover is not None %}{{ r.days_cover|floatformat:1 }}{% else %}∞{% endif %}</td>
+        <td><span class="badge badge-{{ r.level_tone }}">{{ r.level_label }}</span></td>
+        {% if user.can_see_cost %}<td class="num">{{ r.product.avg_cost|vnd }}</td>{% endif %}
+      </tr>
+      <tr x-show="open === {{ r.product.pk }}" x-cloak><td colspan="11" style="background:var(--bg)"><div id="loc-{{ r.product.pk }}" class="text-muted">Đang tải...</div></td></tr>
+    {% empty %}<tr><td colspan="11" class="empty">Không có sản phẩm.</td></tr>{% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="2">Tổng ({{ rows|length }} mã)</td><td class="num">{{ totals.on_hand|qty }}</td><td class="num">{{ totals.reserved|qty }}</td>
+      <td class="num">{{ totals.available|qty }}</td><td class="num">{{ totals.incoming|qty }}</td><td colspan="5"></td></tr></tfoot>
+  </table>
+  </div></div>
+</div>
+<p class="text-muted" style="font-size:12px;margin-top:10px">Bấm vào dòng để xem tồn theo vị trí (thứ tự FIFO) và chuyển vị trí. <span class="dot-i" style="background:var(--danger)"></span> vạch SS · <span class="dot-i" style="background:var(--warn)"></span> vạch ROP</p>
+{% endblock %}

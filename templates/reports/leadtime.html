@@ -1,0 +1,15 @@
+{% extends "app/base.html" %}
+{% block content %}
+{% include "reports/_nav.html" %}
+<div class="grid g-3" style="margin-bottom:20px">
+  {% include "partials/kpi.html" with label="Lead time TB toàn bộ" value=d.avg|floatformat:2|add:" ngày" icon="hourglass" tone="primary" %}
+  {% include "partials/kpi.html" with label="Số phiếu nhập" value=d.grs|length icon="package-check" tone="info" %}
+  {% include "partials/kpi.html" with label="Số nhà cung cấp" value=d.rows|length icon="factory" tone="warn" %}
+</div>
+<div class="card"><table class="tbl">
+  <thead><tr><th>Nhà cung cấp</th><th class="num">Số GRN</th><th class="num">TB (ngày)</th><th class="num">Độ lệch chuẩn</th><th class="num">Nhanh nhất</th><th class="num">Chậm nhất</th><th style="width:200px"></th></tr></thead>
+  <tbody>{% for r in d.rows %}<tr><td><b>{{ r.supplier.name }}</b></td><td class="num">{{ r.n }}</td><td class="num"><b>{{ r.avg|floatformat:2 }}</b></td><td class="num">{{ r.std|floatformat:2 }}</td><td class="num">{{ r.min|floatformat:2 }}</td><td class="num">{{ r.max|floatformat:2 }}</td>
+    <td><div class="bar"><i style="width:{% widthratio r.avg 10 100 %}%"></i></div></td></tr>
+  {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu nhập trong kỳ.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

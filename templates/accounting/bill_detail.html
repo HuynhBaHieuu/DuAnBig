@@ -1,0 +1,30 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/accounting/bills">Hóa đơn mua</a> /</div><h1 class="page-title">{{ bill.code }} {% status_badge bill %}</h1>
+    <div class="page-sub">{{ bill.get_bill_type_display }} · {{ bill.partner.name }} · số HĐ {{ bill.vendor_invoice_no }} · {{ bill.bill_date|vn_d }}</div></div>
+  <div class="toolbar">
+    {% if bill.status in "DRAFT MATCHED MISMATCH ACCEPTED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="rematch"><button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Đối chiếu lại</button></form>{% endif %}
+    {% if bill.status == "MISMATCH" and user.role in "DIRECTOR ADMIN" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="accept"><button class="btn btn-primary" style="background:var(--warn)"><i data-lucide="shield-check"></i>Chấp nhận chênh lệch</button></form>{% endif %}
+    {% if bill.status == "MATCHED" or bill.status == "ACCEPTED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="post"><button class="btn btn-primary"><i data-lucide="book-check"></i>Ghi sổ</button></form>{% endif %}
+    {% if bill.status in "DRAFT MATCHED MISMATCH ACCEPTED" %}{% include "partials/cancel_form.html" %}{% endif %}
+  </div>
+</div>
+{% if bill.status == "MISMATCH" %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i>Hóa đơn lệch đối chiếu 3 bên – bị chặn ghi sổ cho tới khi Director chấp nhận.</div>{% endif %}
+{% if bill.status == "ACCEPTED" %}<div class="flash flash-warning"><i data-lucide="shield-check"></i>Chênh lệch đã được {{ bill.accepted_by }} chấp nhận.</div>{% endif %}
+<div class="card">
+  <div class="card-head"><h3 class="card-title">Đối chiếu 3 bên: PO – GRN – Bill</h3></div>
+  <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
+    <thead><tr><th rowspan="2">Dòng</th><th colspan="2" style="text-align:center;background:var(--primary-50)">PO</th><th style="text-align:center;background:var(--info-bg)">GRN</th><th colspan="3" style="text-align:center;background:var(--warn-bg)">Bill</th><th rowspan="2">Kết quả</th></tr>
+      <tr><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Đã nhận chưa lập bill</th><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+    <tbody>{% for r in rows %}<tr class="{% if r.bl.match_status and r.bl.match_status != 'MATCH' %}row-danger{% endif %}">
+      <td>{% if r.bl.po_line %}<b>{{ r.bl.po_line.po.code }}</b> · {{ r.bl.po_line.product.code }}{% else %}{{ r.bl.description }}{% endif %}</td>
+      <td class="num">{{ r.po_qty|qty }}</td><td class="num">{{ r.po_price|vnd }}</td><td class="num">{% if r.open_qty is not None %}{{ r.open_qty|qty }}{% else %}{% if r.grn_qty %}✓ đã nhận{% else %}✗ chưa nhận{% endif %}{% endif %}</td>
+      <td class="num">{{ r.bl.qty|qty }}</td><td class="num" {% if r.bl.match_status == "PRICE_DIFF" %}style="color:var(--danger-ink);font-weight:700"{% endif %}>{{ r.bl.unit_price|vnd }}</td><td class="num">{{ r.bl.amount|vnd }}</td>
+      <td>{% if r.bl.match_status == "MATCH" %}<span class="badge badge-success">Khớp</span>{% elif r.bl.match_status %}<span class="badge badge-danger">{{ r.bl.get_match_status_display }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ bill.subtotal|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">VAT</td><td class="num">{{ bill.vat_amount|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">Tổng</td><td class="num">{{ bill.total|vnd }}</td><td></td></tr></tfoot>
+  </table></div></div>
+</div>
+<div class="card card-body" style="margin-top:20px;max-width:520px"><dl class="dl"><dt>Đã trả</dt><dd>{{ bill.paid_amount|vnd }}</dd><dt>Còn phải trả</dt><dd><b>{{ bill.balance|vnd }}</b></dd><dt>Hạn thanh toán</dt><dd>{{ bill.due_date|vn_d }}</dd></dl>
+  {% for a in allocs %}<div style="display:flex;justify-content:space-between;padding:4px 0"><span>{{ a.payment.code }}</span><b>{{ a.amount|vnd }}</b></div>{% endfor %}</div>
+{% endblock %}

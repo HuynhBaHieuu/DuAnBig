@@ -1,0 +1,97 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">MH-26 · Kho</div><h1 class="page-title">Lịch hạ tải</h1>
+    <div class="page-sub">Lưới bến × khung 15 phút · kéo–thả để đổi lịch (hệ thống chặn trùng bến) · {{ wh.name }}</div></div>
+  <div class="toolbar">
+    <a href="?date={{ prev|date:'Y-m-d' }}&wh={{ wh.pk }}" class="btn btn-outline btn-sm">‹</a>
+    <form class="toolbar"><input type="date" class="input" name="date" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" style="width:160px">
+      <select class="input" name="wh" onchange="this.form.submit()" style="width:170px">{% for w in warehouses %}<option value="{{ w.pk }}" {% if w.pk == wh.pk %}selected{% endif %}>{{ w.name }}</option>{% endfor %}</select></form>
+    <a href="?date={{ next|date:'Y-m-d' }}&wh={{ wh.pk }}" class="btn btn-outline btn-sm">›</a>
+  </div>
+</div>
+<div class="grid" style="grid-template-columns:1fr 320px">
+  <div class="card card-body" x-data="slotGrid()">
+    <div class="toolbar" style="margin-bottom:12px;font-size:12px">
+      <span class="badge badge-primary">Đề xuất</span><span class="badge badge-info">Đã xác nhận</span><span class="badge badge-warn">Đã check-in</span><span class="badge badge-success">Hoàn tất</span>
+      <span class="text-muted">Kéo thẻ sang ô khác để đổi bến / giờ</span>
+    </div>
+    <div class="slotgrid" id="grid" style="grid-template-columns:64px repeat({{ docks|length }}, minmax(150px,1fr));max-height:70vh">
+      <div class="hcell" style="left:0;z-index:3"></div>
+      {% for d in docks %}<div class="hcell">{{ d.code }}<div style="font-weight:400">{{ d.name }}</div></div>{% endfor %}
+      {% for t in times %}
+        <div class="tcell" style="{% if forloop.counter0|divisibleby:4 %}border-top:1px solid var(--line){% endif %}">{% if forloop.counter0|divisibleby:4 %}{{ t }}{% endif %}</div>
+        {% for d in docks %}<div class="cell {% if forloop.parentloop.counter0|divisibleby:4 %}hour{% endif %}" data-dock="{{ d.pk }}" data-time="{{ t }}"
+             @dragover.prevent="$el.classList.add('drop')" @dragleave="$el.classList.remove('drop')" @drop.prevent="drop($event, $el)"></div>{% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card"><div class="card-head"><h3 class="card-title">Lịch trong ngày</h3></div><div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+      {% for s in slot_list %}
+      <div style="border:1px solid var(--line-soft);border-radius:12px;padding:12px">
+        <div style="display:flex;justify-content:space-between"><b>{{ s.start_at|hm }}–{{ s.end_at|hm }} · {{ s.dock.code }}</b>{% status_badge s %}</div>
+        <div style="font-size:13px;margin:4px 0"><a class="text-primary" href="/app/inbound/trips/{{ s.trip.pk }}">{{ s.trip.code }}</a> · {{ s.trip.vehicle.plate }} · {% status_badge s.trip %}</div>
+        <div class="text-muted" style="font-size:12px">{{ s.trip.po.supplier.name }} · ETA {{ s.trip.eta|hm }}</div>
+        <div class="toolbar" style="margin-top:8px">
+          {% if s.status == "PROPOSED" %}<form method="post" action="/app/warehouse/slots/{{ s.pk }}">{% csrf_token %}<input type="hidden" name="op" value="confirm"><button class="btn btn-soft btn-sm">Xác nhận</button></form>{% endif %}
+          {% if s.status == "PROPOSED" or s.status == "CONFIRMED" %}{% if s.trip.status == "ARRIVED" or s.trip.status == "IN_TRANSIT" or s.trip.status == "LOADED" %}
+            <form method="post" action="/app/warehouse/slots/{{ s.pk }}">{% csrf_token %}<input type="hidden" name="op" value="checkin"><button class="btn btn-primary btn-sm"><i data-lucide="log-in"></i>Check-in & mở GRN</button></form>{% endif %}{% endif %}
+        </div>
+      </div>
+      {% empty %}<div class="text-muted">Chưa có lịch hạ tải.</div>{% endfor %}
+    </div></div>
+    {% if waiting %}<div class="card"><div class="card-head"><h3 class="card-title">Chuyến chưa có lịch</h3></div><div class="card-body">
+      {% for t in waiting %}<a href="/app/inbound/trips/{{ t.pk }}" style="display:flex;justify-content:space-between;padding:6px 0"><span>{{ t.code }} · {{ t.vehicle.plate }}</span><span class="text-muted">ETA {{ t.eta|hm }}</span></a>{% endfor %}
+    </div></div>{% endif %}
+  </div>
+</div>
+{{ day|date:"Y-m-d"|json_script:"day" }}
+{% endblock %}
+{% block scripts %}
+<script>
+function slotGrid() {
+  return {
+    init() {
+      const grid = document.getElementById("grid");
+      const cells = grid.querySelectorAll(".cell");
+      const firstRowCell = idx => cells[idx];
+      const items = {{ items_json|safe }};
+      const cols = {{ docks|length }};
+      requestAnimationFrame(() => {
+        const head = grid.querySelector(".hcell").offsetHeight;
+        items.forEach(it => {
+          const ref = cells[Math.floor(it.row) * cols + it.col] || cells[it.col];
+          const rowH = cells[cols] ? cells[cols].offsetTop - cells[0].offsetTop : 22;
+          const el = document.createElement("a");
+          el.className = "slot " + it.status;
+          el.href = "/app/inbound/trips/" + it.trip_id;
+          el.draggable = it.status === "PROPOSED" || it.status === "CONFIRMED";
+          el.style.left = (ref.offsetLeft + 3) + "px";
+          el.style.width = (ref.offsetWidth - 6) + "px";
+          el.style.top = (cells[0].offsetTop + it.row * rowH + 1) + "px";
+          el.style.height = Math.max(20, it.h * rowH - 2) + "px";
+          el.innerHTML = `<b>${it.code}</b> · ${it.plate}<div style="opacity:.7">${it.start}–${it.end}</div>`;
+          el.addEventListener("dragstart", e => e.dataTransfer.setData("text/plain", it.id));
+          grid.appendChild(el);
+        });
+        {% if now_row is not None %}
+        const nl = document.createElement("div"); nl.className = "now-line";
+        const rowH = cells[cols] ? cells[cols].offsetTop - cells[0].offsetTop : 22;
+        nl.style.top = (cells[0].offsetTop + {{ now_row }} * rowH) + "px"; grid.appendChild(nl);
+        {% endif %}
+      });
+    },
+    async drop(e, cell) {
+      cell.classList.remove("drop");
+      const id = e.dataTransfer.getData("text/plain");
+      const day = JSON.parse(document.getElementById("day").textContent);
+      try {
+        await postJSON(`/app/warehouse/slots/${id}`, { dock: cell.dataset.dock, start: `${day}T${cell.dataset.time}:00` });
+        location.reload();
+      } catch (err) { alert(err.message); }
+    },
+  };
+}
+</script>
+{% endblock %}

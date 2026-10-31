@@ -1,0 +1,29 @@
+{% extends "app/base.html" %}
+{% block content %}
+{% include "reports/_nav.html" %}
+<div class="grid g-4" style="margin-bottom:20px">
+  {% include "partials/kpi.html" with label="Đủ hàng" value=counts.OK|default:0 icon="check-circle-2" tone="success" %}
+  {% include "partials/kpi.html" with label="Dưới ROP" value=counts.BELOW_ROP|default:0 icon="trending-down" tone="warn" %}
+  {% include "partials/kpi.html" with label="Dưới SS" value=counts.BELOW_SS|default:0 icon="shield-alert" tone="danger" %}
+  {% include "partials/kpi.html" with label="Hết hàng" value=counts.STOCKOUT|default:0 icon="package-x" tone="danger" %}
+</div>
+<div class="card"><div class="card-head"><h3 class="card-title">Khoảng cách tới điểm đặt hàng (Dự báo − ROP)</h3></div>
+  <div class="card-body"><div style="height:{{ rows|length|add:2 }}0px;min-height:240px;max-height:900px"><canvas id="gap"></canvas></div></div></div>
+<div class="card" style="margin-top:20px"><table class="tbl">
+  <thead><tr><th>Sản phẩm</th><th class="num">Khả dụng</th><th class="num">Đang về</th><th class="num">Dự báo</th><th class="num">SS</th><th class="num">ROP</th><th class="num">Đặt gợi ý</th><th>Tình trạng</th></tr></thead>
+  <tbody>{% for r in rows %}<tr><td><a href="/app/inventory/replenishment?product={{ r.product.pk }}" class="code">{{ r.product.code }}</a> <span class="text-muted">{{ r.product.name }}</span></td>
+    <td class="num">{{ r.available|qty }}</td><td class="num">{{ r.incoming|qty }}</td><td class="num">{{ r.projected|qty }}</td><td class="num">{{ r.ss|qty }}</td><td class="num">{{ r.rop|qty }}</td><td class="num">{{ r.suggested_q|qty }}</td>
+    <td><span class="badge badge-{{ r.level_tone }}">{{ r.level_label }}</span></td></tr>{% endfor %}</tbody>
+</table></div>
+<script id="gapdata" type="application/json">[{% for r in rows %}{"l":"{{ r.product.code|escapejs }}","v":{{ r.projected|sub:r.rop|stringformat:".0f" }},"lv":"{{ r.level }}"}{% if not forloop.last %},{% endif %}{% endfor %}]</script>
+{% endblock %}
+{% block scripts %}
+<script>
+  const g = JSON.parse(document.getElementById("gapdata").textContent);
+  new Chart(document.getElementById("gap"), { type: "bar",
+    data: { labels: g.map(x => x.l), datasets: [{ label: "Dự báo − ROP", data: g.map(x => x.v), borderRadius: 4,
+      backgroundColor: g.map(x => x.lv === "OK" ? TONE.success : (x.lv === "BELOW_ROP" ? TONE.warn : TONE.danger)) }] },
+    options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: TONE.line } }, y: { grid: { display: false } } } } });
+</script>
+{% endblock %}

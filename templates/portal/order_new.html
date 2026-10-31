@@ -1,0 +1,25 @@
+{% extends "portal/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs">MH-91 / 92</div><h1 class="page-title">{{ title }}</h1><div class="page-sub">TRACON 80 sẽ kiểm tra và xác nhận đơn, bạn theo dõi trạng thái & ETA tại mục “Theo dõi đơn”.</div></div></div>
+<form method="post" class="card card-body" x-data="{rows:[{p:'',q:''}]}">{% csrf_token %}
+  <div class="grid g-4" style="margin-bottom:18px">
+    <div class="field"><label>Công trình nhận hàng *</label><select name="site" required>{% for s in sites %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label>{% if weekly %}Tuần bắt đầu cần hàng{% else %}Ngày cần giao{% endif %} *</label><input type="date" name="requested_date" required></div>
+    <div class="field"><label>Loại yêu cầu</label><select name="weekly"><option value="0" {% if not weekly %}selected{% endif %}>Đơn đặt hàng</option><option value="1" {% if weekly %}selected{% endif %}>Kế hoạch vật tư tuần</option></select></div>
+    <div class="field"><label>Ghi chú</label><input name="note" placeholder="Giờ nhận, người liên hệ..."></div>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Vật tư</th>{% if show_price %}<th class="num" style="width:160px">Đơn giá</th>{% endif %}<th class="num" style="width:180px">Số lượng</th><th style="width:50px"></th></tr></thead>
+    <tbody><template x-for="(r,i) in rows" :key="i"><tr>
+      <td><select class="input" name="product" x-model="r.p" required><option value="">— Chọn vật tư —</option>{% for p in products %}<option value="{{ p.pk }}" data-price="{{ p.sell_price|default:'' }}">{{ p.code }} – {{ p.name }} ({{ p.base_uom.code }})</option>{% endfor %}</select></td>
+      {% if show_price %}<td class="num text-muted" x-text="(document.querySelector(`option[value='${r.p}']`)?.dataset.price || '') ? Number(document.querySelector(`option[value='${r.p}']`).dataset.price).toLocaleString('vi-VN') + ' ₫' : '—'"></td>{% endif %}
+      <td><input class="input num" type="number" step="0.001" min="0" name="qty" x-model="r.q" required></td>
+      <td><button type="button" class="btn btn-outline btn-sm" @click="rows.splice(i,1)" x-show="rows.length>1">✕</button></td>
+    </tr></template></tbody>
+  </table>
+  <div class="toolbar" style="margin-top:16px;justify-content:space-between">
+    <button type="button" class="btn btn-soft" @click="rows.push({p:'',q:''})"><i data-lucide="plus"></i>Thêm vật tư</button>
+    <button class="btn btn-primary"><i data-lucide="send"></i>Gửi yêu cầu</button>
+  </div>
+</form>
+{% endblock %}

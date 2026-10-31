@@ -1,0 +1,23 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/sales/allocations">Phân bổ</a> /</div><h1 class="page-title">{{ al.code }} {% status_badge al %}</h1>
+    <div class="page-sub">{{ al.product.code }} – {{ al.product.name }} · khả dụng <b>{{ al.available_qty|qty }}</b> / nhu cầu <b>{{ al.demand_qty|qty }}</b> {{ al.product.base_uom.code }}</div></div>
+  {% if al.status == "PROPOSED" %}<form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="op" value="rerun">
+    <select name="rule" class="input" style="width:200px">{% for v, l in rules %}<option value="{{ v }}" {% if al.priority_rule == v %}selected{% endif %}>Ưu tiên: {{ l }}</option>{% endfor %}</select>
+    <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Đề xuất lại</button></form>{% endif %}
+</div>
+<form method="post" class="card" x-data="{a: { {% for l in lines %}'{{ l.pk }}': {{ l.approved_qty|default_if_none:l.proposed_qty }},{% endfor %} }, get sum(){ return Object.values(this.a).reduce((s,v)=>s+(+v||0),0) } }">{% csrf_token %}<input type="hidden" name="op" value="approve">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>Đơn / Khách hàng</th><th>Công trình</th><th>Ưu tiên CT</th><th>Mốc phạt</th><th>Ngày đặt</th><th class="num">Nhu cầu</th><th class="num">Đề xuất</th><th class="num" style="width:140px">Duyệt</th></tr></thead>
+    <tbody>{% for l in lines %}
+      <tr><td>{{ l.rank }}</td><td><a class="code" href="/app/sales/orders/{{ l.so_line.so.pk }}">{{ l.so_line.so.code }}</a><div class="text-muted" style="font-size:12px">{{ l.so_line.so.customer.name }}</div></td>
+        <td>{{ l.so_line.so.site.name }}</td><td>{{ l.so_line.so.site.priority }}</td><td>{{ l.so_line.so.site.penalty_date|vn_d }}</td><td>{{ l.so_line.so.order_date|vn_d }}</td>
+        <td class="num">{{ l.demand_qty|qty }}</td><td class="num">{{ l.proposed_qty|qty }}</td>
+        <td>{% if al.status == "PROPOSED" %}<input class="input input-sm num" type="number" step="0.001" min="0" max="{{ l.demand_qty }}" name="a_{{ l.pk }}" x-model.number="a['{{ l.pk }}']">{% else %}<b class="num">{{ l.approved_qty|qty }}</b>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+    <tfoot><tr><td colspan="8" class="num">Tổng phân bổ / khả dụng {{ al.available_qty|qty }}</td><td class="num" :style="sum > {{ al.available_qty }} ? 'color:var(--danger-ink)' : ''" x-text="sum.toLocaleString('vi-VN')"></td></tr></tfoot>
+  </table>
+  {% if al.status == "PROPOSED" and user.role in "DIRECTOR ADMIN" %}<div class="card-body toolbar" style="justify-content:flex-end"><button class="btn btn-primary" :disabled="sum > {{ al.available_qty }}"><i data-lucide="check"></i>Duyệt phân bổ</button></div>{% endif %}
+</form>
+{% endblock %}

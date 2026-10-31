@@ -1,0 +1,22 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/purchase/requisitions">Đề xuất mua</a> /</div><h1 class="page-title">Tạo đề xuất mua</h1></div></div>
+<form method="post" class="card card-body" x-data="{rows:[{p:'',q:''}]}">{% csrf_token %}
+  <div class="grid g-3" style="margin-bottom:18px">
+    <div class="field"><label>Ngày cần hàng</label><input type="date" name="need_date"></div>
+    <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input name="note"></div>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Sản phẩm</th><th style="width:180px">Số lượng (ĐVT gốc)</th><th style="width:50px"></th></tr></thead>
+    <tbody><template x-for="(r,i) in rows" :key="i"><tr>
+      <td><select class="input" name="product" x-model="r.p" required><option value="">— Chọn sản phẩm —</option>{% for p in products %}<option value="{{ p.pk }}">{{ p.code }} – {{ p.name }} ({{ p.base_uom.code }})</option>{% endfor %}</select></td>
+      <td><input class="input num" type="number" step="0.001" min="0" name="qty" x-model="r.q" required></td>
+      <td><button type="button" class="btn btn-outline btn-sm" @click="rows.splice(i,1)" x-show="rows.length>1">✕</button></td>
+    </tr></template></tbody>
+  </table>
+  <div class="toolbar" style="margin-top:14px;justify-content:space-between">
+    <button type="button" class="btn btn-soft" @click="rows.push({p:'',q:''})"><i data-lucide="plus"></i>Thêm dòng</button>
+    <button class="btn btn-primary">Gửi đề xuất</button>
+  </div>
+</form>
+{% endblock %}

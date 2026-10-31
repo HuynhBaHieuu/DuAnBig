@@ -1,0 +1,14 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head"><div><div class="crumbs"><a href="/app/master/">Danh mục</a> / <a href="/app/master/{{ slug }}/">{{ label }}</a> /</div><h1 class="page-title">{{ title }}</h1></div>
+  {% if obj and has_active %}<form method="post">{% csrf_token %}<input type="hidden" name="toggle" value="1"><button class="btn {% if obj.is_active %}btn-danger{% else %}btn-soft{% endif %}">{% if obj.is_active %}Ngưng sử dụng{% else %}Kích hoạt lại{% endif %}</button></form>{% endif %}</div>
+<form method="post" class="card card-body" style="max-width:900px">{% csrf_token %}
+  <div class="grid g-2">
+    {% for f in form %}{% if f.name != "is_active" %}
+      <div class="field">{% if f.field.widget.input_type == "checkbox" %}<label style="display:flex;gap:8px;align-items:center">{{ f }} {{ f.label }}</label>{% else %}<label>{{ f.label }}{% if f.field.required %} *{% endif %}</label>{{ f }}{% endif %}{% if f.help_text %}<span class="text-muted" style="font-size:12px">{{ f.help_text }}</span>{% endif %}{{ f.errors }}</div>
+    {% endif %}{% endfor %}
+  </div>
+  {{ form.non_field_errors }}
+  <div class="toolbar" style="margin-top:20px"><button class="btn btn-primary">Lưu</button><a href="/app/master/{{ slug }}/" class="btn btn-outline">Quay lại</a></div>
+</form>
+{% endblock %}

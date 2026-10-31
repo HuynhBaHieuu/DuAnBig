@@ -1,0 +1,18 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="page-title">Hóa đơn bán (INV)</h1><div class="page-sub">Lập từ các điểm giao B2B đã hoàn thành (DELIVERED / PARTIAL) · ghi sổ tạo công nợ phải thu</div></div>
+  <a href="/app/accounting/invoices/new" class="btn btn-primary"><i data-lucide="file-plus"></i>Lập hóa đơn {% if pending %}<span class="badge" style="background:#fff;color:var(--primary)">{{ pending }}</span>{% endif %}</a>
+</div>
+<div class="tabs"><a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả</a>{% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }}</a>{% endfor %}</div>
+<div class="card">
+  <div class="card-head"><form class="toolbar"><input class="input" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Mã HĐ, khách hàng" style="width:260px"><button class="btn btn-soft">Tìm</button></form></div>
+  <div class="card-body" style="padding:12px 0 0"><table class="tbl">
+    <thead><tr><th>Số HĐ</th><th>Loại</th><th>Khách hàng</th><th>Ngày</th><th>Hạn TT</th><th class="num">Tổng</th><th class="num">Đã thu</th><th class="num">Còn lại</th><th>Trạng thái</th></tr></thead>
+    <tbody>{% for i in page_obj %}
+      <tr><td><a class="code" href="/app/accounting/invoices/{{ i.pk }}">{{ i.code }}</a></td><td>{{ i.get_invoice_type_display }}</td><td>{{ i.customer.name }}</td><td>{{ i.invoice_date|vn_d }}</td>
+        <td>{{ i.due_date|vn_d }}</td><td class="num">{{ i.total|vnd }}</td><td class="num">{{ i.paid_amount|vnd }}</td><td class="num"><b>{{ i.balance|vnd }}</b></td><td>{% status_badge i %}</td></tr>
+    {% empty %}<tr><td colspan="9" class="empty">Chưa có hóa đơn.</td></tr>{% endfor %}</tbody>
+  </table>{% include "partials/pager.html" %}</div>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="page-title">Tài khoản & phân quyền</h1><div class="page-sub">Mỗi tài khoản có đúng 1 vai trò. DRIVER gắn tài xế, CUSTOMER gắn khách hàng + công trình.</div></div>
+  <a href="/app/admin/users/new" class="btn btn-primary"><i data-lucide="user-plus"></i>Tạo tài khoản</a>
+</div>
+<div class="tabs">
+  <a class="tab {% if not request.GET.role %}active{% endif %}" href="?">Tất cả</a>
+  {% for v, l in roles %}<a class="tab {% if request.GET.role == v %}active{% endif %}" href="?role={{ v }}">{{ l }}</a>{% endfor %}
+</div>
+<div class="card"><div class="table-wrap">
+  <table class="tbl">
+    <thead><tr><th>Tài khoản</th><th>Họ tên</th><th>Vai trò</th><th>Liên kết</th><th>Đăng nhập gần nhất</th><th>Trạng thái</th><th></th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><div style="display:flex;align-items:center;gap:10px"><span class="avatar sm">{{ u.initials }}</span><b>{{ u.username }}</b></div></td>
+        <td>{{ u.full_name }}</td>
+        <td><span class="badge badge-primary">{{ u.get_role_display }}</span></td>
+        <td class="text-muted">{% if u.driver %}Tài xế: {{ u.driver.name }}{% elif u.customer %}KH: {{ u.customer.name }}{% else %}—{% endif %}</td>
+        <td class="text-muted">{{ u.last_login|vn_dt }}</td>
+        <td>{% if not u.is_active %}<span class="badge badge-gray">Ngưng</span>{% elif u.locked_until and u.locked_until > now %}<span class="badge badge-danger">Đang khóa</span>{% else %}<span class="badge badge-success">Hoạt động</span>{% endif %}</td>
+        <td class="num"><a href="/app/admin/users/{{ u.pk }}" class="btn btn-soft btn-sm">Sửa</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{% endblock %}
