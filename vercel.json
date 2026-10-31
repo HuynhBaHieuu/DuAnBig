@@ -1,11 +1,26 @@
 {
   "builds": [
-    { "src": "tracon/wsgi.py", "use": "@vercel/python", "config": { "maxLambdaSize": "50mb" } }
+    {
+      "src": "tracon/wsgi.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb"
+      }
+    }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "tracon/wsgi.py" }
+    {
+      "src": "/(.*)",
+      "dest": "tracon/wsgi.py"
+    }
   ],
   "crons": [
-    { "path": "/cron/nightly", "schedule": "0 18 * * *" }
+    {
+      "path": "/cron/nightly",
+      "schedule": "0 18 * * *"
+    }
+  ],
+  "regions": [
+    "dub1"
   ]
 }

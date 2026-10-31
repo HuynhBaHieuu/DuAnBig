@@ -75,6 +75,8 @@ WSGI_APPLICATION = "tracon.wsgi.application"
 
 # ---------- Database: Supabase (PostgreSQL) hoặc SQLite fallback ----------
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if os.getenv("USE_SQLITE") == "1":  # ép dùng SQLite (vd. tạo dữ liệu mẫu cục bộ rồi chép lên Supabase)
+    DATABASE_URL = ""
 if DATABASE_URL:
     DATABASES = {
         "default": dj_database_url.parse(
@@ -95,7 +97,7 @@ else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "NAME": os.getenv("SQLITE_NAME") or BASE_DIR / "db.sqlite3",
         }
     }
 
@@ -129,7 +131,10 @@ WHITENOISE_AUTOREFRESH = DEBUG
 
 # ---------- Lưu ảnh (mốc hành trình, POD, chữ ký) ----------
 # Có SUPABASE_URL + SUPABASE_SERVICE_KEY -> lưu vào Supabase Storage (bắt buộc khi chạy trên Vercel)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+if SUPABASE_URL:  # chỉ giữ https://<ref>.supabase.co (bỏ /rest/v1 nếu copy nhầm)
+    from urllib.parse import urlsplit as _us
+    SUPABASE_URL = "{0.scheme}://{0.netloc}".format(_us(SUPABASE_URL))
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "media")
 STORAGES = {

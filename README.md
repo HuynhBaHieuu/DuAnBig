@@ -50,8 +50,15 @@ Gói Hobby miễn phí của Vercel dùng được cho đồ án / demo (phi th�
 ```powershell
 python manage.py migrate
 python manage.py setup_storage   # tạo bucket public "media" để lưu ảnh
-python manage.py seed_demo       # dữ liệu mẫu (ảnh mẫu được upload lên Supabase Storage)
+
+# Tạo dữ liệu mẫu cục bộ rồi chép lên Supabase (nhanh hơn chạy seed_demo trực tiếp qua mạng)
+$env:USE_SQLITE="1"; $env:SQLITE_NAME="seed.sqlite3"
+python manage.py migrate; python manage.py seed_demo
+Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME
+python manage.py copy_to_db seed.sqlite3
 ```
+
+`vercel.json` đặt function ở region **dub1 (Dublin)** cho gần Supabase `eu-west-1`. Nếu project Supabase ở khu vực khác, đổi `regions` cho tương ứng (vd. Singapore `ap-southeast-1` → `sin1`).
 
 **2. Đẩy code lên GitHub**, rồi vào vercel.com → *Add New Project* → chọn repo. File `vercel.json` đã cấu hình sẵn.
 
