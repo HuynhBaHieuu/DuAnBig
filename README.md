@@ -41,6 +41,35 @@ Mở http://127.0.0.1:8000. Mọi tài khoản demo dùng mật khẩu **`Tracon
 
 SSL được bật sẵn (Supabase bắt buộc). Toàn bộ thao tác cộng/trừ tồn kho chạy trong transaction và dùng `SELECT ... FOR UPDATE`.
 
+## Deploy lên Vercel (demo)
+
+Gói Hobby miễn phí của Vercel dùng được cho đồ án / demo (phi thương mại). Database và ảnh đều nằm trên Supabase.
+
+**1. Chuẩn bị Supabase** (làm trên máy, với `.env` đã điền đủ `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`):
+
+```powershell
+python manage.py migrate
+python manage.py setup_storage   # tạo bucket public "media" để lưu ảnh
+python manage.py seed_demo       # dữ liệu mẫu (ảnh mẫu được upload lên Supabase Storage)
+```
+
+**2. Đẩy code lên GitHub**, rồi vào vercel.com → *Add New Project* → chọn repo. File `vercel.json` đã cấu hình sẵn.
+
+**3. Khai báo Environment Variables trên Vercel** (Project → Settings → Environment Variables):
+
+| Biến | Giá trị |
+|---|---|
+| `DATABASE_URL` | Chuỗi **Transaction pooler** (port 6543) của Supabase, phù hợp serverless |
+| `DB_TRANSACTION_POOLER` | `1` |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | secret key / service_role key |
+| `DJANGO_SECRET_KEY` | chuỗi ngẫu nhiên dài |
+| `CRON_SECRET` | chuỗi ngẫu nhiên (Vercel tự gửi kèm khi gọi cron) |
+
+Sau đó bấm **Deploy** (hoặc *Redeploy* nếu thêm biến sau khi đã deploy).
+
+**Khác biệt khi chạy trên Vercel:** không có Celery. SS/ROP + PR tự động chạy bằng Vercel Cron mỗi ngày lúc 01:00 giờ VN (`/cron/nightly`). Quét trễ mốc / ETA chạy tự động khi có người mở Dashboard hoặc Bảng điều phối (tối đa 5 phút/lần). Muốn chạy ngay thì bấm “Chạy tính toàn bộ ngay” ở màn SS/ROP.
+
 ## Tác vụ nền
 
 - Có Redis: chạy `celery -A tracon worker -B`. Lúc 01:00 hằng đêm hệ thống tính lại SS/ROP và tự sinh PR; cứ 5 phút quét trễ mốc, tính lại ETA và đề xuất lịch hạ tải.

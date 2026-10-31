@@ -121,6 +121,8 @@ def dashboard(request):
     from apps.sales.models import Allocation, DeliveryTrip, Picking, SalesOrder, SalesOrderLine, SalesReturn
     from apps.sales.services import orders_waiting_delivery
 
+    from apps.purchasing.services import maybe_scan_inbound
+    maybe_scan_inbound()
     u = request.user
     role = u.role
     today = timezone.localdate()
@@ -417,3 +419,16 @@ def audit_log(request):
         qs = qs.filter(action=request.GET["action"])
     page, qs_str = paginate(request, qs, 40)
     return render(request, "core/audit.html", {"title": "Nhật ký kiểm toán", "page_obj": page, "qs": qs_str})
+
+
+# ------------------------------------------------------------------ Vercel Cron (thay Celery beat)
+def cron_nightly(request):
+    """Vercel Cron gọi mỗi đêm: tính SS/ROP + PR tự động, quét Inbound."""
+    from django.conf import settings
+    from django.http import HttpResponseForbidden, JsonResponse
+
+    if settings.CRON_SECRET and request.headers.get("Authorization") != f"Bearer {settings.CRON_SECRET}":
+        return HttpResponseForbidden("forbidden")
+    from apps.inventory.services import run_replenishment
+    from apps.purchasing.services import scan_inbound
+    return JsonResponse({"replenishment": run_replenishment(), "late_trips": scan_inbound()})

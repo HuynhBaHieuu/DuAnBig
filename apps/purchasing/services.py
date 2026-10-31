@@ -224,6 +224,16 @@ def report_incident(trip, user, incident_type, description, delay_minutes=0, pho
     return inc
 
 
+def maybe_scan_inbound(minutes=5):
+    """Khi không có Celery (Vercel): quét khi người dùng mở trang, tối đa mỗi `minutes` phút một lần."""
+    from django.core.cache import cache
+    if cache.add("scan_inbound_throttle", 1, minutes * 60):
+        try:
+            scan_inbound()
+        except Exception:  # không để lỗi quét làm hỏng trang
+            cache.delete("scan_inbound_throttle")
+
+
 def scan_inbound():
     """Tác vụ nền: cảnh báo MILESTONE_LATE (quá giờ dự kiến + 60’), tính lại ETA, đề xuất lịch hạ tải."""
     now = timezone.now()

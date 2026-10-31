@@ -107,6 +107,7 @@ urlpatterns = [
     path("m/", include(mobile_patterns)),
     path("portal/", include(portal_patterns)),
     path("api/", include("apps.core.api")),
+    path("cron/nightly", core.cron_nightly),
     path("django-admin/", admin.site.urls),
 ]
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -190,6 +190,7 @@ def po_detail(request, pk):
 # ------------------------------------------------------------------ Inbound (MH-24)
 @role_required("DIRECTOR", "PURCHASER", "WAREHOUSE")
 def inbound_board(request):
+    svc.maybe_scan_inbound()
     view = request.GET.get("view", "kanban")
     trips = InboundTrip.objects.exclude(status="CANCELLED").select_related("po__supplier", "vehicle", "driver", "route") \
         .prefetch_related("milestones")

@@ -8,9 +8,16 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+ON_VERCEL = bool(os.getenv("VERCEL"))  # Vercel tự đặt biến này khi build/chạy
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-key")
-DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
+DEBUG = os.getenv("DJANGO_DEBUG", "0" if ON_VERCEL else "1") == "1"
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",") if h.strip()]
+if ON_VERCEL:
+    ALLOWED_HOSTS += [".vercel.app"]
+CSRF_TRUSTED_ORIGINS = ["https://*.vercel.app"] + [
+    o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -34,6 +41,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # phục vụ CSS/JS khi DEBUG=0 (Vercel)
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -81,6 +89,9 @@ if DATABASE_URL:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
         DATABASES["default"].setdefault("OPTIONS", {})["prepare_threshold"] = None
 else:
+    if ON_VERCEL:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured("Chưa đặt DATABASE_URL (Supabase) trong Environment Variables của Vercel.")
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -107,8 +118,26 @@ USE_THOUSAND_SEPARATOR = False
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+if not STATIC_ROOT.exists() and "collectstatic" not in " ".join(__import__("sys").argv):
+    STATIC_ROOT = None  # chưa collectstatic -> WhiteNoise đọc thẳng static/ (tránh cảnh báo trên Vercel)
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = Path("/tmp/media") if ON_VERCEL else BASE_DIR / "media"  # Vercel: ổ đĩa chỉ ghi được /tmp
+
+# WhiteNoise đọc trực tiếp thư mục static/ (không cần collectstatic khi deploy Vercel)
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_AUTOREFRESH = DEBUG
+
+# ---------- Lưu ảnh (mốc hành trình, POD, chữ ký) ----------
+# Có SUPABASE_URL + SUPABASE_SERVICE_KEY -> lưu vào Supabase Storage (bắt buộc khi chạy trên Vercel)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "media")
+STORAGES = {
+    "default": {"BACKEND": "apps.core.storage.SupabaseStorage" if SUPABASE_URL and SUPABASE_SERVICE_KEY
+                else "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

@@ -1,0 +1,11 @@
+{
+  "builds": [
+    { "src": "tracon/wsgi.py", "use": "@vercel/python", "config": { "maxLambdaSize": "50mb" } }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "tracon/wsgi.py" }
+  ],
+  "crons": [
+    { "path": "/cron/nightly", "schedule": "0 18 * * *" }
+  ]
+}
