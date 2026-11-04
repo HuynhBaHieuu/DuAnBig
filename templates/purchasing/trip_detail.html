@@ -2,18 +2,27 @@
 {% block content %}
 <div class="page-head">
   <div><div class="crumbs"><a href="/app/inbound/board">Điều phối Inbound</a> /</div>
-    <h1 class="page-title">{{ trip.code }} {% status_badge trip %}{% if trip.is_late %} <span class="badge badge-danger">Trễ mốc</span>{% endif %}</h1>
+    <h1 class="page-title">{{ trip.code }} {% status_badge trip %}{% if overdue_min %} <span class="badge badge-danger">Quá hạn {{ overdue_min|dur }}</span>{% elif trip.late_active %} <span class="badge badge-danger">Trễ mốc</span>{% endif %}</h1>
     <div class="page-sub">{{ trip.route.name }} · <a class="text-primary" href="/app/purchase/orders/{{ trip.po.pk }}">{{ trip.po.code }}</a> · {{ trip.po.supplier.name }}</div></div>
   <div class="toolbar">
     {% if trip.status == "PLANNED" or trip.status == "AT_FACTORY" %}{% if user.role != "WAREHOUSE" %}{% include "partials/cancel_form.html" with label="Hủy chuyến" %}{% endif %}{% endif %}
     {% if not slot and trip.status != "RECEIVED" and trip.status != "CANCELLED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="propose_slot"><button class="btn btn-outline"><i data-lucide="calendar-plus"></i>Đề xuất lịch hạ tải</button></form>{% endif %}
   </div>
 </div>
+{% if overdue_min %}<div class="flash flash-error"><i data-lucide="alarm-clock"></i><div>Chuyến <b>quá hạn {{ overdue_min|dur }}</b> so với kế hoạch: mốc “{{ next_ms.name }}” dự kiến {{ next_ms.planned_at|vn_dt }} nhưng chưa được cập nhật. Các mốc còn lại đã tự dời lịch (“Dự kiến lại”), ETA được tính lại theo thời gian thực.</div></div>{% endif %}
 <div class="grid g-4" style="margin-bottom:20px">
   {% include "partials/kpi.html" with label="ETA hiện tại" value=trip.eta|vn_dt icon="clock" tone="primary" %}
   {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|stringformat:"s"|add:" tấn" icon="truck" tone="info" %}
   {% include "partials/kpi.html" with label="Tài xế" value=trip.driver.name foot=trip.driver.phone icon="user" tone="warn" %}
   {% include "partials/kpi.html" with label="Tổng tải" value=trip.total_ton|floatformat:2|add:" tấn" foot=trip.carrier.name|default:"Xe nội bộ" icon="weight" tone="success" %}
+</div>
+<div class="card card-body" style="margin-bottom:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+    <div><b>Hiệu suất sử dụng tải trọng</b> <span class="text-muted" style="font-size:13px">· {{ trip.total_ton|floatformat:2 }} / {{ load.cap|floatformat:2 }} tấn{% if load.free %} · còn trống {{ load.free|floatformat:2 }} tấn{% endif %}</span></div>
+    <span class="badge badge-{{ load.tone }}">{{ load.pct|floatformat:0 }}% · {{ load.label }}</span>
+  </div>
+  <div class="bar" style="height:10px"><i style="width:{{ load.pct|clamp_pct }}%;background:var(--{{ load.tone }})"></i></div>
+  {% if load.pct < 70 %}<div class="text-muted" style="font-size:12px;margin-top:8px">Gợi ý: ghép thêm hàng từ PO cùng NCC / tuyến, hoặc dùng xe tải trọng nhỏ hơn để giảm cước / tấn{% if trip.carrier %} của chuyến 3PL{% endif %}.</div>{% endif %}
 </div>
 <div class="grid g-main">
   <div class="grid" style="align-content:start">
@@ -26,7 +35,9 @@
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
               <b>{{ m.name }} {% if m.photo_required %}<span class="badge badge-gray"><i data-lucide="camera" style="width:12px"></i>Bắt buộc ảnh</span>{% endif %}</b>
-              <span class="text-muted" style="font-size:12px">Dự kiến {{ m.planned_at|vn_dt }}</span>
+              <span class="text-muted" style="font-size:12px;text-align:right">Dự kiến {{ m.planned_at|vn_dt }}
+                {% if m.overdue_min %}<br><span class="badge badge-danger">Quá hạn {{ m.overdue_min|dur }}</span>{% endif %}
+                {% if m.resched_at %}<br>Dự kiến lại <b style="color:var(--danger-ink)">{{ m.resched_at|vn_dt }}</b>{% endif %}</span>
             </div>
             {% if m.actual_at %}
               <div style="font-size:13px;margin-top:4px">Thực tế <b>{{ m.actual_at|vn_dt }}</b>
@@ -34,11 +45,12 @@
                 · {{ m.by_user|default:"" }} {% if m.note %}· {{ m.note }}{% endif %}</div>
               {% if m.photo %}<a href="{{ m.photo.url }}" target="_blank"><img src="{{ m.photo.url }}" style="margin-top:8px;height:80px;border-radius:8px;object-fit:cover"></a>{% endif %}
             {% elif next_ms and m.pk == next_ms.pk and user.role != "WAREHOUSE" %}
-              <form method="post" enctype="multipart/form-data" class="toolbar" style="margin-top:8px">{% csrf_token %}
+              <form method="post" enctype="multipart/form-data" class="toolbar" style="margin-top:8px" x-data="photoGuard({{ m.photo_required|yesno:'true,false' }})">{% csrf_token %}
                 <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ m.pk }}">
-                <input type="file" name="photo" accept="image/*" {% if m.photo_required %}required{% endif %} style="font-size:12px">
+                <input type="file" name="photo" accept="image/*" {% if m.photo_required %}required{% endif %} style="font-size:12px" @change="pick($event)">
                 <input class="input input-sm" name="note" placeholder="Ghi chú (vd: tài xế báo qua điện thoại)" style="width:240px">
-                <button class="btn btn-soft btn-sm">Cập nhật thay tài xế</button>
+                <button class="btn btn-soft btn-sm" :disabled="!ok" :title="ok ? '' : 'Mốc bắt buộc ảnh – chọn file ảnh hợp lệ trước'">Cập nhật thay tài xế</button>
+                <span style="font-size:12px;color:var(--danger-ink)" x-show="err" x-text="err"></span>
               </form>
             {% endif %}
           </div>
@@ -85,8 +97,30 @@
     </div>
     <div class="card card-body">
       <h3 class="card-title" style="margin-bottom:12px">Lịch sử ETA</h3>
-      {% for e in eta_logs %}<div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span>{{ e.reason }}</span><b>{{ e.new_eta|vn_dt }}</b></div>{% endfor %}
+      {% for e in eta_logs %}<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
+        <span>{{ e.reason }}{% if e.n > 1 %} <span class="badge badge-gray">×{{ e.n }}</span><div class="text-muted" style="font-size:11px">{{ e.first_at|vn_dt }} → {{ e.at|vn_dt }}</div>{% else %}<div class="text-muted" style="font-size:11px">lúc {{ e.at|vn_dt }}</div>{% endif %}</span>
+        <b>{{ e.new_eta|vn_dt }}</b></div>{% empty %}<div class="text-muted">Chưa có.</div>{% endfor %}
     </div>
+    {% if sla.done %}<div class="card card-body">
+      <h3 class="card-title" style="margin-bottom:12px">Hiệu suất chuyến (SLA)</h3>
+      <dl class="dl"><dt>Mốc đã qua</dt><dd>{{ sla.done }} / {{ milestones|length }}</dd>
+        <dt>Mốc trễ</dt><dd>{% if sla.late %}<span style="color:var(--danger-ink);font-weight:600">{{ sla.late }}</span> · trễ tối đa {{ sla.max_delay|dur }}{% else %}0 – đúng tiến độ{% endif %}</dd></dl>
+    </div>{% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Mốc bắt buộc ảnh: khóa nút cập nhật tới khi chọn được file ảnh hợp lệ
+function photoGuard(required) {
+  return { ok: !required, err: "",
+    pick(e) {
+      const f = e.target.files[0];
+      this.err = f && !f.type.startsWith("image/") ? "File phải là hình ảnh." : (f && f.size > 15 * 1024 * 1024 ? "Ảnh quá lớn (tối đa 15 MB)." : "");
+      if (this.err) e.target.value = "";
+      this.ok = !this.err && (!required || !!f);
+    } };
+}
+</script>
 {% endblock %}

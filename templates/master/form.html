@@ -11,4 +11,14 @@
   {{ form.non_field_errors }}
   <div class="toolbar" style="margin-top:20px"><button class="btn btn-primary">Lưu</button><a href="/app/master/{{ slug }}/" class="btn btn-outline">Quay lại</a></div>
 </form>
+{% if product_suppliers %}{{ product_suppliers|json_script:"product-suppliers" }}
+<script>
+  // Chọn sản phẩm -> tự điền nhà cung cấp khớp với sản phẩm (vẫn cho chọn lại thủ công)
+  (() => {
+    const map = JSON.parse(document.getElementById("product-suppliers").textContent);
+    const prod = document.querySelector("select[name=product]"), sup = document.querySelector("select[name=supplier]");
+    prod.addEventListener("change", () => { const s = map[prod.value]; if (s) sup.value = String(s); });
+    if (!sup.value && map[prod.value]) sup.value = String(map[prod.value]);
+  })();
+</script>{% endif %}
 {% endblock %}

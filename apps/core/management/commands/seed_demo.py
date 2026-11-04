@@ -97,7 +97,7 @@ class Command(BaseCommand):
             return r
         self.r_xm = route("R-KG", "Kiên Giang → Kho BD", "Nhà máy xi măng Kiên Lương", "Kho BD", 310, 8,
                           [("FACTORY", "Tới nhà máy", 60, True), ("LOADED", "Bốc hàng xong", 180, True),
-                           ("CHECKPOINT", "Qua trạm Cần Thơ", 330, False), ("GATE", "Tới cổng kho", 480, True)])
+                           ("CHECKPOINT", "Qua cầu Mỹ Thuận (QL1A)", 330, False), ("GATE", "Tới cổng kho", 480, True)])
         self.r_thep = route("R-PM", "Phú Mỹ → Kho BD", "Nhà máy thép Phú Mỹ", "Kho BD", 95, 3,
                             [("FACTORY", "Tới nhà máy", 30, True), ("LOADED", "Bốc hàng xong", 90, True),
                              ("CHECKPOINT", "Qua trạm Long Thành", 140, False), ("GATE", "Tới cổng kho", 180, True)])

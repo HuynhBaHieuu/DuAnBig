@@ -17,7 +17,7 @@
       <div style="text-align:right"><div>{{ s.trip.planned_date|vn_d }}</div>{% status_badge s.trip %}</div></a>
     {% empty %}<div class="text-muted">Chưa có lịch giao.</div>{% endfor %}</div></div>
   <div class="card"><div class="card-head"><h3 class="card-title">Đơn gần đây</h3><a href="/portal/orders" class="text-primary" style="font-size:13px">Xem tất cả</a></div><div class="card-body">
-    {% for o in recent %}<a href="/portal/orders/{{ o.pk }}" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><div><b>{{ o.code }}</b><div class="text-muted" style="font-size:12px">{{ o.site.name }} · cần {{ o.requested_date|vn_d }}</div></div>{% status_badge o %}</a>
+    {% for o in recent %}<a href="/portal/orders/{{ o.pk }}" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><div><b>{{ o.code }}</b><div class="text-muted" style="font-size:12px">{{ o.site.name }} · cần {{ o.requested_date|vn_d }}</div></div>{% with ds=o.delivery_status %}{% code_badge ds.0 ds.1 %}{% endwith %}</a>
     {% empty %}<div class="text-muted">Chưa có đơn.</div>{% endfor %}</div></div>
 </div>
 {% endblock %}

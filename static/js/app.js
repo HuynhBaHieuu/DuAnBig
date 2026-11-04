@@ -19,6 +19,36 @@ async function postJSON(url, data) {
   return j;
 }
 
+// Ảnh chụp điện thoại thường 3–8 MB, vượt giới hạn 4,5 MB/request của Vercel -> thu nhỏ trước khi gửi.
+async function shrinkImage(file, max = 1600, quality = 0.82) {
+  if (!file.type.startsWith("image/") || file.size < 700 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", quality));
+    return blob ? new File([blob], file.name.replace(/\.[^.]*$/, "") + ".jpg", { type: "image/jpeg" }) : file;
+  } catch (e) { return file; }  // trình duyệt không đọc được (vd. HEIC) -> gửi nguyên bản
+}
+document.addEventListener("submit", async e => {
+  const form = e.target;
+  if (e.defaultPrevented || form.dataset.shrunk || form.enctype !== "multipart/form-data") return;
+  const inputs = [...form.querySelectorAll("input[type=file]")].filter(i => i.files.length);
+  if (!inputs.length) return;
+  e.preventDefault();
+  const btn = e.submitter;
+  for (const i of inputs) {
+    const dt = new DataTransfer();
+    for (const f of i.files) dt.items.add(await shrinkImage(f));
+    i.files = dt.files;
+  }
+  form.dataset.shrunk = "1";
+  form.requestSubmit(btn && btn.form === form ? btn : undefined);
+  delete form.dataset.shrunk;
+});
+
 // SignaturePad tối giản cho POD (canvas, hỗ trợ cảm ứng)
 function signaturePad(canvas, hidden) {
   const ctx = canvas.getContext("2d");

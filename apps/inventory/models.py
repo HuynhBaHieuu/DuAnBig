@@ -1,4 +1,7 @@
 """2. LÕI TỒN KHO & SS/ROP."""
+import math
+from decimal import ROUND_CEILING, Decimal
+
 from django.db import models
 from django.db.models import Q
 
@@ -43,10 +46,13 @@ class StockMove(models.Model):
 
 class ReplenishmentParam(models.Model):
     METHODS = [("FULL", "FULL – biến động cầu & lead time"), ("DEMAND", "Chỉ biến động cầu"), ("MANUAL", "Nhập tay")]
+    DEMAND_SOURCES = [("ALL", "Xuất bán + xuất công trình"), ("SALE", "Chỉ xuất bán")]
     product = models.OneToOneField("masterdata.Product", on_delete=models.CASCADE, related_name="rop_param")
     method = models.CharField(max_length=10, choices=METHODS, default="FULL")
     z = models.DecimalField(max_digits=4, decimal_places=2, default=1.65)
-    review_days = models.PositiveSmallIntegerField(default=7, help_text="Chu kỳ xem xét đặt hàng (ngày)")
+    review_days = models.PositiveSmallIntegerField(default=7, help_text="Chu kỳ đặt hàng (ngày)")
+    demand_source = models.CharField(max_length=5, choices=DEMAND_SOURCES, default="ALL")
+    exclude_outliers = models.BooleanField(default=True, help_text="Loại phiếu xuất đột biến khi tính D̄, σD")
     history_days = models.PositiveSmallIntegerField(default=90)
     d_avg = models.DecimalField(**QTY, help_text="Nhu cầu TB / ngày")
     d_std = models.DecimalField(**QTY, help_text="Độ lệch chuẩn nhu cầu / ngày")
@@ -57,10 +63,52 @@ class ReplenishmentParam(models.Model):
     suggested_q = models.DecimalField(**QTY)
     manual_ss = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
     manual_rop = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    manual_lock = models.BooleanField(default=False, help_text="Khóa thủ công: dùng SS/ROP nhập tay, tác vụ đêm không ghi đè")
+    lock_reason = models.CharField(max_length=255, blank=True)
+    moq = models.DecimalField(**QTY, help_text="Lượng đặt tối thiểu của NCC")
+    manual_q = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True, help_text="Q nhập tay (ghi đè)")
+    round_by_truck = models.BooleanField(default=False)
+    truck_ton = models.DecimalField(max_digits=8, decimal_places=2, default=30, help_text="Tải trọng xe chuẩn (tấn)")
     calculated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "replenishment_param"
+
+    def __str__(self):
+        return f"SS/ROP {self.product.code}"
+
+    # Ngưỡng đang áp dụng: số khóa tay nếu bật khóa, ngược lại số tự tính
+    @property
+    def eff_ss(self):
+        return self.manual_ss if self.manual_lock and self.manual_ss is not None else self.ss
+
+    @property
+    def eff_rop(self):
+        return self.manual_rop if self.manual_lock and self.manual_rop is not None else self.rop
+
+    @property
+    def order_q(self):
+        """Q = Q nhập tay, hoặc max(MOQ; D̄ × chu kỳ đặt)."""
+        if self.manual_q is not None:
+            return self.manual_q
+        return max(Decimal(self.moq), (Decimal(self.d_avg) * self.review_days).quantize(Decimal("1"), rounding=ROUND_CEILING))
+
+    @property
+    def truck_qty(self):
+        """Tải trọng 1 xe quy ra đơn vị gốc của sản phẩm (không có trọng lượng/đv thì coi đv gốc là tấn)."""
+        w = self.product.unit_weight_kg
+        if not w:
+            return self.truck_ton
+        q = self.truck_ton * 1000 / w
+        return Decimal(math.floor(q)) if q >= 1 else q  # đv đếm (bao, viên, cây): 1 xe chở trọn số đơn vị
+
+    def pr_qty(self, projected):
+        """Lượng PR = max(Q; ROP + Q − tồn dự báo), làm tròn lên theo chuyến xe nếu bật."""
+        q = self.order_q
+        qty = max(q, self.eff_rop + q - Decimal(projected), Decimal(0))
+        if self.round_by_truck and self.truck_qty > 0 and qty > 0:
+            qty = math.ceil(qty / self.truck_qty) * self.truck_qty
+        return Decimal(qty).quantize(Decimal("0.001"))
 
 
 class ReplenishmentSnapshot(models.Model):

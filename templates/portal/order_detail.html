@@ -1,6 +1,6 @@
 {% extends "portal/base.html" %}
 {% block content %}
-<div class="page-head"><div><div class="crumbs"><a href="/portal/orders">Theo dõi đơn</a> /</div><h1 class="page-title">{{ so.code }} {% status_badge so %}</h1><div class="page-sub">{{ so.site.name }} · cần giao {{ so.requested_date|vn_d }}</div></div></div>
+<div class="page-head"><div><div class="crumbs"><a href="/portal/orders">Theo dõi đơn</a> /</div><h1 class="page-title">{{ so.code }} {% code_badge ds_code ds_label %}</h1><div class="page-sub">{{ so.site.name }} · cần giao {{ so.requested_date|vn_d }}</div></div></div>
 <div class="card card-body" style="margin-bottom:20px">
   <div style="display:grid;grid-template-columns:repeat({{ steps|length }},1fr);gap:8px">
     {% for label, done in steps %}<div style="text-align:center"><div style="height:6px;border-radius:99px;background:{% if done %}var(--primary){% else %}var(--line-soft){% endif %};margin-bottom:8px"></div><span style="font-size:13px;{% if done %}font-weight:600{% else %}color:var(--muted){% endif %}">{{ label }}</span></div>{% endfor %}
@@ -14,9 +14,15 @@
   </table></div>
   <div class="card card-body" style="align-self:start"><h3 class="card-title" style="margin-bottom:12px">Chuyến giao & ETA</h3>
     {% for s in stops %}<div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
-      <div style="display:flex;justify-content:space-between"><b>{{ s.trip.code }}</b>{% status_badge s %}</div>
-      <div class="text-muted" style="font-size:13px">Ngày {{ s.trip.planned_date|vn_d }} · xe {{ s.trip.vehicle.plate }} · tài xế {{ s.trip.driver.name }}</div>
-      {% if s.delivered_at %}<div style="font-size:13px">Đã giao {{ s.delivered_at|vn_dt }} · người nhận {{ s.receiver_name }}</div>{% else %}<div style="font-size:13px">{{ s.trip.get_status_display }}</div>{% endif %}
+      <div style="display:flex;justify-content:space-between"><b>{{ s.trip.code }}</b>{% if s.status == "PENDING" %}{% status_badge s.trip %}{% else %}{% status_badge s %}{% endif %}</div>
+      <dl class="dl" style="margin-top:8px;font-size:13px">
+        <dt>Xe</dt><dd>{{ s.trip.vehicle.plate }}</dd>
+        <dt>Tài xế</dt><dd>{{ s.trip.driver.name }}{% if s.trip.driver.phone %} · <a class="text-primary" href="tel:{{ s.trip.driver.phone }}">{{ s.trip.driver.phone }}</a>{% endif %}</dd>
+        <dt>Điểm giao</dt><dd>#{{ s.seq }} trong chuyến</dd>
+        {% if s.delivered_at %}<dt>Đã giao</dt><dd>{{ s.delivered_at|vn_dt }} · người nhận {{ s.receiver_name }}</dd>
+        {% else %}<dt>ETA</dt><dd><b>{% if s.eta %}{{ s.eta|vn_dt }}{% else %}Trong ngày {{ s.trip.planned_date|vn_d }}{% endif %}</b></dd>
+          {% if s.trip.departed_at %}<dt>Xuất kho</dt><dd>{{ s.trip.departed_at|vn_dt }}</dd>{% endif %}{% endif %}
+      </dl>
     </div>{% empty %}<div class="text-muted">Đơn chưa được xếp chuyến giao.</div>{% endfor %}</div>
 </div>
 {% endblock %}

@@ -1,5 +1,6 @@
 """Luồng B & C: SO -> kiểm tra tín dụng/giá sàn -> ATP & giữ hàng -> phân bổ -> giao Outbound -> POD."""
 import base64
+import binascii
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -112,25 +113,29 @@ def available_qty(product):
 
 @transaction.atomic
 def reserve_line(line):
-    """Giữ hàng phần còn thiếu của dòng. Thiếu hàng -> đề xuất phân bổ cho Director."""
+    """Giữ hàng phần còn thiếu của dòng.
+
+    Đủ hàng -> giữ đủ. Thiếu hàng -> giữ ngay toàn bộ lượng khả dụng, phần chênh lệch là backorder
+    (tự giữ tiếp khi có hàng về). Nếu đang có đơn khác chờ phân bổ cùng sản phẩm -> đưa vào đề xuất
+    phân bổ cho Director để chia công bằng.
+    """
     Product.objects.select_for_update().get(pk=line.product_id)  # tuần tự hóa giữ hàng theo sản phẩm
     need = line.qty - line.reserved_qty - line.delivered_qty
     if need <= 0:
         line.atp_status = "OK"
         line.save(update_fields=["atp_status"])
         return
-    avail = available_qty(line.product)
-    take = max(D0, min(avail, need))
-    competing = SalesOrderLine.objects.filter(product=line.product, atp_status__in=["SHORT"]) \
-        .exclude(pk=line.pk).exists()
-    if take >= need and not competing:
-        _reserve(line, need)
-        line.atp_status = "OK"
-        line.save(update_fields=["atp_status"])
-    else:
+    competing = SalesOrderLine.objects.filter(product=line.product, atp_status="SHORT",
+                                              so__status__in=["CONFIRMED", "PARTIAL"]).exclude(pk=line.pk).exists()
+    if competing:
         line.atp_status = "SHORT"
         line.save(update_fields=["atp_status"])
         propose_allocation(line.product)
+        return
+    take = max(D0, min(available_qty(line.product), need))
+    _reserve(line, take)
+    line.atp_status = "OK" if take >= need else "BACKORDER"
+    line.save(update_fields=["atp_status"])
 
 
 def _reserve(line, q):
@@ -364,10 +369,29 @@ def _consume_reservation(line, qty):
 
 # ------------------------------------------------------------------ POD (tài xế)
 def _decode_signature(data_url):
+    """data:image/png;base64,... -> ContentFile. Dữ liệu hỏng -> lỗi nghiệp vụ thay vì lỗi 500."""
     if not data_url or "," not in data_url:
         return None
     header, b64 = data_url.split(",", 1)
-    return ContentFile(base64.b64decode(b64), name=f"sig_{uuid.uuid4().hex[:10]}.png")
+    if not header.startswith("data:image/") or ";base64" not in header:
+        raise BusinessError("Chữ ký không hợp lệ – vui lòng ký lại.")
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise BusinessError("Chữ ký không hợp lệ – vui lòng ký lại.")
+    if len(raw) < 100:
+        return None
+    return ContentFile(raw, name=f"sig_{uuid.uuid4().hex[:10]}.png")
+
+
+def check_image(f, label="Ảnh"):
+    """Chặn file không phải ảnh / quá lớn trước khi lưu."""
+    if not f:
+        return
+    if not (getattr(f, "content_type", "") or "").startswith("image/"):
+        raise BusinessError(f"{label} phải là file hình ảnh.")
+    if f.size > 15 * 1024 * 1024:
+        raise BusinessError(f"{label} quá lớn (tối đa 15 MB).")
 
 
 @transaction.atomic
@@ -377,6 +401,7 @@ def confirm_pod(stop, user, delivered, receiver_name, photo=None, signature_data
     if stop.trip.status != "IN_TRANSIT":
         raise BusinessError("Chuyến chưa xuất kho.")
     sig = _decode_signature(signature_data)
+    check_image(photo, "Ảnh giao hàng")
     if not failed and (not photo or not sig):
         raise BusinessError("POD bắt buộc có ảnh giao hàng và chữ ký người nhận.")
     total_plan = total_deliv = D0

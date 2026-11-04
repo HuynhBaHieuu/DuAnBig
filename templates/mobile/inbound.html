@@ -8,7 +8,7 @@
 </div>
 
 {% if next_ms %}
-<form method="post" enctype="multipart/form-data" class="card card-body" style="margin-bottom:14px" x-data="{f:null}">{% csrf_token %}
+<form method="post" enctype="multipart/form-data" class="card card-body" style="margin-bottom:14px" x-data="{f:null, err:''}">{% csrf_token %}
   <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ next_ms.pk }}">
   <div class="lbl">Mốc tiếp theo · dự kiến {{ next_ms.planned_at|hm }}</div>
   <div style="font-size:22px;font-weight:700;margin:4px 0 12px">{{ next_ms.name }}</div>
@@ -19,10 +19,12 @@
   {% endif %}
   <label class="btn btn-soft btn-lg" style="width:100%;margin:6px 0 10px;cursor:pointer">
     <i data-lucide="camera"></i><span x-text="f ? 'Đã chọn ảnh ✓' : 'Chụp ảnh xác thực{% if next_ms.photo_required %} (bắt buộc){% endif %}'"></span>
-    <input type="file" name="photo" accept="image/*" capture="environment" style="display:none" @change="f=$event.target.files[0]" {% if next_ms.photo_required %}required{% endif %}>
+    <input type="file" name="photo" accept="image/*" capture="environment" style="display:none" @change="f = $event.target.files[0]; err = f && !f.type.startsWith('image/') ? 'File phải là hình ảnh.' : ''; if (err) { f = null; $event.target.value = '' }" {% if next_ms.photo_required %}required{% endif %}>
   </label>
   <input class="input" name="note" placeholder="Ghi chú (không bắt buộc)" style="margin-bottom:12px">
-  <button class="btn btn-primary big-btn"><i data-lucide="map-pin-check"></i>Xác nhận: {{ next_ms.name }}</button>
+  <div x-show="err" x-text="err" style="color:var(--danger-ink);font-size:13px;margin-bottom:8px"></div>
+  <button class="btn btn-primary big-btn" {% if next_ms.photo_required %}:disabled="!f"{% endif %}><i data-lucide="map-pin-check"></i>Xác nhận: {{ next_ms.name }}</button>
+  {% if next_ms.photo_required %}<div class="text-muted" style="font-size:12px;text-align:center;margin-top:6px" x-show="!f">Mốc bắt buộc ảnh – chụp ảnh để mở nút xác nhận.</div>{% endif %}
 </form>
 {% elif trip.status != "CANCELLED" %}
 <div class="card card-body" style="text-align:center;margin-bottom:14px"><i data-lucide="check-circle-2" style="width:40px;height:40px;color:var(--success-ink)"></i><div style="font-weight:600;margin-top:8px">Đã hoàn thành các mốc hành trình</div><div class="text-muted" style="font-size:13px">Chờ kho hạ tải theo lịch.</div></div>

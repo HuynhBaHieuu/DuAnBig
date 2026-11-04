@@ -123,6 +123,18 @@ class InboundTrip(TimeStamped):
     def __str__(self):
         return self.code
 
+    ACTIVE = ("PLANNED", "AT_FACTORY", "LOADED", "IN_TRANSIT")
+
+    @property
+    def late_active(self):
+        """Nhãn "Trễ mốc" chỉ có nghĩa khi chuyến còn đang chạy; chuyến đã tới kho / nhập kho chỉ hiện trạng thái vòng đời."""
+        return self.is_late and self.status in self.ACTIVE
+
+    @property
+    def load_pct(self):
+        cap = self.vehicle.capacity_ton
+        return float(self.total_ton / cap * 100) if cap else 0
+
     @property
     def next_milestone(self):
         done = set(self.milestones.exclude(actual_at=None).values_list("seq", flat=True))

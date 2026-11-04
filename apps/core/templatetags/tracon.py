@@ -85,6 +85,22 @@ def vn_d(value):
 
 
 @register.filter
+def dur(minutes):
+    """Số phút -> '3 ngày 4 giờ' / '2 giờ 15 phút' / '45 phút'."""
+    try:
+        m = int(minutes)
+    except (TypeError, ValueError):
+        return "—"
+    d, rest = divmod(m, 1440)
+    h, mi = divmod(rest, 60)
+    if d:
+        return f"{d} ngày {h} giờ" if h else f"{d} ngày"
+    if h:
+        return f"{h} giờ {mi} phút" if mi else f"{h} giờ"
+    return f"{mi} phút"
+
+
+@register.filter
 def hm(value):
     if not value:
         return "—"
@@ -101,7 +117,7 @@ TONE = {
     "POSTED": "success", "RECEIVED": "success", "DELIVERED": "success", "COMPLETED": "success", "DONE": "success",
     "PAID": "success", "CLOSED": "success", "OK": "success", "CONVERTED": "success", "SETTLED": "success",
     "CANCELLED": "danger", "REJECTED": "danger", "FAILED": "danger", "BACKORDER": "danger", "EXPIRED": "danger",
-    "OPEN": "warn",
+    "OPEN": "warn", "SCHEDULED": "primary",
 }
 
 

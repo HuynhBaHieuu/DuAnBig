@@ -4,8 +4,10 @@ Dùng khi chạy serverless (Vercel) – ổ đĩa không lưu lâu dài. Bucket
     python manage.py setup_storage
 """
 import json
+import logging
 import mimetypes
 import posixpath
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,6 +17,19 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import Storage
 from django.utils.deconstruct import deconstructible
+from django.utils.text import slugify
+
+from .services import BusinessError
+
+log = logging.getLogger(__name__)
+
+
+def ascii_filename(name):
+    """'Ảnh chụp màn hình (1).PNG' -> 'anh-chup-man-hinh-1.png'.
+
+    Supabase Storage từ chối key có ký tự ngoài ASCII ("Invalid key") -> upload lỗi 500."""
+    root, ext = posixpath.splitext(name.replace("đ", "d").replace("Đ", "D"))
+    return (slugify(root)[:80] or "file") + re.sub(r"[^a-z0-9.]", "", ext.lower())
 
 
 def _headers(extra=None):
@@ -41,6 +56,9 @@ class SupabaseStorage(Storage):
     def _path(self, name):
         return urllib.parse.quote(name.replace("\\", "/").lstrip("/"))
 
+    def get_valid_name(self, name):
+        return ascii_filename(name)
+
     def get_available_name(self, name, max_length=None):
         # thêm hậu tố ngẫu nhiên thay vì gọi API kiểm tra trùng tên
         root, ext = posixpath.splitext(name.replace("\\", "/"))
@@ -55,7 +73,11 @@ class SupabaseStorage(Storage):
             _request("POST", f"{self.base}/object/{self.bucket}/{self._path(name)}", data,
                      {"Content-Type": ctype, "x-upsert": "true"})
         except urllib.error.HTTPError as e:
-            raise OSError(f"Supabase Storage từ chối upload ({e.code}): {e.read()[:200]!r}") from e
+            log.error("Supabase Storage từ chối upload %s (%s): %r", name, e.code, e.read()[:300])
+            raise BusinessError(f"Không lưu được ảnh lên kho lưu trữ (mã {e.code}). Vui lòng chụp/chọn lại ảnh và thử lại.")
+        except (urllib.error.URLError, TimeoutError) as e:
+            log.error("Không kết nối được Supabase Storage khi upload %s: %s", name, e)
+            raise BusinessError("Mất kết nối tới kho lưu trữ ảnh. Vui lòng thử lại sau ít phút.")
         return name
 
     def _open(self, name, mode="rb"):

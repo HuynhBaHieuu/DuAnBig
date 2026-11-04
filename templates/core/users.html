@@ -1,13 +1,22 @@
 {% extends "app/base.html" %}
+{% block search_action %}/app/admin/users{% endblock %}
 {% block content %}
 <div class="page-head">
   <div><h1 class="page-title">Tài khoản & phân quyền</h1><div class="page-sub">Mỗi tài khoản có đúng 1 vai trò. DRIVER gắn tài xế, CUSTOMER gắn khách hàng + công trình.</div></div>
   <a href="/app/admin/users/new" class="btn btn-primary"><i data-lucide="user-plus"></i>Tạo tài khoản</a>
 </div>
 <div class="tabs">
-  <a class="tab {% if not request.GET.role %}active{% endif %}" href="?">Tất cả</a>
-  {% for v, l in roles %}<a class="tab {% if request.GET.role == v %}active{% endif %}" href="?role={{ v }}">{{ l }}</a>{% endfor %}
+  <a class="tab {% if not request.GET.role %}active{% endif %}" href="?{% if q %}q={{ q|urlencode }}{% endif %}">Tất cả</a>
+  {% for v, l in roles %}<a class="tab {% if request.GET.role == v %}active{% endif %}" href="?role={{ v }}{% if q %}&q={{ q|urlencode }}{% endif %}">{{ l }}</a>{% endfor %}
 </div>
+<form class="toolbar" style="margin-bottom:14px" x-data>
+  {% if request.GET.role %}<input type="hidden" name="role" value="{{ request.GET.role }}">{% endif %}
+  <input class="input" type="search" name="q" value="{{ q }}" placeholder="Tìm theo tên, tài khoản, ID, email, SĐT..." style="width:320px"
+         @search="if (!$el.value) $el.form.submit()">
+  <button class="btn btn-soft">Tìm</button>
+  {% if q %}<a href="?{% if request.GET.role %}role={{ request.GET.role }}{% endif %}" class="btn btn-outline">Xóa lọc</a>{% endif %}
+  <span class="text-muted" style="font-size:13px">{{ users|length }} tài khoản</span>
+</form>
 <div class="card"><div class="table-wrap">
   <table class="tbl">
     <thead><tr><th>Tài khoản</th><th>Họ tên</th><th>Vai trò</th><th>Liên kết</th><th>Đăng nhập gần nhất</th><th>Trạng thái</th><th></th></tr></thead>
@@ -22,6 +31,7 @@
         <td>{% if not u.is_active %}<span class="badge badge-gray">Ngưng</span>{% elif u.locked_until and u.locked_until > now %}<span class="badge badge-danger">Đang khóa</span>{% else %}<span class="badge badge-success">Hoạt động</span>{% endif %}</td>
         <td class="num"><a href="/app/admin/users/{{ u.pk }}" class="btn btn-soft btn-sm">Sửa</a></td>
       </tr>
+    {% empty %}<tr><td colspan="7" class="empty">Không tìm thấy tài khoản phù hợp “{{ q }}”.</td></tr>
     {% endfor %}
     </tbody>
   </table>

@@ -162,6 +162,7 @@ BUSINESS = {
     "COUNT_VARIANCE_PCT": 1,                  # Lệch kiểm kê > 1% đếm lại
     "OVERDUE_DAYS_BLOCK": 30,                 # Nợ quá hạn > 30 ngày -> chờ duyệt SO
     "MILESTONE_LATE_MIN": 60,                 # Trễ mốc > 60 phút -> cảnh báo
+    "ETA_LOG_MIN": 15,                        # Quét trễ mốc chỉ cập nhật / ghi log ETA khi lệch >= 15 phút
     "SLOT_PROPOSE_HOURS": 4,                  # ETA <= 4h -> đề xuất lịch hạ tải
     "SERVICE_Z": 1.65,                        # Hệ số Z mặc định (95%)
     "VAT_RATE": 8,

@@ -71,6 +71,20 @@ class SalesOrder(TimeStamped):
         return self.total_amount
 
     @property
+    def delivery_status(self):
+        """Trạng thái hiển thị cho khách: suy ra từ chuyến giao để Portal luôn khớp app tài xế.
+
+        Trả về (code, nhãn): Đã xếp chuyến khi đơn được gắn vào lệnh điều xe, Đang giao khi xe đã xuất kho."""
+        if self.status in ("DRAFT", "PENDING_APPROVAL", "CANCELLED", "DELIVERED", "CLOSED"):
+            return self.status, self.get_status_display()
+        trips = {s.trip.status for s in self.stops.all() if s.status == "PENDING"}
+        if "IN_TRANSIT" in trips:
+            return "IN_TRANSIT", "Đang giao"
+        if trips & {"PLANNED", "PICKING", "READY"}:
+            return "SCHEDULED", "Đã xếp chuyến"
+        return self.status, self.get_status_display()
+
+    @property
     def stock_status(self):
         """Đủ / Thiếu / Backorder – tổng hợp từ các dòng."""
         st = set(self.lines.values_list("atp_status", flat=True))
@@ -210,7 +224,7 @@ class DeliveryLine(models.Model):
 
 
 class Picking(TimeStamped):
-    STATUS = [("DRAFT", "Chờ soạn"), ("IN_PROGRESS", "Đang soạn"), ("DONE", "Đã soạn")]
+    STATUS = [("DRAFT", "Chờ xử lý"), ("IN_PROGRESS", "Đang soạn"), ("DONE", "Đã soạn")]
     code = models.CharField(max_length=20, unique=True)
     trip = models.OneToOneField(DeliveryTrip, on_delete=models.CASCADE, related_name="picking")
     status = models.CharField(max_length=12, choices=STATUS, default="DRAFT")
