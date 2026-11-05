@@ -148,6 +148,8 @@ def po_form(request, pk=None):
         "suppliers": Supplier.objects.filter(is_active=True), "warehouses": Warehouse.objects.filter(is_active=True),
         "routes": Route.objects.filter(is_active=True),
         "products": Product.objects.filter(is_active=True).select_related("base_uom"),
+        "weights": {str(p.pk): [float(p.unit_weight_kg), float(p.truck or 30)] for p in
+                    Product.objects.filter(is_active=True).annotate(truck=F("rop_param__truck_ton"))},
         "prices": _supplier_prices(), "threshold": svc.param("PO_APPROVAL_THRESHOLD")})
 
 
@@ -184,6 +186,7 @@ def po_detail(request, pk):
     return render(request, "purchasing/po_detail.html", {
         "title": po.code, "po": po, "lines": po.lines.select_related("product__base_uom"),
         "trips": po.trips.select_related("vehicle", "driver"), "receipts": po.receipts.all(),
+        "est": svc.estimate_trips(po.lines.select_related("product")),
         "threshold": svc.param("PO_APPROVAL_THRESHOLD")})
 
 
@@ -220,7 +223,7 @@ def inbound_board(request):
                 timeline["rows"].append({"t": t, "left": (t.eta - start).total_seconds() / 86400 * 100})
         timeline["now"] = (now - start).total_seconds() / 86400 * 100
     ctx = {"title": "Bảng điều phối Inbound", "cols": cols, "trips": trips, "view": view, "timeline": timeline,
-           "now": now, "late": sum(1 for t in trips if t.is_late)}
+           "now": now, "late": sum(1 for t in trips if t.late_active)}
     if request.headers.get("HX-Request"):
         return render(request, "purchasing/_board_body.html", ctx)
     return render(request, "purchasing/inbound_board.html", ctx)
@@ -279,11 +282,62 @@ def trip_detail(request, pk):
                 UnloadingSlot.objects.filter(trip=trip).update(status="CANCELLED")
                 svc.cancel_doc(trip, request.POST.get("reason"))
         return redirect(request.path)
+    milestones, overdue_min = _plan_vs_actual(trip)
+    done = [m for m in milestones if m.actual_at]
+    late_ms = [m for m in done if m.delay_min > 0]
     return render(request, "purchasing/trip_detail.html", {
-        "title": trip.code, "trip": trip, "milestones": trip.milestones.all(), "next_ms": trip.next_milestone,
+        "title": trip.code, "trip": trip, "milestones": milestones, "next_ms": trip.next_milestone,
         "lines": trip.lines.select_related("po_line__product__base_uom"), "incidents": trip.incidents.all(),
-        "eta_logs": trip.eta_logs.all()[:10], "slot": UnloadingSlot.objects.filter(trip=trip).select_related("dock").first(),
-        "incident_types": TripIncident.TYPES, "receipts": trip.receipts.all()})
+        "eta_logs": _group_eta_logs(trip.eta_logs.all()[:200])[:10],
+        "slot": UnloadingSlot.objects.filter(trip=trip).select_related("dock").first(),
+        "incident_types": TripIncident.TYPES, "receipts": trip.receipts.all(), "overdue_min": overdue_min,
+        "load": _load_rating(trip),
+        "sla": {"done": len(done), "late": len(late_ms), "max_delay": max((m.delay_min for m in late_ms), default=0)}})
+
+
+def _plan_vs_actual(trip):
+    """Gắn cho mỗi mốc chưa làm: overdue_min (quá hạn bao lâu so với kế hoạch) và resched_at (dự kiến lại).
+
+    Độ trễ hiện tại = max(trễ của mốc thực tế gần nhất, thời gian quá hạn của mốc kế tiếp); các mốc còn lại
+    trượt theo đúng độ trễ đó. Kế hoạch gốc giữ nguyên để làm báo cáo SLA."""
+    now = timezone.now()
+    ms = list(trip.milestones.all())
+    active = trip.status in InboundTrip.ACTIVE
+    last_done = next((m for m in reversed(ms) if m.actual_at), None)
+    delay = max(0, last_done.delay_min if last_done else 0)
+    pending = [m for m in ms if not m.actual_at]
+    overdue = 0
+    if active and pending and now > pending[0].planned_at:
+        overdue = int((now - pending[0].planned_at).total_seconds() // 60)
+        delay = max(delay, overdue)
+    for m in pending:
+        m.overdue_min = int((now - m.planned_at).total_seconds() // 60) if active and now > m.planned_at else 0
+        m.resched_at = m.planned_at + timedelta(minutes=delay) if active and delay else None
+    return ms, overdue
+
+
+def _group_eta_logs(logs):
+    """Gom các dòng log ETA liên tiếp cùng lý do (dữ liệu cũ do quét 5' sinh ra) thành 1 dòng kèm số lần."""
+    out = []
+    for e in logs:
+        if out and out[-1]["reason"] == e.reason and e.reason == svc.AUTO_ETA_REASON:
+            out[-1]["n"] += 1
+            out[-1]["first_at"] = e.at
+            continue
+        out.append({"reason": e.reason, "new_eta": e.new_eta, "at": e.at, "first_at": e.at, "n": 1})
+    return out
+
+
+def _load_rating(trip):
+    pct = trip.load_pct
+    cap = trip.vehicle.capacity_ton
+    if pct >= 90:
+        label, tone = "Tối ưu tải trọng", "success"
+    elif pct >= 70:
+        label, tone = "Khá – còn có thể ghép thêm hàng", "warn"
+    else:
+        label, tone = "Chở dưới tải – hiệu quả khai thác thấp", "danger"
+    return {"pct": pct, "label": label, "tone": tone, "free": max(cap - trip.total_ton, 0), "cap": cap}
 
 
 # ------------------------------------------------------------------ Lịch hạ tải (MH-26)

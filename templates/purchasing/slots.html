@@ -55,30 +55,38 @@ function slotGrid() {
     init() {
       const grid = document.getElementById("grid");
       const cells = grid.querySelectorAll(".cell");
-      const firstRowCell = idx => cells[idx];
       const items = {{ items_json|safe }};
-      const cols = {{ docks|length }};
+      const cols = {{ docks|length }}, rows = {{ rows }};
+      // Toạ độ dọc của mốc "row" (đơn vị 15'): lấy theo đúng ô của lưới (các hàng có thể cao khác nhau do viền giờ)
+      const yAt = row => {
+        const r = Math.min(Math.floor(row), rows), cell = cells[Math.min(r, rows - 1) * cols];
+        if (r >= rows) return cell.offsetTop + cell.offsetHeight;
+        return cell.offsetTop + (row - r) * cell.offsetHeight;
+      };
       requestAnimationFrame(() => {
-        const head = grid.querySelector(".hcell").offsetHeight;
         items.forEach(it => {
-          const ref = cells[Math.floor(it.row) * cols + it.col] || cells[it.col];
-          const rowH = cells[cols] ? cells[cols].offsetTop - cells[0].offsetTop : 22;
+          const ref = cells[it.col];
+          const top = yAt(it.row), bottom = yAt(it.row + it.h);
           const el = document.createElement("a");
           el.className = "slot " + it.status;
           el.href = "/app/inbound/trips/" + it.trip_id;
+          el.title = `${it.code} · ${it.plate} · ${it.start}–${it.end}`;
           el.draggable = it.status === "PROPOSED" || it.status === "CONFIRMED";
           el.style.left = (ref.offsetLeft + 3) + "px";
           el.style.width = (ref.offsetWidth - 6) + "px";
-          el.style.top = (cells[0].offsetTop + it.row * rowH + 1) + "px";
-          el.style.height = Math.max(20, it.h * rowH - 2) + "px";
-          el.innerHTML = `<b>${it.code}</b> · ${it.plate}<div style="opacity:.7">${it.start}–${it.end}</div>`;
+          el.style.top = (top + 1) + "px";
+          el.style.height = Math.max(18, bottom - top - 2) + "px";
+          // thẻ ngắn (≤ 30'): 2 dòng gọn, mỗi dòng 1 hàng chữ để nội dung nằm trọn trong khung giờ, không tràn xuống mốc kế tiếp
+          el.innerHTML = it.h <= 2
+            ? `<b>${it.code}</b><div style="opacity:.75">${it.start}–${it.end} · ${it.plate}</div>`
+            : `<b>${it.code}</b> · ${it.plate}<div style="opacity:.7">${it.start}–${it.end}</div>`;
+          if (it.h <= 2) el.classList.add("compact");
           el.addEventListener("dragstart", e => e.dataTransfer.setData("text/plain", it.id));
           grid.appendChild(el);
         });
         {% if now_row is not None %}
         const nl = document.createElement("div"); nl.className = "now-line";
-        const rowH = cells[cols] ? cells[cols].offsetTop - cells[0].offsetTop : 22;
-        nl.style.top = (cells[0].offsetTop + {{ now_row }} * rowH) + "px"; grid.appendChild(nl);
+        nl.style.top = yAt({{ now_row }}) + "px"; grid.appendChild(nl);
         {% endif %}
       });
     },

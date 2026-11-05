@@ -20,6 +20,7 @@ from .models import (Allocation, DeliveryStop, DeliveryTrip, GoodsIssue, Picking
                      SalesReturn)
 
 SALES = ("DIRECTOR", "DISPATCHER", "ACCOUNTANT")
+WAREHOUSE_OPS = ("WAREHOUSE", "ADMIN")  # điều phối chỉ phát lệnh soạn; soạn & xuất kho do Thủ kho xác nhận
 
 
 def _dec(v, default="0"):
@@ -42,6 +43,13 @@ def save_so_lines(so, products, qtys, prices, user_can_price=True):
         raise BusinessError("Đơn cần ít nhất 1 dòng hàng.")
     so.recalc_total()
     so.save()
+
+
+def _atp_msg(so):
+    """Thông báo sau khi chạy ATP: chỉ báo phần thiếu = SL đặt − lượng đã giữ."""
+    short = [f"{l.product.code} giữ {l.reserved_qty.normalize():f}, thiếu {l.backorder_qty.normalize():f}"
+             for l in so.lines.select_related("product") if l.backorder_qty > 0]
+    return "Đã xác nhận đơn & giữ hàng." + (" Thiếu hàng: " + "; ".join(short) + "." if short else "")
 
 
 # ------------------------------------------------------------------ SO (MH-31)
@@ -97,7 +105,7 @@ def so_form(request, pk=None):
             save_so_lines(so, request.POST.getlist("product"), request.POST.getlist("qty"), request.POST.getlist("price"))
         if request.POST.get("submit"):
             ok = svc.submit_so(so, request.user)
-            messages.success(request, "Đã xác nhận đơn & giữ hàng." if ok else "Đơn cần Director duyệt: " + "; ".join(so.approval_reasons))
+            messages.success(request, _atp_msg(so) if ok else "Đơn cần Director duyệt: " + "; ".join(so.approval_reasons))
         else:
             messages.success(request, f"Đã lưu nháp {so.code}.")
         return redirect(f"/app/sales/orders/{so.pk}")
@@ -123,7 +131,7 @@ def so_detail(request, pk):
             raise BusinessError("Kế toán chỉ được xem đơn bán.")
         if op == "submit":
             ok = svc.submit_so(so, request.user)
-            messages.success(request, "Đã xác nhận & chạy ATP giữ hàng." if ok else "Đơn chuyển Director duyệt.")
+            messages.success(request, _atp_msg(so) if ok else "Đơn chuyển Director duyệt.")
         elif op in ("approve", "reject"):
             if request.user.role not in ("DIRECTOR", "ADMIN"):
                 raise BusinessError("Chỉ Director duyệt đơn.")
@@ -238,12 +246,14 @@ def picking_detail(request, pk):
     gi = GoodsIssue.objects.filter(trip=trip).first()
     if request.method == "POST":
         op = request.POST.get("op")
+        if request.user.role not in WAREHOUSE_OPS:
+            raise BusinessError("Chỉ Thủ kho được xác nhận soạn hàng và xuất kho.")
         if op == "start" and pk_obj.status == "DRAFT":
             pk_obj.status, pk_obj.picker = "IN_PROGRESS", request.user
             pk_obj.save()
         elif op == "confirm":
             gi = svc.confirm_picking(pk_obj, request.user, {l.pk: request.POST.get(f"p_{l.pk}") for l in pk_obj.lines.all()})
-            messages.success(request, f"Đã soạn xong. Phiếu xuất {gi.code} sẵn sàng ghi sổ.")
+            messages.success(request, f"Đã xác nhận soạn. Phiếu xuất {gi.code} chờ xác nhận xuất kho.")
         elif op == "post_gi" and gi:
             svc.post_goods_issue(gi, request.user)
             messages.success(request, f"Đã xuất kho {gi.code}. Chuyến chuyển sang Đang giao.")
@@ -252,7 +262,7 @@ def picking_detail(request, pk):
     return render(request, "sales/picking_detail.html", {
         "title": pk_obj.code, "pk": pk_obj, "trip": trip, "lines": lines, "gi": gi,
         "gi_lines": gi.lines.select_related("product", "location") if gi else [],
-        "stops": trip.stops.select_related("so__customer", "site")})
+        "stops": trip.stops.select_related("so__customer", "site"), "can_operate": request.user.role in WAREHOUSE_OPS})
 
 
 # ------------------------------------------------------------------ Trả hàng (RT)

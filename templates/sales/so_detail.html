@@ -24,13 +24,13 @@
     <div class="card">
       <div class="card-head"><h3 class="card-title">Dòng hàng & ATP</h3></div>
       <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã giữ</th><th class="num">Đã xếp chuyến</th><th class="num">Đã giao</th><th class="num">Đã lập HĐ</th><th>Tình trạng</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
+        <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã giữ</th><th class="num">Thiếu</th><th class="num">Đã xếp chuyến</th><th class="num">Đã giao</th><th class="num">Đã lập HĐ</th><th>Tình trạng</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
         <tbody>{% for l in lines %}<tr class="{% if l.atp_status == 'BACKORDER' %}row-danger{% elif l.atp_status == 'SHORT' %}row-warn{% endif %}">
           <td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
-          <td class="num">{{ l.reserved_qty|qty }}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
-          <td>{% if l.atp_status %}{% code_badge l.atp_status l.get_atp_status_display %}{% if l.backorder_qty %}<div class="text-muted" style="font-size:11px">thiếu {{ l.backorder_qty|qty }}</div>{% endif %}{% else %}—{% endif %}</td>
+          <td class="num">{{ l.reserved_qty|qty }}</td><td class="num" style="{% if l.backorder_qty %}color:var(--danger-ink);font-weight:700{% endif %}">{{ l.backorder_qty|qty }}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
+          <td>{% if l.atp_status %}{% if l.atp_status == "BACKORDER" and l.reserved_qty %}{% code_badge "SHORT" "Giữ một phần" %}<div class="text-muted" style="font-size:11px">chờ hàng về {{ l.backorder_qty|qty }}</div>{% else %}{% code_badge l.atp_status l.get_atp_status_display %}{% endif %}{% else %}—{% endif %}</td>
           <td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
-        <tfoot><tr><td colspan="8">Tổng cộng</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>
+        <tfoot><tr><td colspan="9">Tổng cộng</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>
       </table></div></div>
     </div>
     <div class="card">

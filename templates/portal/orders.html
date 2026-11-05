@@ -5,7 +5,7 @@
 <div class="card"><table class="tbl">
   <thead><tr><th>Mã đơn</th><th>Công trình</th><th>Loại</th><th>Ngày đặt</th><th>Ngày cần</th><th>Trạng thái</th></tr></thead>
   <tbody>{% for o in orders %}<tr><td><a href="/portal/orders/{{ o.pk }}" class="code">{{ o.code }}</a></td><td>{{ o.site.name }}</td><td>{% if o.is_weekly_plan %}Kế hoạch tuần{% else %}Đơn hàng{% endif %}</td>
-    <td>{{ o.order_date|vn_d }}</td><td>{{ o.requested_date|vn_d }}</td><td>{% status_badge o %}</td></tr>
+    <td>{{ o.order_date|vn_d }}</td><td>{{ o.requested_date|vn_d }}</td><td>{% with ds=o.delivery_status %}{% code_badge ds.0 ds.1 %}{% endwith %}</td></tr>
   {% empty %}<tr><td colspan="6" class="empty">Chưa có đơn hàng.</td></tr>{% endfor %}</tbody>
 </table></div>
 {% endblock %}

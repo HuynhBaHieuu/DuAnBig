@@ -104,12 +104,12 @@ def stock_summary(products=None):
         av = oh - rs
         proj = av + inc
         d_avg = rp.d_avg if rp else D0
-        ss = (rp.manual_ss if rp and rp.manual_ss is not None else rp.ss) if rp else D0
-        rop = (rp.manual_rop if rp and rp.manual_rop is not None else rp.rop) if rp else D0
+        ss = rp.eff_ss if rp else D0
+        rop = rp.eff_rop if rp else D0
         out[p.pk] = {
             "product": p, "on_hand": oh, "quarantine": quarantine.get(p.pk) or D0, "reserved": rs, "available": av,
             "incoming": inc, "projected": proj, "d_avg": d_avg, "ss": ss, "rop": rop,
-            "days_cover": (av / d_avg) if d_avg else None,
+            "days_cover": (av / d_avg) if d_avg else None, "locked": bool(rp and rp.manual_lock),
             "suggested_q": rp.suggested_q if rp else D0,
             "level": "STOCKOUT" if av <= 0 else ("BELOW_SS" if proj <= ss else ("BELOW_ROP" if proj <= rop else "OK")),
         }
@@ -143,22 +143,49 @@ def default_storage_location(product, warehouse):
 # SS / ROP (Celery 01:00 hằng đêm)
 #   Davg, σD từ lịch sử xuất; LT, σLT từ lead time thực tế các GRN
 #   FULL: SS = Z * sqrt(LT * σD² + Davg² * σLT²)
-#   ROP = Davg * LT + SS ;  Q = Davg * (LT + review) + SS - projected (>= 0)
+#   ROP = Davg * LT + SS ;  Q = max(MOQ; Davg * chu kỳ đặt) ; PR = max(Q; ROP + Q - projected)
+#   Khóa thủ công: vẫn tính SS/ROP tự động để tham khảo nhưng ngưỡng áp dụng là số nhập tay.
 # ----------------------------------------------------------------------------------------------
+def outlier_cut(values):
+    """Ngưỡng phiếu xuất đột biến (modified z-score > 3,5): trung vị + 3,5 × 1,4826 × MAD, tối thiểu 3 × trung vị.
+
+    Dùng trung vị / MAD vì không bị chính các phiếu đột biến kéo lệch như trung bình hay IQR. Dưới 4 phiếu thì không loại."""
+    if len(values) < 4:
+        return None
+    med = statistics.median(values)
+    mad = statistics.median(abs(v - med) for v in values)
+    return max(med + 3.5 * 1.4826 * mad, 3 * med)
+
+
+def demand_series(rp, today=None):
+    """Nhu cầu xuất theo ngày trong history_days ngày trước hôm nay.
+
+    Trả về (ngày, nhu cầu gốc, nhu cầu dùng tính, các phiếu bị loại, ngưỡng loại)."""
+    today = today or timezone.localdate()
+    start = today - timedelta(days=rp.history_days)
+    types = ("OUT_SALE",) if rp.demand_source == "SALE" else OUT_DEMAND_TYPES
+    moves = list(StockMove.objects.filter(product_id=rp.product_id, move_type__in=types, at__date__gte=start,
+                                          at__date__lt=today).values_list("at", "qty", "note"))
+    cut = outlier_cut([float(-q) for _, q, _ in moves]) if rp.exclude_outliers else None
+    raw, used, dropped = defaultdict(float), defaultdict(float), []
+    for at, q, note in moves:
+        d = timezone.localtime(at).date()
+        raw[d] += float(-q)
+        if cut is not None and float(-q) > cut:
+            dropped.append((d, float(-q), note))
+        else:
+            used[d] += float(-q)
+    days = [start + timedelta(days=i) for i in range(rp.history_days)]
+    return days, [raw[d] for d in days], [used[d] for d in days], dropped, cut
+
+
 def calc_param(product, today=None):
     from apps.purchasing.models import GoodsReceiptLine
 
-    today = today or timezone.localdate()
     rp, _ = ReplenishmentParam.objects.get_or_create(product=product, defaults={"z": param("SERVICE_Z")})
-    start = today - timedelta(days=rp.history_days)
-
-    daily = defaultdict(lambda: D0)
-    for at, q in StockMove.objects.filter(product=product, move_type__in=OUT_DEMAND_TYPES, at__date__gte=start,
-                                          at__date__lt=today).values_list("at", "qty"):
-        daily[timezone.localtime(at).date()] += -q
-    series = [float(daily.get(start + timedelta(days=i), 0)) for i in range(rp.history_days)]
+    _, _, series, _, _ = demand_series(rp, today)
     d_avg = statistics.fmean(series) if series else 0.0
-    d_std = statistics.pstdev(series) if len(series) > 1 else 0.0
+    d_std = statistics.stdev(series) if len(series) > 1 else 0.0  # mẫu – khớp STDEV.S của Excel
 
     lts = [float(x) for x in GoodsReceiptLine.objects.filter(product=product, gr__status="POSTED",
                                                               gr__lead_time_days__isnull=False)
@@ -200,8 +227,7 @@ def run_replenishment(today=None):
     for p in products:
         s = summary[p.pk]
         rp = p.rop_param
-        rp.suggested_q = max(D0, (s["d_avg"] * (rp.lead_time_days + rp.review_days) + s["ss"] - s["projected"])
-                             .quantize(Decimal("1")))
+        rp.suggested_q = rp.pr_qty(s["projected"])
         rp.save(update_fields=["suggested_q"])
         y_demand = -(StockMove.objects.filter(product=p, move_type__in=OUT_DEMAND_TYPES,
                                                at__date=today - timedelta(days=1)).aggregate(s=Sum("qty"))["s"] or D0)

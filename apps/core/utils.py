@@ -1,5 +1,6 @@
 """Tiện ích cho view: phân trang, xử lý lỗi nghiệp vụ, xuất Excel, PDF."""
 import io
+import unicodedata
 from functools import wraps
 
 from django.contrib import messages
@@ -9,6 +10,12 @@ from django.shortcuts import redirect
 from django.template.loader import render_to_string
 
 from .services import BusinessError
+
+
+def fold(text):
+    """So khớp tiếng Việt không phân biệt hoa/thường và dấu: 'Lý Thị' -> 'ly thi'."""
+    text = unicodedata.normalize("NFD", str(text or "").replace("đ", "d").replace("Đ", "D"))
+    return "".join(c for c in text if unicodedata.category(c) != "Mn").casefold().strip()
 
 
 def paginate(request, qs, per_page=20):
@@ -47,6 +54,10 @@ def excel_response(filename, headers, rows, title=None):
         c.alignment = Alignment(horizontal="center")
     for r in rows:
         ws.append([float(v) if hasattr(v, "quantize") else v for v in r])
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            if c.is_date:
+                c.number_format = "yyyy-mm-dd"
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = max(12, min(45, max(len(str(c.value or "")) for c in col) + 2))
     buf = io.BytesIO()

@@ -1,4 +1,5 @@
 """Luồng A: PR -> PO -> Chuyến Inbound (mốc thủ công + ảnh) -> Lịch hạ tải -> GRN -> Tồn kho."""
+import math
 from collections import defaultdict
 from datetime import timedelta
 from decimal import Decimal
@@ -9,6 +10,7 @@ from django.utils import timezone
 
 from apps.core.services import BusinessError, audit, next_doc_no, param, raise_alert, resolve_alerts
 from apps.inventory.services import default_storage_location, post_stock_move
+from apps.sales.services import check_image
 from apps.masterdata.models import CarrierRate, Dock, Location, SupplierPrice
 
 from .models import (Claim, GoodsReceipt, GoodsReceiptLine, InboundTrip, InboundTripLine, PurchaseOrder,
@@ -24,6 +26,16 @@ def latest_price(supplier, product):
     sp = SupplierPrice.objects.filter(supplier=supplier, product=product, valid_from__lte=today) \
         .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today)).order_by("-valid_from").first()
     return sp.price if sp else product.standard_cost
+
+
+def estimate_trips(lines):
+    """Số chuyến ước tính cho PO: tổng tấn / tải trọng xe chuẩn (lấy theo tham số SS/ROP của vật tư, mặc định 30 t)."""
+    from apps.inventory.models import ReplenishmentParam
+    lines = list(lines)
+    ton = sum((l.qty * l.product.unit_weight_kg for l in lines), D0) / 1000
+    trucks = {rp.product_id: rp.truck_ton for rp in ReplenishmentParam.objects.filter(product__in=[l.product for l in lines])}
+    truck = min([trucks.get(l.product_id) or Decimal(30) for l in lines] or [Decimal(30)])
+    return {"ton": ton, "truck": truck, "trips": math.ceil(ton / truck) if ton and truck else 0}
 
 
 @transaction.atomic
@@ -151,10 +163,19 @@ def create_inbound_trip(po, route, vehicle, driver, planned_departure, qty_by_li
 MILESTONE_STATUS = {"FACTORY": "AT_FACTORY", "LOADED": "LOADED", "CHECKPOINT": "IN_TRANSIT", "GATE": "ARRIVED"}
 
 
-def set_eta(trip, new_eta, reason):
-    if trip.eta and abs((trip.eta - new_eta).total_seconds()) < 60:
+AUTO_ETA_REASON = "Trễ mốc – ước tính lại"
+
+
+def set_eta(trip, new_eta, reason, min_change_min=1):
+    """Đổi ETA + ghi lịch sử. Lần ước tính lại tự động liên tiếp được gom vào 1 dòng log thay vì sinh dòng mới."""
+    if trip.eta and abs((trip.eta - new_eta).total_seconds()) < min_change_min * 60:
         return
-    TripEtaLog.objects.create(trip=trip, old_eta=trip.eta, new_eta=new_eta, reason=reason)
+    last = trip.eta_logs.order_by("-at", "-id").first()
+    if reason == AUTO_ETA_REASON and last and last.reason == reason:
+        last.new_eta, last.at = new_eta, timezone.now()
+        last.save(update_fields=["new_eta", "at"])
+    else:
+        TripEtaLog.objects.create(trip=trip, old_eta=trip.eta, new_eta=new_eta, reason=reason)
     trip.eta = new_eta
     trip.save(update_fields=["eta", "updated_at"])
     if trip.status not in ("ARRIVED", "UNLOADING", "RECEIVED", "CANCELLED"):
@@ -190,6 +211,7 @@ def record_milestone(trip, milestone, user, photo=None, note="", loaded_qty=None
         raise BusinessError("Phải cập nhật mốc theo đúng thứ tự.")
     if milestone.photo_required and not photo:
         raise BusinessError(f"Mốc '{milestone.name}' bắt buộc chụp ảnh xác thực.")
+    check_image(photo, "Ảnh xác thực")
     if milestone.code == "LOADED":
         for line in trip.lines.all():
             q = (loaded_qty or {}).get(line.pk)
@@ -215,6 +237,7 @@ def record_milestone(trip, milestone, user, photo=None, note="", loaded_qty=None
 
 
 def report_incident(trip, user, incident_type, description, delay_minutes=0, photo=None):
+    check_image(photo, "Ảnh sự cố")
     inc = TripIncident.objects.create(trip=trip, incident_type=incident_type, description=description,
                                       delay_minutes=delay_minutes or 0, photo=photo, reported_by=user)
     raise_alert("TRIP_INCIDENT", f"Sự cố chuyến {trip.code}: {inc.get_incident_type_display()}", description,
@@ -250,7 +273,8 @@ def scan_inbound():
                         ref_id=trip.pk, url=f"/app/inbound/trips/{trip.pk}", target_role="PURCHASER")
             # chưa có mốc -> đẩy ETA theo thời gian trễ thực tế
             offset_left = float(trip.route.std_hours) * 60 - (nxt.planned_at - trip.planned_departure).total_seconds() / 60
-            set_eta(trip, now + timedelta(minutes=max(0, offset_left)), "Trễ mốc – ước tính lại")
+            # chỉ cập nhật khi ETA lệch đáng kể (mặc định ≥ 15') – tránh ghi log mỗi lần quét 5'
+            set_eta(trip, now + timedelta(minutes=max(0, offset_left)), AUTO_ETA_REASON, param("ETA_LOG_MIN"))
             n += 1
         elif trip.eta and trip.eta - now <= timedelta(hours=param("SLOT_PROPOSE_HOURS")) and not hasattr_slot(trip):
             propose_slot(trip)
@@ -330,8 +354,9 @@ def check_in(slot, user):
         trip.arrived_at = now
     slot.status, slot.checked_in_at = "CHECKED_IN", now
     slot.save()
-    trip.status = "UNLOADING"
+    trip.status, trip.is_late = "UNLOADING", False  # đã tới kho: hết trạng thái "trễ mốc" (độ trễ vẫn lưu ở từng mốc)
     trip.save()
+    resolve_alerts("MILESTONE_LATE", "inbound_trip", trip.pk)
     gr = GoodsReceipt.objects.create(code=next_doc_no("GRN"), trip=trip, po=trip.po, warehouse=trip.po.warehouse,
                                      received_at=now, created_by=user)
     for tl in trip.lines.select_related("po_line__product"):

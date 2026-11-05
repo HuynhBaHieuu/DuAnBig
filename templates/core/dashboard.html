@@ -37,10 +37,10 @@
         <thead><tr><th>Chuyến</th><th>NCC</th><th>Xe</th><th>Trạng thái</th><th>ETA</th></tr></thead>
         <tbody>
         {% for t in recent_trips %}
-          <tr class="{% if t.is_late %}row-danger{% endif %}">
+          <tr class="{% if t.late_active %}row-danger{% endif %}">
             <td><a class="code" href="/app/inbound/trips/{{ t.pk }}">{{ t.code }}</a></td>
             <td>{{ t.po.supplier.name }}</td><td>{{ t.vehicle.plate }}</td>
-            <td>{% status_badge t %} {% if t.is_late %}<span class="badge badge-danger">Trễ mốc</span>{% endif %}</td>
+            <td>{% status_badge t %} {% if t.late_active %}<span class="badge badge-danger">Trễ mốc</span>{% endif %}</td>
             <td>{{ t.eta|vn_dt }}</td>
           </tr>
         {% endfor %}

@@ -16,7 +16,7 @@ from .context_processors import alerts_for
 from .models import Alert, AuditLog, Role, SystemParam, User
 from .permissions import role_required
 from .services import audit, param
-from .utils import paginate
+from .utils import fold, paginate
 
 D0 = Decimal(0)
 
@@ -190,7 +190,7 @@ def dashboard(request):
             {"label": "PO đang mở", "value": PurchaseOrder.objects.filter(status__in=["APPROVED", "SENT", "PARTIAL"]).count(),
              "icon": "shopping-cart", "tone": "info"},
             {"label": "Chuyến Inbound đang chạy", "value": active_trips.count(), "icon": "truck", "tone": "warn"},
-            {"label": "Chuyến trễ mốc", "value": active_trips.filter(is_late=True).count(), "icon": "alarm-clock",
+            {"label": "Chuyến trễ mốc", "value": active_trips.filter(is_late=True, status__in=InboundTrip.ACTIVE).count(), "icon": "alarm-clock",
              "tone": "danger"},
         ]
         todo("Đề xuất mua (PR) cần lập PO", PurchaseRequisition.objects.filter(status="SUBMITTED").count(),
@@ -200,7 +200,7 @@ def dashboard(request):
         todo("PO đã gửi – chưa xếp chuyến",
              PurchaseOrder.objects.filter(status__in=["SENT", "PARTIAL"], lines__qty__gt=F("lines__qty_on_trips")).distinct().count(),
              "/app/purchase/orders?status=SENT", "info", "truck")
-        todo("Chuyến trễ mốc hành trình", active_trips.filter(is_late=True).count(), "/app/inbound/board", "danger",
+        todo("Chuyến trễ mốc hành trình", active_trips.filter(is_late=True, status__in=InboundTrip.ACTIVE).count(), "/app/inbound/board", "danger",
              "alarm-clock")
         todo("Sản phẩm dưới ROP", len(below), "/app/inventory/replenishment?level=low", "danger", "trending-down")
         labels, values = _series_by_day(PurchaseOrder.objects.exclude(status__in=["DRAFT", "CANCELLED"]),
@@ -322,6 +322,9 @@ def search(request):
     from apps.sales.models import SalesOrder
 
     q = request.GET.get("q", "").strip()
+    if not q:  # xóa từ khóa -> quay lại trang danh sách trước đó (dữ liệu đầy đủ), không báo "không có kết quả"
+        back = request.META.get("HTTP_REFERER", "")
+        return redirect(back if back and "/app/search" not in back else "/app/dashboard")
     results = []
     if q:
         for model, url, label in [(PurchaseOrder, "/app/purchase/orders/{}", "Đơn mua"),
@@ -336,6 +339,10 @@ def search(request):
             results.append({"type": "Khách hàng", "code": o.code, "name": o.name, "url": f"/app/sales/orders?q={o.code}"})
         for o in Supplier.objects.filter(Q(code__icontains=q) | Q(name__icontains=q))[:10]:
             results.append({"type": "Nhà cung cấp", "code": o.code, "name": o.name, "url": f"/app/purchase/orders?q={o.code}"})
+        if request.user.role == "ADMIN":
+            for u in match_users(q)[:10]:
+                results.append({"type": "Tài khoản", "code": u.username, "name": f"{u.display_name} · {u.get_role_display()}",
+                                "url": f"/app/admin/users/{u.pk}"})
     return render(request, "core/search.html", {"title": f"Tìm kiếm “{q}”", "results": results, "q": q})
 
 
@@ -358,13 +365,27 @@ class UserForm(forms.ModelForm):
         return c
 
 
+def match_users(q, qs=None):
+    """Tìm tài khoản theo tên đăng nhập, họ tên, ID, email, SĐT, tài xế / khách hàng liên kết.
+
+    Lọc bằng Python để không phân biệt dấu ('ly' khớp 'Lý') trên cả SQLite lẫn PostgreSQL – bảng user nhỏ."""
+    qs = qs if qs is not None else User.objects.select_related("driver", "customer")
+    key = fold(q)
+    if not key:
+        return list(qs)
+    return [u for u in qs if key in fold(" ".join(str(x) for x in (
+        u.pk, u.username, u.full_name, u.first_name, u.last_name, u.email, u.phone,
+        u.driver.name if u.driver else "", u.customer.name if u.customer else "", u.get_role_display())))]
+
+
 @role_required("ADMIN")
 def users(request):
     qs = User.objects.select_related("driver", "customer").order_by("role", "username")
     if request.GET.get("role"):
         qs = qs.filter(role=request.GET["role"])
-    return render(request, "core/users.html", {"title": "Tài khoản & phân quyền", "users": qs, "roles": Role.choices,
-                                               "now": timezone.now()})
+    q = request.GET.get("q", "").strip()
+    return render(request, "core/users.html", {"title": "Tài khoản & phân quyền", "users": match_users(q, qs),
+                                               "roles": Role.choices, "now": timezone.now(), "q": q})
 
 
 @role_required("ADMIN")

@@ -32,7 +32,7 @@
       <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã xếp chuyến</th><th class="num">Đã nhận</th><th class="num">Đã lập bill</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
       <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
         <td class="num">{{ l.qty_on_trips|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_billed|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
-      <tfoot><tr><td colspan="6">Tổng cộng</td><td class="num">{{ po.total_amount|vnd }}</td></tr></tfoot>
+      <tfoot><tr><td colspan="6">Tổng cộng · {{ est.ton|floatformat:2 }} tấn · <b>số chuyến ước tính: {{ est.trips }}</b> <span class="text-muted">(xe {{ est.truck|floatformat:0 }} t)</span></td><td class="num">{{ po.total_amount|vnd }}</td></tr></tfoot>
     </table></div>
   </div>
   <div class="grid" style="align-content:start">

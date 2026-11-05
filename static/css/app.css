@@ -249,6 +249,8 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .slotgrid .cell.drop { background: var(--primary-50); }
 .slot { position: absolute; border-radius: 8px; padding: 6px 8px; font-size: 12px; cursor: grab; overflow: hidden;
   border-left: 4px solid; z-index: 3; box-shadow: var(--shadow); }
+.slot.compact { padding: 3px 8px; line-height: 1.3; }
+.slot.compact > * { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .slot.PROPOSED { background: var(--primary-50); border-color: var(--primary); }
 .slot.CONFIRMED { background: var(--info-bg); border-color: var(--info); }
 .slot.CHECKED_IN { background: var(--warn-bg); border-color: var(--warn); }

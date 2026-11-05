@@ -35,7 +35,7 @@ def home(request):
     debt, overdue = customer_debt(cust)
     return render(request, "portal/home.html", {
         "title": "Tổng quan", "cust": cust, "sites": sites, "open_count": open_orders.count(),
-        "recent": orders.select_related("site")[:6], "upcoming": upcoming, "debt": debt, "overdue": overdue,
+        "recent": orders.select_related("site").prefetch_related("stops__trip")[:6], "upcoming": upcoming, "debt": debt, "overdue": overdue,
         "delivered_month": orders.filter(status="DELIVERED", updated_at__date__gte=timezone.localdate().replace(day=1)).count()})
 
 
@@ -75,7 +75,7 @@ def order_new(request):
 @login_required
 def orders(request):
     cust, sites = _ctx(request)
-    qs = SalesOrder.objects.filter(customer=cust, site__in=sites).select_related("site")
+    qs = SalesOrder.objects.filter(customer=cust, site__in=sites).select_related("site").prefetch_related("stops__trip")
     if request.GET.get("site"):
         qs = qs.filter(site_id=request.GET["site"])
     return render(request, "portal/orders.html", {"title": "Theo dõi đơn hàng", "orders": qs[:100], "sites": sites})
@@ -85,11 +85,15 @@ def orders(request):
 def order_detail(request, pk):
     cust, sites = _ctx(request)
     so = get_object_or_404(SalesOrder.objects.select_related("site"), pk=pk, customer=cust, site__in=sites)
-    stops = so.stops.select_related("trip__vehicle", "trip__driver").prefetch_related("lines__so_line__product")
+    stops = so.stops.select_related("trip__vehicle", "trip__driver").prefetch_related("lines__so_line__product")         .exclude(trip__status="CANCELLED")
+    code, label = so.delivery_status
+    has_trip = stops.exists()
     steps = [("Đã gửi", True), ("Đã xác nhận", so.status not in ("DRAFT", "PENDING_APPROVAL", "CANCELLED")),
+             ("Đã xếp chuyến", has_trip),
              ("Đang giao", stops.filter(trip__status__in=["IN_TRANSIT", "COMPLETED"]).exists()),
              ("Đã giao", so.status in ("DELIVERED", "CLOSED"))]
     return render(request, "portal/order_detail.html", {"title": so.code, "so": so, "stops": stops, "steps": steps,
+                                                        "ds_code": code, "ds_label": label,
                                                         "lines": so.lines.select_related("product__base_uom"),
                                                         "show_price": cust.customer_type == "B2B"})
 
