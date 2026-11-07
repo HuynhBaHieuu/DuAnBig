@@ -75,8 +75,47 @@ def stock_locations(request, pk):
     """HTMX: chi tiết tồn theo vị trí (FIFO)."""
     quants = StockQuant.objects.filter(product_id=pk, on_hand__gt=0).select_related("location__warehouse") \
         .order_by("in_date_first")
-    return render(request, "inventory/_quants.html", {"quants": quants, "pk": pk,
-                                                      "locations": Location.objects.filter(is_active=True)})
+    product = get_object_or_404(Product.objects.select_related("base_uom"), pk=pk)
+    return render(request, "inventory/_quants.html", {
+        "quants": quants, "pk": pk, "product": product,
+        "locations": Location.objects.filter(is_active=True).select_related("warehouse")
+        .order_by("loc_type", "warehouse__name", "code")})
+
+
+@role_required("WAREHOUSE", "DIRECTOR")
+@require_POST
+@business_action
+def stock_add(request):
+    """Thêm tồn thực (nhập điều chỉnh tăng) – vd. khai báo tồn đầu kỳ, hàng phát hiện thừa.
+
+    Đi qua phiếu điều chỉnh ADJ + post_stock_move để có sổ kho / nhật ký; có hàng -> tự giữ cho đơn backorder."""
+    from apps.sales.services import retry_backorders
+
+    p = get_object_or_404(Product, pk=request.POST["product"])
+    loc = get_object_or_404(Location, pk=request.POST["location"], is_active=True)
+    qty = _num(request, "qty")
+    if not qty or qty <= 0:
+        raise BusinessError("Số lượng thêm phải lớn hơn 0.")
+    reason = request.POST.get("reason", "").strip()
+    if not reason:
+        raise BusinessError("Phải nhập lý do thêm tồn.")
+    cost = _num(request, "unit_cost") if request.user.can_see_cost else None
+    with transaction.atomic():
+        prod = Product.objects.select_for_update().get(pk=p.pk)
+        if cost is None:
+            cost = prod.avg_cost or prod.standard_cost
+        total = StockQuant.objects.filter(product=prod).aggregate(s=Sum("on_hand"))["s"] or Decimal(0)
+        if total + qty > 0:  # giá vốn bình quân gia quyền như nhập mua
+            prod.avg_cost = ((total * prod.avg_cost + qty * cost) / (total + qty)).quantize(Decimal(1))
+            prod.save(update_fields=["avg_cost", "updated_at"])
+        adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), reason=f"Thêm tồn thực: {reason}",
+                                             approved_by=request.user, status="POSTED")
+        StockAdjustmentLine.objects.create(adjustment=adj, product=prod, location=loc, qty_diff=qty, unit_cost=cost)
+        post_stock_move(prod, loc, qty, "ADJ", "ADJ", adj.pk, unit_cost=cost, note=f"{adj.code} – {reason}"[:255])
+        audit("CREATE", adj, {"product": prod.code, "location": loc.code, "qty": str(qty), "reason": reason})
+        retry_backorders(prod.pk)
+    messages.success(request, f"Đã thêm {qty:g} {prod.base_uom.code} {prod.code} vào {loc.code} (phiếu {adj.code}).")
+    return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
 
 
 @role_required("WAREHOUSE", "DIRECTOR")
