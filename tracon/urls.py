@@ -94,6 +94,7 @@ portal_patterns = [
     path("order", portal.order_new),                                       # MH-91/92
     path("orders", portal.orders),                                         # MH-93
     path("orders/<int:pk>", portal.order_detail),
+    path("orders/<int:pk>/status", portal.order_status),
     path("documents", portal.documents),                                   # MH-94
     path("invoices/<int:pk>/pdf", portal.invoice_pdf),
     path("debts", portal.debts),                                           # MH-95

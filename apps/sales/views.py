@@ -11,7 +11,7 @@ from django.views.decorators.http import require_POST
 
 from apps.core.permissions import role_required
 from apps.core.services import BusinessError, next_doc_no
-from apps.core.utils import business_action, paginate
+from apps.core.utils import business_action, excel_response, paginate
 from apps.inventory.services import stock_summary
 from apps.masterdata.models import Customer, Driver, PriceListLine, Product, Site, Vehicle
 
@@ -65,6 +65,20 @@ def so_list(request):
     if q:
         qs = qs.filter(Q(code__icontains=q) | Q(customer__name__icontains=q) | Q(customer__code__icontains=q)
                        | Q(site__name__icontains=q))
+    if request.GET.get("export") == "xlsx":
+        stock_lbl = {"OK": "Đủ", "SHORT": "Thiếu", "BACKORDER": "Backorder"}
+        head = ["Mã SO", "Ngày đặt", "Ngày cần giao", "Khách hàng", "Công trình", "Loại", "Nguồn", "Mã SP", "Tên SP",
+                "ĐVT", "SL đặt", "Đã giữ", "Thiếu", "Đã giao", "Đơn giá", "Thành tiền", "Tình trạng hàng",
+                "Trạng thái đơn"]
+        rows = []
+        for so in qs.prefetch_related("lines__product__base_uom")[:5000]:
+            for l in so.lines.all():
+                short = l.backorder_qty if so.status not in ("DRAFT", "PENDING_APPROVAL", "CANCELLED") else None
+                rows.append([so.code, so.order_date, so.requested_date, so.customer.name, so.site.name,
+                             so.get_order_type_display(), so.get_source_display(), l.product.code, l.product.name,
+                             l.product.base_uom.code, l.qty, l.reserved_qty, short, l.delivered_qty, l.unit_price,
+                             l.amount, stock_lbl.get(l.atp_status, ""), so.get_status_display()])
+        return excel_response(f"don_ban_{timezone.localdate():%Y%m%d}", head, rows, "Đơn bán")
     counts = dict(SalesOrder.objects.values_list("status").annotate(n=Count("id")))
     page, qs_str = paginate(request, qs)
     return render(request, "sales/so_list.html", {"title": "Đơn bán hàng (SO)", "page_obj": page, "qs": qs_str,
@@ -150,8 +164,15 @@ def so_detail(request, pk):
         return redirect(request.path)
     from apps.sales.services import customer_debt
     debt, overdue = customer_debt(so.customer)
+    lines = list(so.lines.select_related("product__base_uom"))
+    preview = so.status in ("DRAFT", "PENDING_APPROVAL")
+    if preview:
+        svc.atp_preview(lines)  # đơn chưa xác nhận: tính trước Thiếu = SL đặt − Khả dụng
+    else:
+        for l in lines:
+            l.short_qty = l.backorder_qty
     return render(request, "sales/so_detail.html", {
-        "title": so.code, "so": so, "lines": so.lines.select_related("product__base_uom"),
+        "title": so.code, "so": so, "lines": lines, "preview": preview,
         "stops": so.stops.select_related("trip__vehicle").prefetch_related("lines"), "debt": debt, "overdue": overdue,
         "allocs": Allocation.objects.filter(lines__so_line__so=so).distinct()})
 
@@ -171,7 +192,21 @@ def alloc_detail(request, pk):
     if request.method == "POST":
         op = request.POST.get("op")
         if op == "rerun":
+            if al.status != "PROPOSED":
+                raise BusinessError("Phân bổ đã được xử lý.")
             new = svc.propose_allocation(al.product, request.POST.get("rule", al.priority_rule))
+            if new:
+                messages.success(request, f"Đã sắp xếp & phân bổ lại theo quy tắc: {new.get_priority_rule_display()}.")
+            return redirect(f"/app/sales/allocations/{new.pk}" if new else "/app/sales/allocations")
+        if op == "set_penalty":
+            if al.status != "PROPOSED":
+                raise BusinessError("Phân bổ đã được xử lý.")
+            line = get_object_or_404(al.lines.select_related("so_line__so__site"), pk=request.POST.get("line"))
+            site = line.so_line.so.site
+            site.penalty_date = request.POST.get("penalty_date") or None
+            site.save(update_fields=["penalty_date"])
+            new = svc.propose_allocation(al.product, al.priority_rule)
+            messages.success(request, f"Đã cập nhật mốc phạt công trình {site.name} và phân bổ lại.")
             return redirect(f"/app/sales/allocations/{new.pk}" if new else "/app/sales/allocations")
         if request.user.role not in ("DIRECTOR", "ADMIN"):
             raise BusinessError("Chỉ Director duyệt phân bổ.")
@@ -179,7 +214,10 @@ def alloc_detail(request, pk):
             svc.approve_allocation(al, request.user, {l.pk: request.POST.get(f"a_{l.pk}") for l in al.lines.all()})
             messages.success(request, "Đã duyệt phân bổ. Phần thiếu chuyển backorder.")
         return redirect(request.path)
-    lines = al.lines.select_related("so_line__so__customer", "so_line__so__site")
+    lines = list(al.lines.select_related("so_line__so__customer", "so_line__so__site"))
+    for l in lines:
+        l.penalty = svc.penalty_date(l.so_line.so)
+        l.penalty_from_so = not l.so_line.so.site.penalty_date
     return render(request, "sales/alloc_detail.html", {"title": al.code, "al": al, "lines": lines, "rules": Allocation.RULES})
 
 
@@ -226,7 +264,15 @@ def planning(request):
         "title": "Kế hoạch giao hàng", "orders": orders, "trips": trips, "date": date,
         "today_date": timezone.localdate(),
         "vehicles": Vehicle.objects.filter(is_active=True, carrier__isnull=True),
-        "drivers": Driver.objects.filter(is_active=True, carrier__isnull=True)})
+        "drivers": svc.driver_availability(Driver.objects.filter(is_active=True, carrier__isnull=True), _parse_day(date))})
+
+
+def _parse_day(s):
+    from datetime import date as _date
+    try:
+        return _date.fromisoformat(str(s))
+    except ValueError:
+        return timezone.localdate()
 
 
 # ------------------------------------------------------------------ Soạn hàng & xuất kho (MH-35)

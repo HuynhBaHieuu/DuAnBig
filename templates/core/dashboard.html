@@ -6,6 +6,8 @@
     <h1 class="page-title">Xin chào, {{ user.display_name }} 👋</h1>
     <div class="page-sub">Tổng quan dành cho vai trò <b class="text-primary">{{ user.get_role_display }}</b></div>
   </div>
+  {% if month_opts %}<form class="toolbar"><label class="text-muted" style="font-size:13px">Xem KPI theo tháng</label>
+    <select class="input" name="month" onchange="this.form.submit()" style="width:200px">{% for m in month_opts %}<option value="{{ m.v }}" {% if m.v == sel_month %}selected{% endif %}>{{ m.l }}</option>{% endfor %}</select></form>{% endif %}
 </div>
 
 <div class="grid g-4" style="margin-bottom:24px">

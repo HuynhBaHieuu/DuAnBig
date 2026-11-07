@@ -17,7 +17,7 @@
 {% endfor %}
 
 {% else %}
-<form method="post" enctype="multipart/form-data" x-data="pod()" @submit="check($event)">{% csrf_token %}
+<form method="post" enctype="multipart/form-data" data-async data-next="/m/outbound/{{ trip.pk }}" x-data="pod()" @submit="check($event)">{% csrf_token %}
   <input type="hidden" name="stop" value="{{ stop.pk }}"><input type="hidden" name="failed" :value="failed ? 1 : 0">
   <div class="card card-body" style="margin-bottom:12px">
     <div class="lbl">Điểm giao {{ stop.seq }} · {{ stop.so.code }}</div>

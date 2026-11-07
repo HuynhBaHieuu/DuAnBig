@@ -24,7 +24,10 @@
     <form method="post" class="card card-body toolbar">{% csrf_token %}<input type="hidden" name="op" value="new_trip"><input type="hidden" name="planned_date" value="{{ date }}">
       <b style="margin-right:8px">Thêm chuyến</b>
       <select class="input" name="vehicle" style="width:200px" required>{% for v in vehicles %}<option value="{{ v.pk }}">{{ v.plate }} · {{ v.capacity_ton }}t</option>{% endfor %}</select>
-      <select class="input" name="driver" style="width:200px" required>{% for d in drivers %}<option value="{{ d.pk }}">{{ d.name }}{% if not d.license_valid %} (bằng hết hạn){% endif %}</option>{% endfor %}</select>
+      <select class="input" name="driver" style="width:300px" required x-data @change="$el.style.color = $el.selectedOptions[0].dataset.busy ? 'var(--danger-ink)' : ''">
+        <option value="">— Chọn tài xế —</option>
+        {% for d in drivers %}<option value="{{ d.pk }}" {% if d.avail_code != "FREE" %}data-busy="1" style="color:var(--danger-ink)"{% endif %} {% if d.avail_code == "EXPIRED" %}disabled{% endif %}>{{ d.name }} · {{ d.avail_label }}</option>{% endfor %}</select>
+      <span class="text-muted" style="font-size:12px">🟢 Rảnh · 🔴 Đang bận chuyến khác trong ngày</span>
       <button class="btn btn-primary"><i data-lucide="plus"></i>Tạo chuyến</button>
     </form>
     <div class="grid g-2">

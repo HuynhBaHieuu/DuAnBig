@@ -16,7 +16,7 @@
       } } }
     }
   </script>
-  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=5">
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
@@ -25,7 +25,7 @@
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 {% block body %}{% endblock %}
-<script src="{% static 'js/app.js' %}?v=4"></script>
+<script src="{% static 'js/app.js' %}?v=5"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

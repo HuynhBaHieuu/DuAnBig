@@ -9,17 +9,18 @@
     <div class="field"><label>Ghi chú</label><input name="note" value="{{ so.note|default:'' }}"></div>
   </div>
   <table class="tbl">
-    <thead><tr><th>Sản phẩm</th><th class="num" style="width:110px">Khả dụng</th><th class="num" style="width:140px">Số lượng</th><th class="num" style="width:160px">Đơn giá</th><th class="num" style="width:160px">Thành tiền</th><th style="width:44px"></th></tr></thead>
+    <thead><tr><th>Sản phẩm</th><th class="num" style="width:110px">Khả dụng</th><th class="num" style="width:140px">Số lượng</th><th class="num" style="width:110px">Thiếu</th><th class="num" style="width:160px">Đơn giá</th><th class="num" style="width:160px">Thành tiền</th><th style="width:44px"></th></tr></thead>
     <tbody><template x-for="(r,i) in rows" :key="i"><tr :class="r.qty > (avail[r.product]||0) ? 'row-warn' : ''">
       <td><select class="input" name="product" x-model="r.product" @change="r.price = priceOf(r.product)?.price ?? 0" required><option value="">— Chọn sản phẩm —</option>{% for p in products %}<option value="{{ p.pk }}">{{ p.code }} – {{ p.name }} ({{ p.base_uom.code }})</option>{% endfor %}</select></td>
       <td class="num" x-text="(avail[r.product]||0).toLocaleString('vi-VN')"></td>
       <td><input class="input num" type="number" step="0.001" min="0" name="qty" x-model.number="r.qty" required></td>
+      <td class="num"><b :style="short(r) > 0 ? 'color:var(--danger-ink)' : 'color:var(--success-ink)'" x-text="r.product ? (short(r) > 0 ? short(r).toLocaleString('vi-VN') : 'Đủ') : ''"></b></td>
       <td><input class="input num" type="number" step="1" min="0" name="price" x-model.number="r.price" :readonly="internal()" required>
         <div x-show="belowFloor(r)" class="text-muted" style="font-size:11px;color:var(--danger-ink)">Dưới giá sàn <span x-text="fmt(priceOf(r.product)?.floor)"></span></div></td>
       <td class="num" x-text="fmt(r.qty*r.price)"></td>
       <td><button type="button" class="btn btn-outline btn-sm" @click="rows.splice(i,1)" x-show="rows.length>1">✕</button></td>
     </tr></template></tbody>
-    <tfoot><tr><td colspan="4"><button type="button" class="btn btn-soft btn-sm" @click="rows.push({product:'',qty:0,price:0})"><i data-lucide="plus"></i>Thêm dòng</button></td><td class="num" x-text="fmt(total())"></td><td></td></tr></tfoot>
+    <tfoot><tr><td colspan="5"><button type="button" class="btn btn-soft btn-sm" @click="rows.push({product:'',qty:0,price:0})"><i data-lucide="plus"></i>Thêm dòng</button></td><td class="num" x-text="fmt(total())"></td><td></td></tr></tfoot>
   </table>
   <div class="flash flash-info" style="margin-top:14px" x-show="internal()"><i data-lucide="info"></i>Đơn nội bộ công trình: dùng giá vốn, không tính hạn mức, không xuất hóa đơn.</div>
   <div class="flash flash-warning" style="margin-top:14px" x-show="rows.some(r => belowFloor(r))"><i data-lucide="shield-alert"></i>Có dòng dưới giá sàn – đơn sẽ cần Director duyệt.</div>
@@ -43,6 +44,7 @@ function soForm() {
     priceOf(p) { return (prices[this.customer] || {})[p]; },
     reprice() { this.rows.forEach(r => { const v = this.priceOf(r.product); if (v) r.price = v.price; }); },
     belowFloor(r) { const v = this.priceOf(r.product); return !this.internal() && v && v.floor && r.price < v.floor; },
+    short(r) { return Math.max(0, Math.round(((r.qty || 0) - (this.avail[r.product] || 0)) * 1000) / 1000); },
     total() { return this.rows.reduce((s, r) => s + (r.qty || 0) * (r.price || 0), 0); },
     fmt(v) { return Math.round(v || 0).toLocaleString("vi-VN") + " ₫"; },
   };

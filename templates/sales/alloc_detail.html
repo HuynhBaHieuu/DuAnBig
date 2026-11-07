@@ -4,7 +4,7 @@
   <div><div class="crumbs"><a href="/app/sales/allocations">Phân bổ</a> /</div><h1 class="page-title">{{ al.code }} {% status_badge al %}</h1>
     <div class="page-sub">{{ al.product.code }} – {{ al.product.name }} · khả dụng <b>{{ al.available_qty|qty }}</b> / nhu cầu <b>{{ al.demand_qty|qty }}</b> {{ al.product.base_uom.code }}</div></div>
   {% if al.status == "PROPOSED" %}<form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="op" value="rerun">
-    <select name="rule" class="input" style="width:200px">{% for v, l in rules %}<option value="{{ v }}" {% if al.priority_rule == v %}selected{% endif %}>Ưu tiên: {{ l }}</option>{% endfor %}</select>
+    <select name="rule" class="input" style="width:220px" onchange="this.form.submit()" title="Đổi quy tắc: hệ thống tự sắp xếp & phân bổ lại">{% for v, l in rules %}<option value="{{ v }}" {% if al.priority_rule == v %}selected{% endif %}>Ưu tiên: {{ l }}</option>{% endfor %}</select>
     <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Đề xuất lại</button></form>{% endif %}
 </div>
 <form method="post" class="card" x-data="{a: { {% for l in lines %}'{{ l.pk }}': {{ l.approved_qty|default_if_none:l.proposed_qty }},{% endfor %} }, get sum(){ return Object.values(this.a).reduce((s,v)=>s+(+v||0),0) } }">{% csrf_token %}<input type="hidden" name="op" value="approve">
@@ -12,7 +12,12 @@
     <thead><tr><th>#</th><th>Đơn / Khách hàng</th><th>Công trình</th><th>Ưu tiên CT</th><th>Mốc phạt</th><th>Ngày đặt</th><th class="num">Nhu cầu</th><th class="num">Đề xuất</th><th class="num" style="width:140px">Duyệt</th></tr></thead>
     <tbody>{% for l in lines %}
       <tr><td>{{ l.rank }}</td><td><a class="code" href="/app/sales/orders/{{ l.so_line.so.pk }}">{{ l.so_line.so.code }}</a><div class="text-muted" style="font-size:12px">{{ l.so_line.so.customer.name }}</div></td>
-        <td>{{ l.so_line.so.site.name }}</td><td>{{ l.so_line.so.site.priority }}</td><td>{{ l.so_line.so.site.penalty_date|vn_d }}</td><td>{{ l.so_line.so.order_date|vn_d }}</td>
+        <td>{{ l.so_line.so.site.name }}</td><td>{{ l.so_line.so.site.priority }}</td><td x-data="{e:false}">{% if al.status == "PROPOSED" %}
+          <span x-show="!e" @click="e=true" style="cursor:pointer;border-bottom:1px dashed var(--muted)" title="Bấm để sửa mốc phạt">{{ l.penalty|vn_d }}</span>
+          {% if l.penalty_from_so %}<div x-show="!e" class="text-muted" style="font-size:11px">theo ngày giao SO</div>{% endif %}
+          <span x-show="e" x-cloak style="display:flex;gap:4px"><input class="input input-sm" type="date" form="pen-{{ l.pk }}" name="penalty_date" value="{{ l.penalty|date:'Y-m-d' }}" style="width:140px">
+            <button class="btn btn-primary btn-sm" form="pen-{{ l.pk }}">Lưu</button><button type="button" class="btn btn-outline btn-sm" @click="e=false">✕</button></span>
+          {% else %}{{ l.penalty|vn_d }}{% endif %}</td><td>{{ l.so_line.so.order_date|vn_d }}</td>
         <td class="num">{{ l.demand_qty|qty }}</td><td class="num">{{ l.proposed_qty|qty }}</td>
         <td>{% if al.status == "PROPOSED" %}<input class="input input-sm num" type="number" step="0.001" min="0" max="{{ l.demand_qty }}" name="a_{{ l.pk }}" x-model.number="a['{{ l.pk }}']">{% else %}<b class="num">{{ l.approved_qty|qty }}</b>{% endif %}</td></tr>
     {% endfor %}</tbody>
@@ -20,4 +25,5 @@
   </table>
   {% if al.status == "PROPOSED" and user.role in "DIRECTOR ADMIN" %}<div class="card-body toolbar" style="justify-content:flex-end"><button class="btn btn-primary" :disabled="sum > {{ al.available_qty }}"><i data-lucide="check"></i>Duyệt phân bổ</button></div>{% endif %}
 </form>
+{% if al.status == "PROPOSED" %}{% for l in lines %}<form method="post" id="pen-{{ l.pk }}" style="display:none">{% csrf_token %}<input type="hidden" name="op" value="set_penalty"><input type="hidden" name="line" value="{{ l.pk }}"></form>{% endfor %}{% endif %}
 {% endblock %}

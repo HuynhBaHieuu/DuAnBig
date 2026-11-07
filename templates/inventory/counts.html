@@ -1,7 +1,7 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><h1 class="page-title">Kiểm kê (IC)</h1><div class="page-sub">Đếm mù 2 lần (ẩn tồn sổ) · lệch > 1% đếm lại · Director duyệt sinh bút toán ADJ</div></div>
+  <div><h1 class="page-title">Kiểm kê (IC)</h1><div class="page-sub">Đếm mù 2 lần (ẩn tồn sổ) · lệch > 1% đếm lại · Giám đốc duyệt phiếu → sinh bút toán ADJ</div></div>
   <form method="post" class="toolbar">{% csrf_token %}
     <select class="input" name="warehouse" style="width:200px">{% for w in warehouses %}<option value="{{ w.pk }}">{{ w.name }}</option>{% endfor %}</select>
     <input class="input" name="note" placeholder="Ghi chú" style="width:200px">
@@ -9,10 +9,11 @@
   </form>
 </div>
 <div class="card"><table class="tbl">
-  <thead><tr><th>Mã phiếu</th><th>Kho</th><th>Trạng thái</th><th>Người tạo</th><th>Ngày tạo</th><th>Ghi chú</th></tr></thead>
+  <thead><tr><th>Mã phiếu</th><th>Kho</th><th>Trạng thái</th><th>Người tạo</th><th>Ngày tạo</th><th>Ghi chú</th><th></th></tr></thead>
   <tbody>{% for c in page_obj %}
     <tr><td><a class="code" href="/app/inventory/counts/{{ c.pk }}">{{ c.code }}</a></td><td>{{ c.warehouse.name }}</td><td>{% status_badge c %}</td>
-      <td>{{ c.created_by|default:"" }}</td><td class="text-muted">{{ c.created_at|vn_dt }}</td><td>{{ c.note }}</td></tr>
-  {% empty %}<tr><td colspan="6" class="empty">Chưa có phiếu kiểm kê.</td></tr>{% endfor %}</tbody>
+      <td>{{ c.created_by|default:"" }}</td><td class="text-muted">{{ c.created_at|vn_dt }}</td><td>{{ c.note }}</td>
+      <td style="text-align:right">{% if user.role == "DIRECTOR" or user.role == "ADMIN" %}{% if c.status == "PENDING_APPROVAL" %}<a class="btn btn-primary btn-sm" href="/app/inventory/counts/{{ c.pk }}"><i data-lucide="check"></i>Duyệt phiếu</a>{% elif c.status == "COUNTING" or c.status == "RECOUNT" %}<a class="btn btn-soft btn-sm" href="/app/inventory/counts/{{ c.pk }}">Xem & duyệt</a>{% endif %}{% else %}<a class="btn btn-soft btn-sm" href="/app/inventory/counts/{{ c.pk }}">Xem</a>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu kiểm kê.</td></tr>{% endfor %}</tbody>
 </table>{% include "partials/pager.html" %}</div>
 {% endblock %}

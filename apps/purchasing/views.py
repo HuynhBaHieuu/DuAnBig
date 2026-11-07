@@ -243,7 +243,9 @@ def trip_new(request):
         messages.success(request, f"Đã lập chuyến {trip.code}.")
         return redirect(f"/app/inbound/trips/{trip.pk}")
     vehicles = Vehicle.objects.filter(is_active=True).select_related("carrier")
-    drivers = Driver.objects.filter(is_active=True).select_related("carrier")
+    from apps.sales.services import driver_availability
+    drivers = driver_availability(Driver.objects.filter(is_active=True).select_related("carrier"),
+                                  po.pickup_date or timezone.localdate())
     return render(request, "purchasing/trip_form.html", {
         "title": f"Lập chuyến Inbound cho {po.code}", "po": po, "lines": po.lines.select_related("product__base_uom"),
         "routes": Route.objects.filter(is_active=True), "vehicles": vehicles, "drivers": drivers,

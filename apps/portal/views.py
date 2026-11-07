@@ -81,6 +81,23 @@ def orders(request):
     return render(request, "portal/orders.html", {"title": "Theo dõi đơn hàng", "orders": qs[:100], "sites": sites})
 
 
+def _order_sig(so):
+    """Chữ ký trạng thái đơn: đổi khi đơn được xếp chuyến / xe xuất kho / giao xong -> Portal tự tải lại."""
+    code, _ = so.delivery_status
+    parts = [so.status, code] + [f"{s.pk}:{s.status}:{s.trip.status}" for s in
+                                 so.stops.select_related("trip").order_by("pk")]
+    return "|".join(parts)
+
+
+@login_required
+def order_status(request, pk):
+    """API nhẹ cho Portal hỏi trạng thái mỗi 20 giây (thay cho websocket – chạy được trên Vercel serverless)."""
+    from django.http import JsonResponse
+    cust, sites = _ctx(request)
+    so = get_object_or_404(SalesOrder, pk=pk, customer=cust, site__in=sites)
+    return JsonResponse({"sig": _order_sig(so)})
+
+
 @login_required
 def order_detail(request, pk):
     cust, sites = _ctx(request)
@@ -93,7 +110,9 @@ def order_detail(request, pk):
              ("Đang giao", stops.filter(trip__status__in=["IN_TRANSIT", "COMPLETED"]).exists()),
              ("Đã giao", so.status in ("DELIVERED", "CLOSED"))]
     return render(request, "portal/order_detail.html", {"title": so.code, "so": so, "stops": stops, "steps": steps,
-                                                        "ds_code": code, "ds_label": label,
+                                                        "ds_code": code, "ds_label": label, "sig": _order_sig(so),
+                                                        "live": so.status not in ("DELIVERED", "CLOSED", "CANCELLED"),
+                                                        "now": timezone.now(),
                                                         "lines": so.lines.select_related("product__base_uom"),
                                                         "show_price": cust.customer_type == "B2B"})
 

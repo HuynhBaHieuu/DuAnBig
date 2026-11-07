@@ -41,9 +41,12 @@
             </div>
             {% if m.actual_at %}
               <div style="font-size:13px;margin-top:4px">Thực tế <b>{{ m.actual_at|vn_dt }}</b>
-                {% if m.delay_min > 60 %}<span class="badge badge-danger">trễ {{ m.delay_min }}’</span>{% elif m.delay_min > 0 %}<span class="badge badge-warn">trễ {{ m.delay_min }}’</span>{% else %}<span class="badge badge-success">đúng giờ</span>{% endif %}
+                {% if m.delay_min > 60 %}<span class="badge badge-danger">trễ {{ m.delay_min|dur }}</span>{% elif m.delay_min > 0 %}<span class="badge badge-warn">trễ {{ m.delay_min|dur }}</span>{% else %}<span class="badge badge-success">đúng giờ</span>{% endif %}
                 · {{ m.by_user|default:"" }} {% if m.note %}· {{ m.note }}{% endif %}</div>
-              {% if m.photo %}<a href="{{ m.photo.url }}" target="_blank"><img src="{{ m.photo.url }}" style="margin-top:8px;height:80px;border-radius:8px;object-fit:cover"></a>{% endif %}
+              {% if m.photo %}<a href="{{ m.photo.url }}" class="ms-photo" data-lightbox="{{ m.name }} · {{ m.actual_at|vn_dt }}{% if m.by_user %} · {{ m.by_user }}{% endif %}" title="Bấm để phóng to ảnh tài xế gửi">
+                <img src="{{ m.photo.url }}" alt="Ảnh xác thực mốc {{ m.name }}" loading="lazy" onerror="this.parentNode.classList.add('broken');this.parentNode.innerHTML='Không tải được ảnh'">
+                <span class="ms-photo-badge"><i data-lucide="camera"></i>Ảnh tài xế</span></a>
+              {% elif m.photo_required %}<div class="text-muted" style="font-size:12px;margin-top:6px"><i data-lucide="image-off" style="width:13px"></i> Chưa có ảnh</div>{% endif %}
             {% elif next_ms and m.pk == next_ms.pk and user.role != "WAREHOUSE" %}
               <form method="post" enctype="multipart/form-data" class="toolbar" style="margin-top:8px" x-data="photoGuard({{ m.photo_required|yesno:'true,false' }})">{% csrf_token %}
                 <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ m.pk }}">
@@ -70,7 +73,7 @@
     <div class="card card-body">
       <h3 class="card-title" style="margin-bottom:12px">Lịch hạ tải</h3>
       {% if slot %}<dl class="dl"><dt>Bến</dt><dd>{{ slot.dock.code }} – {{ slot.dock.name }}</dd><dt>Khung giờ</dt><dd>{{ slot.start_at|vn_dt }} – {{ slot.end_at|hm }}</dd>
-        <dt>Trạng thái</dt><dd>{% status_badge slot %}</dd><dt>Check-in</dt><dd>{{ slot.checked_in_at|vn_dt }}</dd>{% if slot.wait_minutes is not None %}<dt>Chờ hạ tải</dt><dd>{{ slot.wait_minutes }} phút</dd>{% endif %}</dl>
+        <dt>Trạng thái</dt><dd>{% status_badge slot %}</dd><dt>Check-in</dt><dd>{{ slot.checked_in_at|vn_dt }}</dd>{% if slot.wait_minutes is not None %}<dt>Chờ hạ tải</dt><dd>{{ slot.wait_minutes|dur }}</dd>{% endif %}</dl>
         <a href="/app/warehouse/slots?date={{ slot.start_at|date:'Y-m-d' }}" class="btn btn-soft btn-sm" style="margin-top:12px">Mở lịch hạ tải</a>
       {% else %}<div class="text-muted">Hệ thống tự đề xuất khi ETA ≤ 4 giờ.</div>{% endif %}
       {% for g in receipts %}<div class="divider"></div><a href="/app/warehouse/receipts/{{ g.pk }}" style="display:flex;justify-content:space-between"><b>{{ g.code }}</b>{% status_badge g %}</a>{% endfor %}
@@ -80,7 +83,7 @@
       {% for i in incidents %}
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
         <div style="display:flex;justify-content:space-between"><b>{{ i.get_incident_type_display }}</b>{% if i.is_resolved %}<span class="badge badge-success">Đã xử lý</span>{% else %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="resolve"><input type="hidden" name="incident" value="{{ i.pk }}"><button class="btn btn-soft btn-sm">Đã xử lý</button></form>{% endif %}</div>
-        <div class="text-muted" style="font-size:12px">{{ i.reported_at|vn_dt }} · +{{ i.delay_minutes }}’ · {{ i.reported_by|default:"" }}</div>
+        <div class="text-muted" style="font-size:12px">{{ i.reported_at|vn_dt }} · +{{ i.delay_minutes|dur }} · {{ i.reported_by|default:"" }}</div>
         <div style="font-size:13px">{{ i.description }}</div>
       </div>
       {% empty %}<div class="text-muted" style="margin-bottom:10px">Chưa có sự cố.</div>{% endfor %}

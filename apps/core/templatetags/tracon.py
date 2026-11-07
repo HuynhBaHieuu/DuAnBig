@@ -86,18 +86,20 @@ def vn_d(value):
 
 @register.filter
 def dur(minutes):
-    """Số phút -> '3 ngày 4 giờ' / '2 giờ 15 phút' / '45 phút'."""
+    """Số phút -> '3 ngày 23 giờ 34 phút' (≥ 24 giờ) / '2 giờ 15 phút' / '45 phút'."""
     try:
         m = int(minutes)
     except (TypeError, ValueError):
         return "—"
+    sign, m = ("-" if m < 0 else ""), abs(m)
     d, rest = divmod(m, 1440)
     h, mi = divmod(rest, 60)
-    if d:
-        return f"{d} ngày {h} giờ" if h else f"{d} ngày"
-    if h:
-        return f"{h} giờ {mi} phút" if mi else f"{h} giờ"
-    return f"{mi} phút"
+    if d:  # > 24 giờ: X ngày Y giờ Z phút
+        parts = [f"{d} ngày"] + ([f"{h} giờ"] if h or mi else []) + ([f"{mi} phút"] if mi else [])
+        return sign + " ".join(parts)
+    if h:  # < 24 giờ: Y giờ Z phút
+        return sign + (f"{h} giờ {mi} phút" if mi else f"{h} giờ")
+    return sign + f"{mi} phút"
 
 
 @register.filter

@@ -19,18 +19,23 @@
 </div>
 {% if so.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i><div><b>Cần Director duyệt:</b><ul style="margin:4px 0 0;padding-left:18px">{% for r in so.approval_reasons %}<li>{{ r }}</li>{% endfor %}</ul></div></div>{% endif %}
 {% if so.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ so.cancel_reason }}</div>{% endif %}
-<div class="grid g-main">
+<div class="grid g-main" x-data="{side: localStorage.getItem('so_side') !== '0'}" :class="side ? '' : 'side-hidden'" x-init="$watch('side', v => localStorage.setItem('so_side', v ? '1' : '0'))">
+  <button type="button" class="side-tab" x-show="!side" x-cloak @click="side = true" title="Hiện thông tin khách hàng">Thông tin khách hàng ›</button>
   <div class="grid" style="align-content:start">
     <div class="card">
-      <div class="card-head"><h3 class="card-title">Dòng hàng & ATP</h3></div>
+      <div class="card-head"><h3 class="card-title">Dòng hàng & ATP</h3>
+        <button type="button" class="btn btn-soft btn-sm" @click="side = !side"><i data-lucide="panel-right"></i><span x-text="side ? 'Ẩn thông tin khách hàng' : 'Hiện thông tin khách hàng'"></span></button></div>
       <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
         <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã giữ</th><th class="num">Thiếu</th><th class="num">Đã xếp chuyến</th><th class="num">Đã giao</th><th class="num">Đã lập HĐ</th><th>Tình trạng</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
-        <tbody>{% for l in lines %}<tr class="{% if l.atp_status == 'BACKORDER' %}row-danger{% elif l.atp_status == 'SHORT' %}row-warn{% endif %}">
+        <tbody>{% for l in lines %}<tr class="{% if preview %}{% if l.short_qty %}row-warn{% endif %}{% elif l.atp_status == 'BACKORDER' %}row-danger{% elif l.atp_status == 'SHORT' %}row-warn{% endif %}">
           <td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
-          <td class="num">{{ l.reserved_qty|qty }}</td><td class="num" style="{% if l.backorder_qty %}color:var(--danger-ink);font-weight:700{% endif %}">{{ l.backorder_qty|qty }}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
-          <td>{% if l.atp_status %}{% if l.atp_status == "BACKORDER" and l.reserved_qty %}{% code_badge "SHORT" "Giữ một phần" %}<div class="text-muted" style="font-size:11px">chờ hàng về {{ l.backorder_qty|qty }}</div>{% else %}{% code_badge l.atp_status l.get_atp_status_display %}{% endif %}{% else %}—{% endif %}</td>
+          <td class="num">{% if preview %}<span class="text-muted" title="Đơn chưa xác nhận – sẽ giữ khi bấm Xác nhận đơn">{{ l.qty|sub:l.short_qty|qty }}*</span>{% else %}{{ l.reserved_qty|qty }}{% endif %}</td>
+          <td class="num" style="{% if l.short_qty %}color:var(--danger-ink);font-weight:700{% endif %}">{{ l.short_qty|qty }}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
+          <td>{% if preview %}{% if l.short_qty %}{% code_badge "SHORT" "Thiếu" %}{% else %}{% code_badge "OK" "Đủ hàng" %}{% endif %}<div class="text-muted" style="font-size:11px">khả dụng {{ l.avail_qty|qty }}</div>
+            {% elif l.atp_status %}{% if l.atp_status != "OK" and l.reserved_qty %}{% code_badge "SHORT" "Giữ một phần" %}<div class="text-muted" style="font-size:11px">{% if l.atp_status == "SHORT" %}chờ phân bổ{% else %}chờ hàng về{% endif %} {{ l.short_qty|qty }}</div>{% else %}{% code_badge l.atp_status l.get_atp_status_display %}{% endif %}{% else %}—{% endif %}</td>
           <td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
-        <tfoot><tr><td colspan="9">Tổng cộng</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>
+        <tfoot>{% if preview %}<tr><td colspan="10" class="text-muted" style="font-size:12px;font-weight:400">* Đơn chưa xác nhận: “Đã giữ” là lượng dự kiến giữ theo tồn khả dụng hiện tại; Thiếu = SL đặt − Khả dụng. Hàng chỉ thực sự được giữ khi bấm “Xác nhận đơn”.</td></tr>{% endif %}
+        <tr><td colspan="9">Tổng cộng</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>
       </table></div></div>
     </div>
     <div class="card">
@@ -43,8 +48,8 @@
       {% empty %}<div class="text-muted">Chưa xếp chuyến giao.</div>{% endfor %}</div>
     </div>
   </div>
-  <div class="grid" style="align-content:start">
-    <div class="card card-body"><dl class="dl">
+  <div class="grid" style="align-content:start" x-show="side" x-transition>
+    <div class="card card-body"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 class="card-title">Thông tin khách hàng</h3><button type="button" class="btn btn-outline btn-sm" @click="side = false" title="Ẩn sang bên">✕</button></div><dl class="dl">
       <dt>Khách hàng</dt><dd>{{ so.customer }}</dd><dt>Công trình</dt><dd>{{ so.site.name }}<div class="text-muted" style="font-size:12px">{{ so.site.address }}</div></dd>
       <dt>Ưu tiên CT</dt><dd>{{ so.site.priority }}{% if so.site.penalty_date %} · mốc phạt {{ so.site.penalty_date|vn_d }}{% endif %}</dd>
       <dt>Người lập</dt><dd>{{ so.created_by|default:"—" }}</dd><dt>Người duyệt</dt><dd>{{ so.approved_by|default:"—" }}</dd><dt>Ghi chú</dt><dd>{{ so.note|default:"—" }}</dd></dl></div>

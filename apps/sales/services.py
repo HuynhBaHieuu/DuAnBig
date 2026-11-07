@@ -113,11 +113,13 @@ def available_qty(product):
 
 @transaction.atomic
 def reserve_line(line):
-    """Giữ hàng phần còn thiếu của dòng.
+    """Giữ hàng phần còn thiếu của dòng (ATP).
 
-    Đủ hàng -> giữ đủ. Thiếu hàng -> giữ ngay toàn bộ lượng khả dụng, phần chênh lệch là backorder
-    (tự giữ tiếp khi có hàng về). Nếu đang có đơn khác chờ phân bổ cùng sản phẩm -> đưa vào đề xuất
-    phân bổ cho Director để chia công bằng.
+    - Đủ hàng -> giữ đủ.
+    - SL đặt > Khả dụng -> giữ NGAY toàn bộ lượng khả dụng (Đã giữ = Khả dụng), chỉ báo
+      Thiếu = SL đặt − Khả dụng. Không để "Đã giữ = 0" làm đóng băng tồn kho.
+    - Phần thiếu: nếu đang có đơn khác cùng thiếu sản phẩm này -> đưa vào đề xuất phân bổ cho Director (SHORT),
+      ngược lại là backorder (tự giữ tiếp khi có hàng về).
     """
     Product.objects.select_for_update().get(pk=line.product_id)  # tuần tự hóa giữ hàng theo sản phẩm
     need = line.qty - line.reserved_qty - line.delivered_qty
@@ -125,17 +127,38 @@ def reserve_line(line):
         line.atp_status = "OK"
         line.save(update_fields=["atp_status"])
         return
-    competing = SalesOrderLine.objects.filter(product=line.product, atp_status="SHORT",
-                                              so__status__in=["CONFIRMED", "PARTIAL"]).exclude(pk=line.pk).exists()
-    if competing:
-        line.atp_status = "SHORT"
-        line.save(update_fields=["atp_status"])
-        propose_allocation(line.product)
-        return
     take = max(D0, min(available_qty(line.product), need))
     _reserve(line, take)
-    line.atp_status = "OK" if take >= need else "BACKORDER"
+    if take >= need:
+        line.atp_status = "OK"
+        line.save(update_fields=["atp_status"])
+        return
+    competing = SalesOrderLine.objects.filter(product=line.product, atp_status="SHORT",
+                                              so__status__in=["CONFIRMED", "PARTIAL"]).exclude(pk=line.pk).exists()
+    line.atp_status = "SHORT" if competing else "BACKORDER"
     line.save(update_fields=["atp_status"])
+    if competing:
+        propose_allocation(line.product)
+
+
+def atp_preview(lines):
+    """Kiểm tra ATP trước cho đơn chưa xác nhận (Nháp / Chờ duyệt): so SL đặt với tồn khả dụng hiện tại.
+
+    Gắn vào mỗi dòng: avail_qty (khả dụng), short_qty (= max(SL đặt − khả dụng, 0)), preview_status (OK / SHORT).
+    Nhiều dòng cùng sản phẩm trong 1 đơn dùng chung lượng khả dụng."""
+    lines = list(lines)
+    prods = {l.product_id: l.product for l in lines}
+    summ = stock_summary(list(prods.values())) if prods else {}
+    left = {pid: max(D0, s["available"]) for pid, s in summ.items()}
+    for l in lines:
+        avail = left.get(l.product_id, D0)
+        need = max(D0, l.qty - l.reserved_qty - l.delivered_qty)
+        take = min(avail, need)
+        left[l.product_id] = avail - take
+        l.avail_qty = summ[l.product_id]["available"] if l.product_id in summ else D0
+        l.short_qty = need - take
+        l.preview_status = "OK" if l.short_qty <= 0 else "SHORT"
+    return lines
 
 
 def _reserve(line, q):
@@ -146,14 +169,18 @@ def _reserve(line, q):
     line.save(update_fields=["reserved_qty"])
 
 
+def penalty_date(so):
+    """Mốc phạt: theo công trình; công trình chưa khai báo -> lấy ngày cần giao của đơn bán."""
+    return so.site.penalty_date or so.requested_date
+
+
 def priority_key(line, rule):
     site = line.so.site
-    far = timezone.localdate() + timedelta(days=3650)
     fifo = (line.so.order_date, line.so_id)
     if rule == "PENALTY":
-        return (site.penalty_date or far, site.priority, *fifo)
+        return (penalty_date(line.so), site.priority, *fifo)
     if rule == "PRIORITY":
-        return (site.priority, site.penalty_date or far, *fifo)
+        return (site.priority, penalty_date(line.so), *fifo)
     return fifo
 
 
@@ -348,6 +375,10 @@ def post_goods_issue(gi, user):
     trip = gi.trip
     trip.status, trip.departed_at = "IN_TRANSIT", now
     trip.save()
+    # ETA từng điểm giao cho Cổng khách hàng: xuất kho + ~60' cho mỗi điểm theo thứ tự giao
+    for stop in trip.stops.filter(status="PENDING").order_by("seq"):
+        stop.eta = now + timedelta(minutes=60 * stop.seq)
+        stop.save(update_fields=["eta"])
     audit("POST", gi)
 
 
@@ -482,3 +513,33 @@ def cancel_so(so, reason):
         so.status, so.cancel_reason = "CANCELLED", reason
         so.save()
         audit("CANCEL", so, {"reason": reason})
+
+
+# ------------------------------------------------------------------ Trạng thái tài xế (khi chọn người lập chuyến)
+def driver_availability(drivers, day=None):
+    """Gắn cho mỗi tài xế: avail_code (FREE / BUSY / EXPIRED) và avail_label hiển thị trong dropdown.
+
+    Đang bận = có chuyến giao chưa hoàn tất trong ngày `day`, hoặc đang chạy chuyến Inbound chưa nhập kho."""
+    from apps.purchasing.models import InboundTrip
+
+    day = day or timezone.localdate()
+    drivers = list(drivers)
+    ids = [d.pk for d in drivers]
+    busy = {}
+    for t in DeliveryTrip.objects.filter(driver_id__in=ids, planned_date=day) \
+            .exclude(status__in=["COMPLETED", "CANCELLED"]).order_by("id"):
+        busy.setdefault(t.driver_id, []).append(t.code)
+    for t in InboundTrip.objects.filter(driver_id__in=ids).exclude(status__in=["PLANNED", "RECEIVED", "CANCELLED"]) \
+            .order_by("id"):
+        busy.setdefault(t.driver_id, []).append(t.code)
+    for t in InboundTrip.objects.filter(driver_id__in=ids, status="PLANNED", planned_departure__date=day).order_by("id"):
+        busy.setdefault(t.driver_id, []).append(t.code)
+    for d in drivers:
+        if not d.license_valid:
+            d.avail_code, d.avail_label = "EXPIRED", "⛔ Bằng lái hết hạn"
+        elif d.pk in busy:
+            d.avail_code, d.avail_label = "BUSY", "🔴 Đang bận (" + ", ".join(busy[d.pk][:2]) + ")"
+        else:
+            d.avail_code, d.avail_label = "FREE", "🟢 Rảnh"
+    drivers.sort(key=lambda d: ({"FREE": 0, "BUSY": 1, "EXPIRED": 2}[d.avail_code], d.name))
+    return drivers

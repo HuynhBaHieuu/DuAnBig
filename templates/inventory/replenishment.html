@@ -1,10 +1,10 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><div class="crumbs">MH-12 · Kho hàng</div><h1 class="page-title">Tham số SS / ROP</h1>
-    <div class="page-sub">Celery tính lại lúc 01:00 hằng đêm · FULL: SS = Z·√(LT·σD² + D̄²·σLT²) · ROP = D̄·LT + SS · tự sinh PR khi Dự báo ≤ ROP</div></div>
+  <div><div class="crumbs">MH-12 · Kho hàng</div><h1 class="page-title">Tham số mốc đặt hàng lại</h1></div>
   {% if sel %}<div class="toolbar">
-    <a href="?product={{ sel.product.pk }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất báo cáo SS/ROP</a>
+    <a href="?product={{ sel.product.pk }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất báo cáo {{ sel.product.code }}</a>
+    <a href="?export=all" class="btn btn-outline"><i data-lucide="sheet"></i>Xuất báo cáo tất cả sản phẩm</a>
     <form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}">{% csrf_token %}<input type="hidden" name="op" value="run_all">
     <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Chạy tính toàn bộ ngay</button></form></div>{% endif %}
 </div>

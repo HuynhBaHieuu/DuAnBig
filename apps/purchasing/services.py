@@ -243,7 +243,8 @@ def report_incident(trip, user, incident_type, description, delay_minutes=0, pho
     raise_alert("TRIP_INCIDENT", f"Sự cố chuyến {trip.code}: {inc.get_incident_type_display()}", description,
                 level="CRIT" if incident_type == "ACCIDENT" else "WARN", ref_type="trip_incident", ref_id=inc.pk,
                 url=f"/app/inbound/trips/{trip.pk}", target_role="PURCHASER")
-    recalc_eta(trip, f"Sự cố: {inc.get_incident_type_display()} (+{delay_minutes}’)")
+    from apps.core.templatetags.tracon import dur
+    recalc_eta(trip, f"Sự cố: {inc.get_incident_type_display()} (+{dur(delay_minutes or 0)})")
     return inc
 
 

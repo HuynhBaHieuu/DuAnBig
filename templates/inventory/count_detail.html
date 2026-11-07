@@ -5,14 +5,18 @@
     <h1 class="page-title">{{ ic.code }} {% status_badge ic %}</h1>
     <div class="page-sub">{{ ic.warehouse.name }} · {{ lines|length }} dòng · {% if blind %}<b class="text-primary">Chế độ đếm mù – tồn sổ được ẩn</b>{% endif %}</div></div>
   <div class="toolbar">
-    {% if ic.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}
-    <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt & sinh bút toán ADJ</button></form>
-    {% endif %}
+    {% if ic.status == "PENDING_APPROVAL" and is_director %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary" onclick="return confirm('Duyệt phiếu kiểm kê {{ ic.code }} và ghi bút toán điều chỉnh tồn kho?')"><i data-lucide="check"></i>Duyệt phiếu kiểm kê</button></form>
+    {% elif ic.status == "COUNTING" or ic.status == "RECOUNT" %}{% if is_director %}
+    <button type="submit" form="count-form" name="op" value="count_approve" class="btn btn-primary" onclick="return confirm('Lưu số đếm và duyệt phiếu {{ ic.code }}?')"><i data-lucide="check"></i>Lưu số đếm & duyệt phiếu</button>
+    {% endif %}{% endif %}
     {% if ic.status != "APPROVED" and ic.status != "CANCELLED" %}{% include "partials/cancel_form.html" %}{% endif %}
   </div>
 </div>
+{% if ic.status == "PENDING_APPROVAL" %}<div class="flash flash-info"><i data-lucide="clipboard-check"></i>{% if is_director %}Phiếu đã đếm xong – kiểm tra chênh lệch rồi bấm <b>Duyệt phiếu kiểm kê</b>.{% else %}Phiếu đã đếm xong, đang chờ Giám đốc duyệt.{% endif %}</div>
+{% elif is_director and ic.status == "COUNTING" %}<div class="flash flash-info"><i data-lucide="info"></i>Phiếu đang đếm. Nhập đủ số đếm rồi bấm <b>Lưu số đếm & duyệt phiếu</b> để duyệt ngay (nếu có dòng lệch > {{ limit }}% hệ thống sẽ yêu cầu đếm lại lần 2 trước).</div>{% endif %}
 {% if ic.status == "RECOUNT" %}<div class="flash flash-warning"><i data-lucide="alert-triangle"></i>Có dòng lệch > {{ limit }}% so với tồn sổ – nhập số đếm lần 2 cho các dòng được tô màu.</div>{% endif %}
-<form method="post" class="card">{% csrf_token %}<input type="hidden" name="op" value="count">
+<form method="post" class="card" id="count-form">{% csrf_token %}
   <div class="table-wrap"><table class="tbl">
     <thead><tr><th>Vị trí</th><th>Sản phẩm</th><th>ĐVT</th>{% if not blind %}<th class="num">Tồn sổ</th>{% endif %}<th class="num">Đếm lần 1</th><th class="num">Đếm lần 2</th>{% if not blind %}<th class="num">Chênh lệch</th><th class="num">% lệch</th>{% endif %}</tr></thead>
     <tbody>{% for l in lines %}
@@ -27,7 +31,7 @@
   </table></div>
   <div class="card-body toolbar" style="justify-content:space-between">
     {% if not blind and user.can_see_cost %}<span>Giá trị điều chỉnh dự kiến: <b>{{ adj_value|vnd }}</b></span>{% else %}<span></span>{% endif %}
-    {% if ic.status == "COUNTING" or ic.status == "RECOUNT" %}<button class="btn btn-primary">Lưu số đếm & hoàn tất lần {% if ic.status == "COUNTING" %}1{% else %}2{% endif %}</button>{% endif %}
+    {% if ic.status == "COUNTING" or ic.status == "RECOUNT" %}<button class="btn {% if is_director %}btn-outline{% else %}btn-primary{% endif %}" name="op" value="count">Lưu số đếm & hoàn tất lần {% if ic.status == "COUNTING" %}1{% else %}2{% endif %}</button>{% endif %}
   </div>
 </form>
 {% endblock %}

@@ -19,13 +19,38 @@ PASSWORD = "Tracon@123"
 
 
 def fake_image(text, color=(230, 95, 43)):
-    from PIL import Image, ImageDraw
-    img = Image.new("RGB", (480, 320), color)
+    """Ảnh demo giống ảnh chụp hiện trường (bầu trời, đường, xe tải, dấu thời gian) – thay cho khối màu trơn."""
+    import random
+
+    from PIL import Image, ImageDraw, ImageFilter
+    w, h = 640, 480
+    rnd = random.Random(text)
+    img = Image.new("RGB", (w, h))
     d = ImageDraw.Draw(img)
-    d.rectangle([16, 16, 464, 304], outline="white", width=3)
-    d.text((32, 140), text, fill="white")
+    for y in range(h // 2):  # bầu trời chuyển màu
+        k = y / (h / 2)
+        d.line([(0, y), (w, y)], fill=(int(120 + 80 * k), int(170 + 50 * k), int(225 + 20 * k)))
+    d.rectangle([0, h // 2, w, h], fill=(118, 112, 102))  # mặt đường / bãi
+    for x in range(0, w, 6):  # nhiễu mặt đường
+        for y in range(h // 2, h, 6):
+            v = rnd.randint(-14, 14)
+            d.point((x, y), fill=(118 + v, 112 + v, 102 + v))
+    d.polygon([(0, h // 2), (w, h // 2), (w, h // 2 + 10), (0, h // 2 + 18)], fill=(90, 120, 70))  # cỏ
+    x0 = rnd.randint(70, 160)
+    body = (min(255, color[0]), min(255, color[1]), min(255, color[2]))
+    d.rounded_rectangle([x0, 170, x0 + 300, 330], 8, fill=(205, 205, 200), outline=(80, 80, 80), width=2)  # thùng xe
+    d.rounded_rectangle([x0 + 300, 210, x0 + 400, 330], 10, fill=body, outline=(60, 60, 60), width=2)  # cabin
+    d.rectangle([x0 + 320, 222, x0 + 385, 262], fill=(160, 200, 230))  # kính
+    for cx in (x0 + 60, x0 + 230, x0 + 350):
+        d.ellipse([cx - 32, 300, cx + 32, 364], fill=(30, 30, 30))
+        d.ellipse([cx - 14, 318, cx + 14, 346], fill=(150, 150, 150))
+    img = img.filter(ImageFilter.GaussianBlur(0.8))
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, h - 46, w, h], fill=(0, 0, 0))
+    d.text((14, h - 36), text, fill=(255, 220, 120))
+    d.text((14, h - 20), timezone.localtime().strftime("%d/%m/%Y %H:%M") + "  ·  TRACON 80 – ảnh xác thực", fill="white")
     buf = io.BytesIO()
-    img.save(buf, "JPEG")
+    img.save(buf, "JPEG", quality=82)
     return ContentFile(buf.getvalue(), name="photo.jpg")
 
 

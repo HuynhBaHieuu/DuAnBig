@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django import forms
@@ -87,9 +87,11 @@ def _month_start():
     return timezone.localdate().replace(day=1)
 
 
-def _otif(since):
+def _otif(since, until=None):
     from apps.sales.models import DeliveryStop
     stops = DeliveryStop.objects.filter(delivered_at__date__gte=since).select_related("so")
+    if until:
+        stops = stops.filter(delivered_at__date__lte=until)
     total = ok = 0
     for s in stops:
         total += 1
@@ -127,6 +129,31 @@ def dashboard(request):
     role = u.role
     today = timezone.localdate()
     ms = _month_start()
+    # Bộ lọc tháng cho KPI (mặc định tháng hiện tại): ?month=YYYY-MM
+    sel_ms = ms
+    try:
+        y, m = map(int, (request.GET.get("month") or "").split("-"))
+        sel_ms = date(y, m, 1)
+    except (ValueError, TypeError):
+        pass
+    if sel_ms > ms:
+        sel_ms = ms
+    sel_me = (sel_ms + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    month_opts = []
+    d = ms
+    for _ in range(12):
+        month_opts.append({"v": d.strftime("%Y-%m"), "l": f"Tháng {d:%m/%Y}" + (" (hiện tại)" if d == ms else "")})
+        d = (d - timedelta(days=1)).replace(day=1)
+    is_cur = sel_ms == ms
+    mlabel = "tháng này" if is_cur else f"tháng {sel_ms:%m/%Y}"
+
+    def otif_kpi():
+        v = _otif(sel_ms, sel_me)
+        if v is None:
+            return {"label": f"OTIF {mlabel}", "value": "N/A", "icon": "target", "tone": "success",
+                    "foot": "Chưa có chuyến giao hoàn tất trong tháng"}
+        return {"label": f"OTIF {mlabel}", "value": f"{v:.1f}%", "icon": "target", "tone": "success",
+                "foot": "Giao đúng hạn & đủ"}
     kpis, todos, charts = [], [], []
 
     def todo(label, count, url, tone="primary", icon="circle-dot"):
@@ -136,18 +163,19 @@ def dashboard(request):
     active_trips = InboundTrip.objects.exclude(status__in=["RECEIVED", "CANCELLED"])
 
     if role in ("DIRECTOR", "ADMIN"):
-        revenue = Invoice.objects.filter(invoice_type="SALE", status__in=["POSTED", "PARTIAL", "PAID"],
-                                         invoice_date__gte=ms).aggregate(s=Sum("subtotal"))["s"] or D0
+        # Doanh thu = hóa đơn bán đã ghi sổ (cùng điều kiện với biểu đồ 6 tháng để 2 số luôn khớp)
+        rev_qs = Invoice.objects.filter(invoice_type="SALE").exclude(status__in=["DRAFT", "CANCELLED"])
+        revenue = rev_qs.filter(invoice_date__gte=sel_ms, invoice_date__lte=sel_me)             .aggregate(s=Sum("subtotal"))["s"] or D0
+        n_inv = rev_qs.filter(invoice_date__gte=sel_ms, invoice_date__lte=sel_me).count()
         stock_value = StockQuant.objects.aggregate(s=Sum(F("on_hand") * F("product__avg_cost")))["s"] or D0
         ar = aging("AR")[1]["total"]
-        otif = _otif(ms)
         kpis = [
-            {"label": "Doanh thu tháng", "value": revenue, "fmt": "money", "icon": "badge-dollar-sign", "tone": "primary",
-             "foot": f"Từ {ms:%d/%m}"},
+            {"label": f"Doanh thu {mlabel}", "value": revenue, "fmt": "money", "icon": "badge-dollar-sign",
+             "tone": "primary", "foot": f"{sel_ms:%d/%m} – {min(sel_me, today):%d/%m/%Y} · {n_inv} hóa đơn"
+             if n_inv else "Chưa có hóa đơn bán ghi sổ trong tháng"},
             {"label": "Giá trị tồn kho", "value": stock_value, "fmt": "money", "icon": "warehouse", "tone": "info",
              "foot": "Theo giá vốn bình quân"},
-            {"label": "OTIF tháng", "value": f"{otif:.1f}%" if otif is not None else "—", "icon": "target",
-             "tone": "success", "foot": "Giao đúng hạn & đủ"},
+            otif_kpi(),
             {"label": "Công nợ phải thu", "value": ar, "fmt": "money", "icon": "hand-coins", "tone": "warn",
              "foot": "Tổng số dư"},
         ]
@@ -216,13 +244,12 @@ def dashboard(request):
         open_so = SalesOrder.objects.filter(status__in=["CONFIRMED", "PARTIAL", "PENDING_APPROVAL"])
         short = SalesOrderLine.objects.filter(atp_status__in=["SHORT", "BACKORDER"],
                                               so__status__in=["CONFIRMED", "PARTIAL"]).values("so").distinct().count()
-        otif = _otif(ms)
         kpis = [
             {"label": "Đơn bán đang mở", "value": open_so.count(), "icon": "receipt", "tone": "primary"},
             {"label": "Đơn thiếu hàng / backorder", "value": short, "icon": "package-x", "tone": "danger"},
             {"label": "Chuyến giao hôm nay", "value": DeliveryTrip.objects.filter(planned_date=today).exclude(status="CANCELLED").count(),
              "icon": "route", "tone": "warn"},
-            {"label": "OTIF tháng", "value": f"{otif:.1f}%" if otif is not None else "—", "icon": "target", "tone": "success"},
+            otif_kpi(),
         ]
         todo("Đơn chờ xếp chuyến giao", orders_waiting_delivery().count(), "/app/fulfillment/planning", "primary", "route")
         todo("Đơn từ cổng khách hàng mới", SalesOrder.objects.filter(source="PORTAL", status="DRAFT").count(),
@@ -295,6 +322,8 @@ def dashboard(request):
     alerts = alerts_for(u)[:6]
     return render(request, "core/dashboard.html", {
         "title": "Dashboard", "kpis": kpis, "todos": todos, "charts": charts, "alerts": alerts, "today": today,
+        "month_opts": month_opts if role in ("DIRECTOR", "ADMIN", "DISPATCHER") else None,
+        "sel_month": sel_ms.strftime("%Y-%m"),
         "recent_trips": active_trips.select_related("vehicle", "po__supplier").order_by("eta")[:5]
         if role in ("ADMIN", "DIRECTOR", "PURCHASER", "WAREHOUSE") else None,
     })

@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.core.permissions import role_required
-from apps.core.services import BusinessError, audit, next_doc_no, param
+from apps.core.services import BusinessError, audit, next_doc_no, param, raise_alert, resolve_alerts
 from apps.core.utils import business_action, excel_response, paginate
 from apps.masterdata.models import Location, Product, ProductCategory, Warehouse
 
@@ -98,6 +98,8 @@ def stock_transfer(request):
 def replenishment(request):
     products = list(Product.objects.filter(is_active=True, track_rop=True).select_related("base_uom"))
     summary = {pid: _bar(s) for pid, s in stock_summary(products).items()}
+    if request.GET.get("export") == "all":
+        return _rop_report_all(summary)
     rows = list(summary.values())
     if request.GET.get("level") == "low":
         rows = [r for r in rows if r["level"] != "OK"]
@@ -124,7 +126,7 @@ def replenishment(request):
         calc = {"q": q, "raw": raw, "pr": rp.pr_qty(proj), "proj": proj, "rop": sel["rop"],
                 "trips": (rp.pr_qty(proj) / rp.truck_qty) if rp.truck_qty else None}
     return render(request, "inventory/replenishment.html", {
-        "title": "Tham số SS / ROP", "rows": rows, "sel": sel, "rp": rp, "chart": chart, "sel_id": sel_id,
+        "title": "Tham số mốc đặt hàng lại", "rows": rows, "sel": sel, "rp": rp, "chart": chart, "sel_id": sel_id,
         "dropped": dropped, "calc": calc, "can_lock": request.user.role in LOCK_ROLES})
 
 
@@ -201,63 +203,177 @@ def replenishment_save(request, pk):
     return redirect(f"/app/inventory/replenishment?product={pk}")
 
 
-def _rop_report(rp, sel):
-    """Báo cáo SS/ROP: chuỗi nhu cầu theo ngày + công thức Excel AVERAGE / STDEV.S / SQRT."""
+def _rop_values(rp, used, projected):
+    """Tính sẵn mọi chỉ số SS/ROP bằng Python (khớp công thức Excel) để file mở ra là có số ngay.
+
+    openpyxl không lưu được kết quả tính của công thức -> Excel ở chế độ Protected View / trình xem trên
+    điện thoại hiển thị ô công thức trống. Vì vậy báo cáo ghi cả GIÁ TRỊ lẫn CÔNG THỨC."""
+    import math
+    import statistics
+
+    z, lt, lt_std = float(rp.z), float(rp.lead_time_days), float(rp.lt_std_days)
+    d_avg = statistics.fmean(used) if used else 0.0
+    d_std = statistics.stdev(used) if len(used) > 1 else 0.0  # STDEV.S
+    if rp.method == "FULL":
+        ss = z * math.sqrt(lt * d_std ** 2 + d_avg ** 2 * lt_std ** 2)
+    elif rp.method == "DEMAND":
+        ss = z * d_std * math.sqrt(lt)
+    else:
+        ss = float(rp.manual_ss or 0)
+    rop = d_avg * lt + ss
+    ss_eff = float(rp.manual_ss) if rp.manual_lock and rp.manual_ss is not None else ss
+    rop_eff = float(rp.manual_rop) if rp.manual_lock and rp.manual_rop is not None else rop
+    q = float(rp.manual_q) if rp.manual_q is not None else max(float(rp.moq), math.ceil(round(d_avg * rp.review_days, 9)))
+    pr = max(q, rop_eff + q - float(projected))
+    truck = float(rp.truck_qty) if rp.round_by_truck else None
+    pr_truck = math.ceil(pr / truck) * truck if truck else None
+    return {"z": z, "lt": lt, "lt_std": lt_std, "d_avg": d_avg, "d_std": d_std, "ss": ss, "rop": rop,
+            "ss_eff": ss_eff, "rop_eff": rop_eff, "q": q, "projected": float(projected), "pr": pr,
+            "truck": truck, "pr_truck": pr_truck}
+
+
+def _xlsx_response(wb, filename):
     import io
 
     from django.http import HttpResponse
+    wb.calculation.fullCalcOnLoad = True  # Excel tính lại toàn bộ công thức khi mở file
+    buf = io.BytesIO()
+    wb.save(buf)
+    resp = HttpResponse(buf.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    resp["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
+    return resp
+
+
+def _style_head(ws, row=1):
+    from openpyxl.styles import Alignment, Font, PatternFill
+    for c in ws[row]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="E65F2B")
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def _rop_report(rp, sel):
+    """Báo cáo SS/ROP 1 sản phẩm: chuỗi nhu cầu theo ngày + mỗi chỉ số có giá trị tính sẵn và công thức Excel."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
     days, raw, used, dropped, cut = demand_series(rp)
+    v = _rop_values(rp, used, sel["projected"])
     wb = Workbook()
     ws = wb.active
     ws.title = "NhuCau"
     ws.append(["Ngày", "Nhu cầu gốc", "Nhu cầu dùng tính (đã loại đột biến)"])
+    _style_head(ws)
     for d, r, u in zip(days, raw, used):
         ws.append([d, r, u])
+        ws.cell(ws.max_row, 1).number_format = "yyyy-mm-dd"
     n = len(days) + 1
     ws.column_dimensions["A"].width, ws.column_dimensions["B"].width, ws.column_dimensions["C"].width = 14, 16, 36
 
-    p = wb.create_sheet("SS_ROP")
+    p = wb.create_sheet("SS_ROP", 0)
+    p.append(["Chỉ số", "Giá trị (hệ thống tính)", "Excel tự tính (công thức)", "Công thức"])
+    _style_head(p)
+    ss_f = {"FULL": "=C4*SQRT(C5*C8^2+C7^2*C6^2)", "DEMAND": "=C4*C8*SQRT(C5)"}.get(rp.method, v["ss"])
     rows = [
-        ("Sản phẩm", f"{rp.product.code} – {rp.product.name}"),
-        ("Phương pháp", rp.get_method_display()),
-        ("Z", float(rp.z)),
-        ("Lead time LT (ngày)", float(rp.lead_time_days)),
-        ("σLT (ngày)", float(rp.lt_std_days)),
-        ("D̄ – nhu cầu TB/ngày", f"=AVERAGE(NhuCau!C2:C{n})"),
-        ("σD – độ lệch chuẩn/ngày", f"=STDEV.S(NhuCau!C2:C{n})"),
-        ("SS tự tính", "=B3*SQRT(B4*B7^2+B6^2*B5^2)" if rp.method == "FULL"
-         else ("=B3*B7*SQRT(B4)" if rp.method == "DEMAND" else float(rp.manual_ss or 0))),
-        ("ROP tự tính", "=B6*B4+B8"),
-        ("Khóa thủ công", "Có" if rp.manual_lock else "Không"),
-        ("SS áp dụng", float(rp.manual_ss) if rp.manual_lock else "=B8"),
-        ("ROP áp dụng", float(rp.manual_rop) if rp.manual_lock else "=B9"),
-        ("MOQ", float(rp.moq)),
-        ("Chu kỳ đặt (ngày)", rp.review_days),
-        ("Q áp dụng", float(rp.manual_q) if rp.manual_q is not None else "=MAX(B13,ROUNDUP(B6*B14,0))"),
-        ("Tồn dự báo", float(sel["projected"])),
-        ("Lượng PR = max(Q; ROP + Q − dự báo)", "=MAX(B15,B12+B15-B16)"),
+        ("Sản phẩm", f"{rp.product.code} – {rp.product.name}", "", ""),
+        ("Phương pháp", rp.get_method_display(), "", ""),
+        ("Z", v["z"], "=B4", "Hệ số mức phục vụ"),
+        ("Lead time LT (ngày)", v["lt"], "=B5", "TB lead time thực tế các GRN"),
+        ("σLT (ngày)", v["lt_std"], "=B6", "Độ lệch chuẩn lead time"),
+        ("D̄ – nhu cầu TB/ngày", v["d_avg"], f"=AVERAGE(NhuCau!C2:C{n})", "AVERAGE(nhu cầu/ngày)"),
+        ("σD – độ lệch chuẩn/ngày", v["d_std"], f"=STDEV.S(NhuCau!C2:C{n})", "STDEV.S(nhu cầu/ngày)"),
+        ("SS tự tính", v["ss"], ss_f, {"FULL": "Z × √(LT × σD² + D̄² × σLT²)", "DEMAND": "Z × σD × √LT"}
+         .get(rp.method, "Nhập tay")),
+        ("ROP tự tính", v["rop"], "=C7*C5+C9", "D̄ × LT + SS"),
+        ("Khóa thủ công", "Có" if rp.manual_lock else "Không", "", rp.lock_reason),
+        ("SS áp dụng", v["ss_eff"], float(rp.manual_ss) if rp.manual_lock and rp.manual_ss is not None else "=C9",
+         "Số khóa tay nếu bật khóa, ngược lại SS tự tính"),
+        ("ROP áp dụng", v["rop_eff"], float(rp.manual_rop) if rp.manual_lock and rp.manual_rop is not None else "=C10",
+         "Số khóa tay nếu bật khóa, ngược lại ROP tự tính"),
+        ("MOQ", float(rp.moq), "=B14", "Lượng đặt tối thiểu NCC"),
+        ("Chu kỳ đặt (ngày)", rp.review_days, "=B15", ""),
+        ("Q áp dụng", v["q"], float(rp.manual_q) if rp.manual_q is not None else "=MAX(C14,ROUNDUP(C7*C15,0))",
+         "Q nhập tay, hoặc max(MOQ; D̄ × chu kỳ)"),
+        ("Tồn dự báo", v["projected"], "=B17", "Khả dụng + đang về"),
+        ("Lượng PR", v["pr"], "=MAX(C16,C13+C16-C17)", "max(Q; ROP + Q − dự báo)"),
     ]
     if rp.round_by_truck:
-        rows.append(("Tải 1 xe (đv gốc)", float(rp.truck_qty)))
-        rows.append(("Lượng PR làm tròn theo xe", "=CEILING(B17,B18)"))
+        rows.append(("Tải 1 xe (đv gốc)", v["truck"], "=B19", f"{rp.truck_ton} tấn/xe"))
+        rows.append(("Lượng PR làm tròn theo xe", v["pr_truck"], "=CEILING(C18,C19)", "CEILING(PR; tải 1 xe)"))
     for r in rows:
         p.append(list(r))
-    for c in p["A"]:
-        c.font = Font(bold=True)
-    p.column_dimensions["A"].width, p.column_dimensions["B"].width = 38, 40
+    for row in p.iter_rows(min_row=2):
+        row[0].font = Font(bold=True)
+        for c in row[1:3]:
+            if isinstance(c.value, float) or (isinstance(c.value, str) and c.value.startswith("=")):
+                c.number_format = "#,##0.000"
+    p.column_dimensions["A"].width, p.column_dimensions["B"].width = 30, 34
+    p.column_dimensions["C"].width, p.column_dimensions["D"].width = 26, 44
     if dropped:
         x = wb.create_sheet("LoaiDotBien")
         x.append(["Ngày", "SL xuất", "Chứng từ", f"Ngưỡng loại = {cut:.1f}"])
+        _style_head(x)
         for d, q, note in dropped:
             x.append([d, q, note])
-    buf = io.BytesIO()
-    wb.save(buf)
-    resp = HttpResponse(buf.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    resp["Content-Disposition"] = f'attachment; filename="ss_rop_{rp.product.code}.xlsx"'
-    return resp
+    return _xlsx_response(wb, f"ss_rop_{rp.product.code}")
+
+
+def _rop_report_all(summary):
+    """Báo cáo SS/ROP TẤT CẢ sản phẩm: 1 dòng / sản phẩm, có giá trị tính sẵn + công thức Excel theo từng cột."""
+    from openpyxl import Workbook
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "TongHop"
+    nc = wb.create_sheet("NhuCau")
+    head = ["Mã SP", "Tên SP", "ĐVT", "Phương pháp", "Z", "LT (ngày)", "σLT (ngày)", "D̄/ngày", "σD/ngày",
+            "SS tự tính", "ROP tự tính", "Khóa tay", "SS áp dụng", "ROP áp dụng", "MOQ", "Chu kỳ (ngày)", "Q áp dụng",
+            "Khả dụng", "Đang về", "Tồn dự báo", "Lượng PR", "Tình trạng",
+            # cột công thức Excel tự tính lại (đối chiếu)
+            "D̄ (Excel)", "σD (Excel)", "SS (Excel)", "ROP (Excel)", "Q (Excel)", "Lượng PR (Excel)"]
+    ws.append(head)
+    _style_head(ws)
+    level_txt = {"OK": "Đủ hàng", "BELOW_ROP": "Dưới ROP", "BELOW_SS": "Dưới SS", "STOCKOUT": "Hết hàng"}
+    params = {rp.product_id: rp for rp in ReplenishmentParam.objects.filter(product_id__in=summary)}
+    col = 0
+    for pid, s in sorted(summary.items(), key=lambda kv: kv[1]["product"].code):
+        rp = params.get(pid) or ReplenishmentParam.objects.create(product_id=pid, z=param("SERVICE_Z"))
+        days, _, used, _, _ = demand_series(rp)
+        v = _rop_values(rp, used, s["projected"])
+        col += 1
+        L = get_column_letter(col)
+        nc.cell(1, col, rp.product.code)
+        nc.cell(2, col, f"{days[0]:%d/%m}–{days[-1]:%d/%m}" if days else "")
+        for i, u in enumerate(used, start=3):
+            nc.cell(i, col, u)
+        rng = f"NhuCau!{L}3:{L}{max(3, len(used) + 2)}"
+        r = ws.max_row + 1
+        locked = rp.manual_lock and rp.manual_ss is not None and rp.manual_rop is not None
+        ws.append([
+            rp.product.code, rp.product.name, rp.product.base_uom.code, rp.get_method_display(), v["z"], v["lt"],
+            v["lt_std"], v["d_avg"], v["d_std"], v["ss"], v["rop"], "Có" if locked else "Không", v["ss_eff"],
+            v["rop_eff"], float(rp.moq), rp.review_days, v["q"], float(s["available"]), float(s["incoming"]),
+            v["projected"], v["pr_truck"] if v["pr_truck"] is not None else v["pr"], level_txt[s["level"]],
+            f"=AVERAGE({rng})", f"=STDEV.S({rng})",
+            {"FULL": f"=E{r}*SQRT(F{r}*X{r}^2+W{r}^2*G{r}^2)", "DEMAND": f"=E{r}*X{r}*SQRT(F{r})"}.get(rp.method, v["ss"]),
+            f"=W{r}*F{r}+Y{r}",
+            float(rp.manual_q) if rp.manual_q is not None else f"=MAX(O{r},ROUNDUP(W{r}*P{r},0))",
+            (f"=CEILING(MAX(AA{r},Z{r}+AA{r}-T{r}),{v['truck']})" if v["truck"] else f"=MAX(AA{r},Z{r}+AA{r}-T{r})")
+            if not locked else (f"=CEILING(MAX(AA{r},{v['rop_eff']}+AA{r}-T{r}),{v['truck']})" if v["truck"]
+                                else f"=MAX(AA{r},{v['rop_eff']}+AA{r}-T{r})"),
+        ])
+    last = ws.max_row
+    for row in ws.iter_rows(min_row=2, max_row=last, min_col=5):
+        for c in row:
+            if c.column_letter != "V" and c.column_letter != "L":
+                c.number_format = "#,##0.000"
+    widths = {"A": 12, "B": 30, "D": 26, "V": 12}
+    for i in range(1, len(head) + 1):
+        L = get_column_letter(i)
+        ws.column_dimensions[L].width = widths.get(L, 13)
+    ws.freeze_panes = "C2"
+    return _xlsx_response(wb, f"ss_rop_tat_ca_{timezone.localdate():%Y%m%d}")
 
 
 # ------------------------------------------------------------------ Sổ kho
@@ -305,11 +421,29 @@ def counts(request):
                                                      "warehouses": Warehouse.objects.filter(is_active=True)})
 
 
+def _approve_count(ic, lines, user):
+    """Giám đốc duyệt phiếu kiểm kê -> sinh phiếu điều chỉnh ADJ + bút toán kho theo chênh lệch."""
+    adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), count=ic, reason=f"Kiểm kê {ic.code}",
+                                         approved_by=user, status="POSTED")
+    for l in lines:
+        # tồn có thể đã thay đổi trong lúc đếm -> điều chỉnh theo chênh lệch so với tồn sổ lúc chụp
+        diff = (l.final_qty or 0) - l.book_qty
+        if diff:
+            StockAdjustmentLine.objects.create(adjustment=adj, product=l.product, location=l.location,
+                                               qty_diff=diff, unit_cost=l.product.avg_cost)
+            post_stock_move(l.product, l.location, diff, "ADJ", "ADJ", adj.pk, note=adj.code)
+    ic.status, ic.approved_by = "APPROVED", user
+    ic.save()
+    resolve_alerts("COUNT_APPROVAL", "inventory_count", ic.pk)
+    audit("APPROVE", ic)
+    return adj
+
+
 @role_required("DIRECTOR", "WAREHOUSE")
 @business_action
 def count_detail(request, pk):
     ic = get_object_or_404(InventoryCount, pk=pk)
-    lines = ic.lines.select_related("product__base_uom", "location").order_by("location__code")
+    lines = list(ic.lines.select_related("product__base_uom", "location").order_by("location__code"))
     if request.method == "POST":
         op = request.POST.get("op")
         if op == "cancel":
@@ -317,7 +451,9 @@ def count_detail(request, pk):
                 raise BusinessError("Không hủy được phiếu này.")
             ic.status, ic.cancel_reason = "CANCELLED", request.POST.get("reason", "")
             ic.save()
-        elif op == "count" and ic.status in ("COUNTING", "RECOUNT"):
+        elif op in ("count", "count_approve") and ic.status in ("COUNTING", "RECOUNT"):
+            if op == "count_approve" and request.user.role not in ("DIRECTOR", "ADMIN"):
+                raise BusinessError("Chỉ Giám đốc được duyệt kiểm kê.")
             limit = param("COUNT_VARIANCE_PCT")
             with transaction.atomic():
                 need_recount = False
@@ -325,7 +461,12 @@ def count_detail(request, pk):
                     key = f"c_{l.pk}"
                     if key not in request.POST or request.POST[key] == "":
                         continue
-                    v = Decimal(request.POST[key])
+                    try:
+                        v = Decimal(request.POST[key].replace(",", "."))
+                    except Exception:
+                        raise BusinessError(f"Số đếm '{request.POST[key]}' không hợp lệ.")
+                    if v < 0:
+                        raise BusinessError("Số đếm không được âm.")
                     if ic.status == "COUNTING":
                         l.count1 = v
                     else:
@@ -339,31 +480,29 @@ def count_detail(request, pk):
                     raise BusinessError(f"Còn {len(missing)} dòng chưa nhập số đếm.")
                 if ic.status == "COUNTING" and need_recount:
                     ic.status = "RECOUNT"
-                    messages.warning(request, f"Có dòng lệch > {limit:g}% – cần đếm lại lần 2.")
+                    ic.save()
+                    messages.warning(request, f"Có dòng lệch > {limit:g}% – cần đếm lại lần 2 trước khi duyệt.")
                 else:
                     ic.status = "PENDING_APPROVAL"
-                    messages.success(request, "Đã hoàn tất đếm, chờ Director duyệt.")
-                ic.save()
+                    ic.save()
+                    if op == "count_approve":
+                        adj = _approve_count(ic, lines, request.user)
+                        messages.success(request, f"Đã lưu số đếm, duyệt phiếu và ghi bút toán điều chỉnh {adj.code}.")
+                    else:
+                        messages.success(request, "Đã hoàn tất đếm, chờ Giám đốc duyệt.")
+                        raise_alert("COUNT_APPROVAL", f"Kiểm kê {ic.code} chờ duyệt", ic.warehouse.name,
+                                    ref_type="inventory_count", ref_id=ic.pk, url=f"/app/inventory/counts/{ic.pk}",
+                                    target_role="DIRECTOR")
         elif op == "approve" and ic.status == "PENDING_APPROVAL":
             if request.user.role not in ("DIRECTOR", "ADMIN"):
-                raise BusinessError("Chỉ Director được duyệt kiểm kê.")
+                raise BusinessError("Chỉ Giám đốc được duyệt kiểm kê.")
             with transaction.atomic():
-                adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), count=ic, reason=f"Kiểm kê {ic.code}",
-                                                     approved_by=request.user, status="POSTED")
-                for l in lines:
-                    # tồn có thể đã thay đổi trong lúc đếm -> điều chỉnh theo chênh lệch so với tồn sổ lúc chụp
-                    diff = (l.final_qty or 0) - l.book_qty
-                    if diff:
-                        StockAdjustmentLine.objects.create(adjustment=adj, product=l.product, location=l.location,
-                                                           qty_diff=diff, unit_cost=l.product.avg_cost)
-                        post_stock_move(l.product, l.location, diff, "ADJ", "ADJ", adj.pk, note=adj.code)
-                ic.status, ic.approved_by = "APPROVED", request.user
-                ic.save()
-                audit("APPROVE", ic)
+                adj = _approve_count(ic, lines, request.user)
             messages.success(request, f"Đã duyệt và ghi bút toán điều chỉnh {adj.code}.")
         return redirect(f"/app/inventory/counts/{pk}")
     blind = ic.status in ("COUNTING", "RECOUNT") and request.user.role == "WAREHOUSE"
     adj_value = sum(((l.final_qty or 0) - l.book_qty) * l.product.avg_cost for l in lines if l.final_qty is not None)
     return render(request, "inventory/count_detail.html", {
         "title": f"Kiểm kê {ic.code}", "ic": ic, "lines": lines, "blind": blind, "adj_value": adj_value,
+        "is_director": request.user.role in ("DIRECTOR", "ADMIN"),
         "limit": param("COUNT_VARIANCE_PCT")})

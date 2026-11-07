@@ -1,6 +1,6 @@
 {% extends "portal/base.html" %}
 {% block content %}
-<div class="page-head"><div><div class="crumbs"><a href="/portal/orders">Theo dõi đơn</a> /</div><h1 class="page-title">{{ so.code }} {% code_badge ds_code ds_label %}</h1><div class="page-sub">{{ so.site.name }} · cần giao {{ so.requested_date|vn_d }}</div></div></div>
+<div class="page-head"><div><div class="crumbs"><a href="/portal/orders">Theo dõi đơn</a> /</div><h1 class="page-title">{{ so.code }} {% code_badge ds_code ds_label %}</h1><div class="page-sub">{{ so.site.name }} · cần giao {{ so.requested_date|vn_d }}{% if live %} · <span class="text-muted" title="Trang tự cập nhật khi đơn được xếp chuyến / xe xuất kho / giao xong"><i data-lucide="radio" style="width:13px"></i> tự cập nhật · lúc {{ now|hm }}</span>{% endif %}</div></div></div>
 <div class="card card-body" style="margin-bottom:20px">
   <div style="display:grid;grid-template-columns:repeat({{ steps|length }},1fr);gap:8px">
     {% for label, done in steps %}<div style="text-align:center"><div style="height:6px;border-radius:99px;background:{% if done %}var(--primary){% else %}var(--line-soft){% endif %};margin-bottom:8px"></div><span style="font-size:13px;{% if done %}font-weight:600{% else %}color:var(--muted){% endif %}">{{ label }}</span></div>{% endfor %}
@@ -23,6 +23,20 @@
         {% else %}<dt>ETA</dt><dd><b>{% if s.eta %}{{ s.eta|vn_dt }}{% else %}Trong ngày {{ s.trip.planned_date|vn_d }}{% endif %}</b></dd>
           {% if s.trip.departed_at %}<dt>Xuất kho</dt><dd>{{ s.trip.departed_at|vn_dt }}</dd>{% endif %}{% endif %}
       </dl>
-    </div>{% empty %}<div class="text-muted">Đơn chưa được xếp chuyến giao.</div>{% endfor %}</div>
+    </div>{% empty %}<div class="text-muted">{% if so.status == "CONFIRMED" %}Đơn {{ so.code }} đã xác nhận, đang chờ điều phối xếp chuyến giao. Trang sẽ tự cập nhật khi có chuyến.{% else %}Đơn chưa được xếp chuyến giao.{% endif %}</div>{% endfor %}</div>
 </div>
 {% endblock %}
+{% block scripts %}{% if live %}{{ sig|json_script:"so-sig" }}
+<script>
+  (function () {
+    const sig = JSON.parse(document.getElementById("so-sig").textContent);
+    setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch("/portal/orders/{{ so.pk }}/status", { headers: { Accept: "application/json" } });
+        const j = await r.json();
+        if (j.sig && j.sig !== sig) location.reload();
+      } catch (e) { /* mất mạng tạm thời – thử lại lần sau */ }
+    }, 20000);
+  })();
+</script>{% endif %}{% endblock %}

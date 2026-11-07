@@ -2,7 +2,10 @@
 {% block content %}
 <div class="page-head">
   <div><div class="crumbs">MH-31 · Bán hàng</div><h1 class="page-title">Đơn bán hàng (SO)</h1><div class="page-sub">B2B kiểm tra hạn mức & giá sàn · INTERNAL dùng giá vốn, không tính hạn mức, không xuất hóa đơn</div></div>
-  {% if user.role != "ACCOUNTANT" %}<a href="/app/sales/orders/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo đơn bán</a>{% endif %}
+  <div class="toolbar">
+    <a href="?{% if qs %}{{ qs }}&{% endif %}export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất Excel</a>
+    {% if user.role != "ACCOUNTANT" %}<a href="/app/sales/orders/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo đơn bán</a>{% endif %}
+  </div>
 </div>
 <div class="tabs">
   <a class="tab {% if not request.GET.status and not request.GET.stock %}active{% endif %}" href="?">Tất cả <span class="n">{{ total }}</span></a>

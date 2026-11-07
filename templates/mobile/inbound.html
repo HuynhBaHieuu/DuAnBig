@@ -8,7 +8,7 @@
 </div>
 
 {% if next_ms %}
-<form method="post" enctype="multipart/form-data" class="card card-body" style="margin-bottom:14px" x-data="{f:null, err:''}">{% csrf_token %}
+<form method="post" enctype="multipart/form-data" data-async class="card card-body" style="margin-bottom:14px" x-data="{f:null, err:''}">{% csrf_token %}
   <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ next_ms.pk }}">
   <div class="lbl">Mốc tiếp theo · dự kiến {{ next_ms.planned_at|hm }}</div>
   <div style="font-size:22px;font-weight:700;margin:4px 0 12px">{{ next_ms.name }}</div>
@@ -37,7 +37,7 @@
 </div></div>
 
 {% if trip.status != "RECEIVED" and trip.status != "CANCELLED" %}
-<form method="post" enctype="multipart/form-data" class="card card-body" x-data="{o:false}">{% csrf_token %}<input type="hidden" name="op" value="incident">
+<form method="post" enctype="multipart/form-data" data-async class="card card-body" x-data="{o:false}">{% csrf_token %}<input type="hidden" name="op" value="incident">
   <button type="button" class="btn btn-danger" style="width:100%" @click="o=!o"><i data-lucide="siren"></i>Báo sự cố</button>
   <div x-show="o" x-cloak style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
     <select class="input" name="incident_type">{% for v, l in incident_types %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
