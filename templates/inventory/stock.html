@@ -11,7 +11,7 @@
 <div class="grid g-4" style="margin-bottom:20px">
   {% if user.can_see_cost %}{% include "partials/kpi.html" with label="Giá trị tồn (giá vốn BQ)" value=value|money_short icon="warehouse" tone="primary" %}
   {% else %}{% include "partials/kpi.html" with label="Mã hàng đang theo dõi" value=rows|length icon="boxes" tone="primary" %}{% endif %}
-  {% include "partials/kpi.html" with label="Dưới điểm đặt hàng (ROP)" value=counts.BELOW_ROP icon="trending-down" tone="warn" %}
+  {% include "partials/kpi.html" with label="Chạm điểm đặt hàng lại (ROP)" value=counts.BELOW_ROP icon="trending-down" tone="warn" %}
   {% include "partials/kpi.html" with label="Dưới tồn an toàn (SS)" value=counts.BELOW_SS icon="shield-alert" tone="danger" %}
   {% include "partials/kpi.html" with label="Hết hàng khả dụng" value=counts.STOCKOUT icon="package-x" tone="danger" %}
 </div>
@@ -32,7 +32,7 @@
   <div class="table-wrap">
   <table class="tbl" x-data="{open:null}">
     <thead><tr><th>Sản phẩm</th><th>ĐVT</th><th class="num">Tồn thực</th><th class="num">Đã giữ</th><th class="num">Khả dụng</th>
-      <th class="num">Đang về</th><th class="num">Dự báo</th><th>SS / ROP</th><th class="num">Đủ (ngày)</th><th>Tình trạng</th>{% if user.can_see_cost %}<th class="num">Giá vốn BQ</th>{% endif %}</tr></thead>
+      <th class="num">Đang về</th><th class="num" title="PR / PO đã đề xuất nhưng chưa duyệt">Đã đề xuất</th><th class="num">Dự báo</th><th>SS / ROP</th><th class="num">Lượng PR gợi ý</th><th class="num">Đủ (ngày)</th><th>Tình trạng</th>{% if user.can_see_cost %}<th class="num">Giá vốn BQ</th>{% endif %}</tr></thead>
     <tbody>
     {% for r in rows %}
       <tr style="cursor:pointer" hx-get="/app/inventory/stock/{{ r.product.pk }}/locations" hx-target="#loc-{{ r.product.pk }}" hx-swap="innerHTML"
@@ -43,7 +43,8 @@
         <td class="num">{{ r.reserved|qty }}</td>
         <td class="num"><b>{{ r.available|qty }}</b></td>
         <td class="num text-primary">{{ r.incoming|qty }}</td>
-        <td class="num">{{ r.projected|qty }}</td>
+        <td class="num">{{ r.pipeline|qty }}</td>
+        <td class="num" style="{% if r.projected < 0 %}color:var(--danger-ink);font-weight:700{% endif %}">{{ r.projected|qty }}</td>
         <td style="min-width:170px">
           <div class="ropbar" title="Dự báo {{ r.projected|qty }} · SS {{ r.ss|qty }} · ROP {{ r.rop|qty }}">
             <div class="fill" style="width:{{ r.bar.fill }}%;background:{% if r.level == 'OK' %}var(--success){% elif r.level == 'BELOW_ROP' %}var(--warn){% else %}var(--danger){% endif %}"></div>
@@ -51,15 +52,16 @@
           </div>
           <div class="text-muted" style="font-size:11px;margin-top:4px">SS {{ r.ss|qty }} · ROP {{ r.rop|qty }}</div>
         </td>
+        <td class="num">{% if r.product.track_rop %}{{ r.suggested_q|qty }}{% else %}—{% endif %}</td>
         <td class="num">{% if r.days_cover is not None %}{{ r.days_cover|floatformat:1 }}{% else %}∞{% endif %}</td>
         <td><span class="badge badge-{{ r.level_tone }}">{{ r.level_label }}</span></td>
         {% if user.can_see_cost %}<td class="num">{{ r.product.avg_cost|vnd }}</td>{% endif %}
       </tr>
-      <tr x-show="open === {{ r.product.pk }}" x-cloak><td colspan="11" style="background:var(--bg)"><div id="loc-{{ r.product.pk }}" class="text-muted">Đang tải...</div></td></tr>
-    {% empty %}<tr><td colspan="11" class="empty">Không có sản phẩm.</td></tr>{% endfor %}
+      <tr x-show="open === {{ r.product.pk }}" x-cloak><td colspan="13" style="background:var(--bg)"><div id="loc-{{ r.product.pk }}" class="text-muted">Đang tải...</div></td></tr>
+    {% empty %}<tr><td colspan="13" class="empty">Không có sản phẩm.</td></tr>{% endfor %}
     </tbody>
     <tfoot><tr><td colspan="2">Tổng ({{ rows|length }} mã)</td><td class="num">{{ totals.on_hand|qty }}</td><td class="num">{{ totals.reserved|qty }}</td>
-      <td class="num">{{ totals.available|qty }}</td><td class="num">{{ totals.incoming|qty }}</td><td colspan="5"></td></tr></tfoot>
+      <td class="num">{{ totals.available|qty }}</td><td class="num">{{ totals.incoming|qty }}</td><td colspan="7"></td></tr></tfoot>
   </table>
   </div></div>
 </div>

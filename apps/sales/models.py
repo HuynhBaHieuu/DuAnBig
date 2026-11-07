@@ -58,6 +58,12 @@ class SalesOrder(TimeStamped):
     approved_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     approved_at = models.DateTimeField(null=True, blank=True)
     cancel_reason = models.CharField(max_length=255, blank=True)
+    # Ghi vết (test/logic.docx, lỗi L3): xác nhận lúc mấy giờ, ai xác nhận
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
 
     class Meta:
         db_table = "sales_order"
@@ -93,6 +99,23 @@ class SalesOrder(TimeStamped):
         if "SHORT" in st:
             return "SHORT"
         return "OK" if st else ""
+
+
+class SalesOrderHistory(models.Model):
+    """Lịch sử đơn bán: tạo, gửi, xác nhận, duyệt, giữ thêm hàng, xuất kho, hủy..."""
+    EVENTS = [("CREATED", "Tạo đơn"), ("EDITED", "Sửa đơn"), ("SUBMITTED", "Gửi xác nhận"),
+              ("PENDING_APPROVAL", "Chờ Giám đốc duyệt"), ("CONFIRMED", "Xác nhận & giữ hàng"),
+              ("APPROVED", "Giám đốc duyệt"), ("REJECTED", "Giám đốc từ chối"), ("RESERVED", "Giữ thêm hàng"),
+              ("ISSUED", "Xuất kho"), ("DELIVERED", "Giao hàng"), ("CANCELLED", "Hủy đơn")]
+    so = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name="history")
+    event = models.CharField(max_length=20, choices=EVENTS)
+    user = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    at = models.DateTimeField(auto_now_add=True)
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "sales_order_history"
+        ordering = ["at", "id"]
 
 
 class SalesOrderLine(models.Model):

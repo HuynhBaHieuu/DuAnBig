@@ -7,7 +7,8 @@ from apps.core.models import MONEY, QTY, TimeStamped
 
 
 class PurchaseRequisition(TimeStamped):
-    STATUS = [("DRAFT", "Nháp"), ("SUBMITTED", "Đã gửi"), ("CONVERTED", "Đã lập PO"), ("CANCELLED", "Đã hủy")]
+    STATUS = [("DRAFT", "Nháp"), ("SUBMITTED", "Đã gửi"), ("CONVERTED", "Đã lập PO"), ("REJECTED", "Bị từ chối"),
+              ("CANCELLED", "Đã hủy")]
     code = models.CharField(max_length=20, unique=True)
     status = models.CharField(max_length=15, choices=STATUS, default="DRAFT")
     source = models.CharField(max_length=10, choices=[("AUTO", "Tự động (ROP)"), ("MANUAL", "Thủ công")],
@@ -16,6 +17,19 @@ class PurchaseRequisition(TimeStamped):
     requested_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     note = models.CharField(max_length=255, blank=True)
     cancel_reason = models.CharField(max_length=255, blank=True)
+    # --- Ghi vết PR tự động (test/logic.docx mục 7.1). PR AUTO: requested_by rỗng = hệ thống tạo ---
+    urgency = models.CharField(max_length=10, choices=[("NORMAL", "Thường"), ("URGENT", "Khẩn")], default="NORMAL")
+    trigger_event = models.CharField(max_length=30, blank=True)
+    trigger_ref_type = models.CharField(max_length=10, blank=True)
+    trigger_ref_code = models.CharField(max_length=40, blank=True, db_index=True)
+    trigger_user = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    trigger_at = models.DateTimeField(null=True, blank=True)
+    snapshot = models.JSONField(default=dict, blank=True, help_text="Số liệu lúc tạo PR (chỉ số lượng, không lưu giá)")
+    missing_supplier = models.BooleanField(default=False)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    rejected_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    rejected_position = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    reject_reason = models.CharField(max_length=255, blank=True)
 
     class Meta:
         db_table = "purchase_requisition"
@@ -65,6 +79,16 @@ class PurchaseOrder(TimeStamped):
     def recalc_total(self):
         self.total_amount = sum((l.qty * l.unit_price for l in self.lines.all()), Decimal(0))
         return self.total_amount
+
+    @property
+    def vat_amount(self):
+        """VAT đơn mua: giá mua lưu chưa VAT, thuế suất = tham số PO_VAT_RATE (mặc định 10%) – giả định G3."""
+        from apps.core.services import param
+        return (self.total_amount * Decimal(str(param("PO_VAT_RATE"))) / 100).quantize(Decimal(1))
+
+    @property
+    def total_with_vat(self):
+        return self.total_amount + self.vat_amount
 
     @property
     def received_pct(self):

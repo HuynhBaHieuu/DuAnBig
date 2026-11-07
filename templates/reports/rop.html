@@ -3,7 +3,7 @@
 {% include "reports/_nav.html" %}
 <div class="grid g-4" style="margin-bottom:20px">
   {% include "partials/kpi.html" with label="Đủ hàng" value=counts.OK|default:0 icon="check-circle-2" tone="success" %}
-  {% include "partials/kpi.html" with label="Dưới ROP" value=counts.BELOW_ROP|default:0 icon="trending-down" tone="warn" %}
+  {% include "partials/kpi.html" with label="Chạm ROP" value=counts.BELOW_ROP|default:0 icon="trending-down" tone="warn" %}
   {% include "partials/kpi.html" with label="Dưới SS" value=counts.BELOW_SS|default:0 icon="shield-alert" tone="danger" %}
   {% include "partials/kpi.html" with label="Hết hàng" value=counts.STOCKOUT|default:0 icon="package-x" tone="danger" %}
 </div>

@@ -158,6 +158,9 @@ def entity_form(request, slug, pk=None):
                 o.avg_cost = o.standard_cost  # giá vốn bình quân khởi tạo = giá chuẩn, sau đó cập nhật theo GRN
             o.save()
             form.save_m2m()
+            if slug == "products" and "track_rop" in form.changed_data:  # tick / bỏ tick "Theo dõi SS/ROP"
+                from apps.inventory.replenishment import Trigger, fire_checks
+                fire_checks([o.pk], Trigger("PARAM_SAVED", "", o.code, request.user))
             messages.success(request, f"Đã lưu {o}.")
             return redirect(f"/app/master/{slug}/")
     return render(request, "master/form.html", {"title": f"{'Sửa' if obj else 'Thêm'} {label.lower()}", "label": label,

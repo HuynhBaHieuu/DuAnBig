@@ -83,7 +83,8 @@
       {% if not rp.d_avg and rp.manual_q is None %}<div class="flash flash-warning" style="margin-top:12px"><i data-lucide="alert-triangle"></i>Vật tư chưa có lịch sử xuất (D̄ = 0) nên Q tự tính có thể bằng 0 – bắt buộc nhập Q tay.</div>{% endif %}
       <div class="card-body" style="background:var(--input);border-radius:12px;margin-top:12px;font-size:13px;line-height:1.9">
         <div><b>Q đang áp dụng = {{ calc.q|qty }}</b> {% if rp.manual_q is not None %}(nhập tay){% else %}= max(MOQ; D̄ × chu kỳ) = max({{ rp.moq|qty }}; {{ rp.d_avg|qty }} × {{ rp.review_days }}){% endif %}</div>
-        <div>Lượng PR = max(Q; ROP + Q − tồn dự báo) = max({{ calc.q|qty }}; {{ calc.rop|qty }} + {{ calc.q|qty }} − {{ calc.proj|qty }}) = <b>{{ calc.raw|qty }}</b></div>
+        <div>Position = tồn dự báo {{ sel.projected|qty }} + đã đề xuất {{ sel.pipeline|qty }} = <b>{{ calc.proj|qty }}</b></div>
+        <div>Lượng PR = max(Q; ROP + Q − position) = max({{ calc.q|qty }}; {{ calc.rop|qty }} + {{ calc.q|qty }} − {{ calc.proj|qty }}) = <b>{{ calc.raw|qty }}</b></div>
         {% if rp.round_by_truck %}<div>Làm tròn theo xe {{ rp.truck_ton|qty }} tấn (= {{ rp.truck_qty|qty }} {{ sel.product.base_uom.code }}/xe): <b>{{ calc.pr|qty }}</b> ≈ {{ calc.trips|floatformat:0 }} chuyến</div>{% endif %}
       </div>
       <div class="toolbar" style="margin-top:16px;justify-content:space-between">

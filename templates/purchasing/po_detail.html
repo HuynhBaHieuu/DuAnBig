@@ -12,7 +12,7 @@
       <form method="post">{% csrf_token %}<input type="hidden" name="op" value="submit"><button class="btn btn-primary"><i data-lucide="send"></i>Gửi duyệt</button></form>
     {% endif %}
     {% if po.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}
-      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="reject"><button class="btn btn-danger">Từ chối</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="reject"><input class="input" name="reason" placeholder="Lý do trả lại" style="width:180px"><button class="btn btn-danger" title="PO về Nháp cho Thu mua sửa">Trả lại</button></form>
       <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt PO</button></form>
     {% endif %}
     {% if po.status == "APPROVED" %}
@@ -23,7 +23,7 @@
     {% endif %}
   </div>
 </div>
-{% if po.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i>PO giá trị {{ po.total_amount|vnd }} ≥ {{ threshold|money_short }} – chờ Director duyệt.</div>{% endif %}
+{% if po.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i>PO giá trị {{ po.total_with_vat|vnd }} (gồm VAT) ≥ {{ threshold|money_short }} – chờ Giám đốc duyệt.</div>{% endif %}
 {% if po.cancel_reason %}<div class="flash flash-error">Lý do hủy/từ chối: {{ po.cancel_reason }}</div>{% endif %}
 <div class="grid g-main">
   <div class="card">
@@ -32,7 +32,9 @@
       <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã xếp chuyến</th><th class="num">Đã nhận</th><th class="num">Đã lập bill</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
       <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
         <td class="num">{{ l.qty_on_trips|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_billed|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
-      <tfoot><tr><td colspan="6">Tổng cộng · {{ est.ton|floatformat:2 }} tấn · <b>số chuyến ước tính: {{ est.trips }}</b> <span class="text-muted">(xe {{ est.truck|floatformat:0 }} t)</span></td><td class="num">{{ po.total_amount|vnd }}</td></tr></tfoot>
+      <tfoot><tr><td colspan="6">Tổng cộng · {{ est.ton|floatformat:2 }} tấn · <b>số chuyến ước tính: {{ est.trips }}</b> <span class="text-muted">(xe {{ est.truck|floatformat:0 }} t)</span></td><td class="num">{{ po.total_amount|vnd }}</td></tr>
+        <tr><td colspan="6" class="text-muted">VAT</td><td class="num">{{ po.vat_amount|vnd }}</td></tr>
+        <tr><td colspan="6"><b>Tổng gồm VAT</b></td><td class="num"><b>{{ po.total_with_vat|vnd }}</b></td></tr></tfoot>
     </table></div>
   </div>
   <div class="grid" style="align-content:start">

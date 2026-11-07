@@ -13,7 +13,7 @@ from apps.inventory.services import default_storage_location, post_stock_move
 from apps.sales.services import check_image
 from apps.masterdata.models import CarrierRate, Dock, Location, SupplierPrice
 
-from .models import (Claim, GoodsReceipt, GoodsReceiptLine, InboundTrip, InboundTripLine, PurchaseOrder,
+from .models import (Claim, GoodsReceipt, GoodsReceiptLine, InboundTrip, InboundTripLine, PurchaseOrder, PurchaseRequisition,
                      PurchaseOrderLine, TripEtaLog, TripIncident, TripMilestone, UnloadingSlot)
 
 D0 = Decimal(0)
@@ -71,32 +71,80 @@ def convert_prs_to_po(prs, warehouse, user):
     return pos
 
 
+def _po_trigger(po, event, user):
+    from apps.inventory.replenishment import Trigger, fire_checks
+    fire_checks(po.lines.values_list("product_id", flat=True), Trigger(event, "PO", po.code, user))
+
+
+@transaction.atomic
+def reject_pr(pr, user, reason=""):
+    """Thu mua từ chối PR: lưu rejected_position = position của vật tư ngay sau khi bỏ PR này khỏi pipeline.
+    Trong 24 giờ, hàm lõi chỉ tạo lại PR tự động khi position mới < rejected_position (có nhu cầu mới)."""
+    from apps.inventory.replenishment import stock_metrics
+
+    pr.status = PurchaseRequisition.objects.select_for_update().values_list("status", flat=True).get(pk=pr.pk)
+    if pr.status not in ("DRAFT", "SUBMITTED"):
+        raise BusinessError("Chỉ từ chối được PR chưa lập PO.")
+    pr.status, pr.rejected_at, pr.rejected_by, pr.reject_reason = "REJECTED", timezone.now(), user, reason or ""
+    pr.save()
+    products = [l.product for l in pr.lines.select_related("product")]
+    if products:
+        m = stock_metrics(products)
+        pr.rejected_position = min(m[p.pk]["position"] for p in products)
+        pr.save(update_fields=["rejected_position"])
+    audit("REJECT", pr, {"reason": reason, "position": str(pr.rejected_position)})
+    return pr
+
+
+@transaction.atomic
 def submit_po(po, user):
+    """Gửi duyệt: tổng PO GỒM VAT ≥ ngưỡng -> chờ Giám đốc duyệt (vẫn ở pipeline, chưa vào "Đang về").
+    Dưới ngưỡng -> tự duyệt (giả định G1) và chuyển sang "Đang về" như khi Giám đốc duyệt."""
     if po.status != "DRAFT":
         raise BusinessError("Chỉ PO nháp mới gửi duyệt được.")
     if not po.lines.exists():
         raise BusinessError("PO chưa có dòng hàng.")
     po.recalc_total()
-    if po.total_amount >= param("PO_APPROVAL_THRESHOLD"):
+    if po.total_with_vat >= param("PO_APPROVAL_THRESHOLD"):
         po.status = "PENDING_APPROVAL"
-        raise_alert("PO_APPROVAL", f"PO {po.code} chờ duyệt", f"Giá trị {po.total_amount:,.0f} ₫",
+        po.save()
+        raise_alert("PO_APPROVAL", f"PO {po.code} chờ duyệt", f"Giá trị {po.total_with_vat:,.0f} ₫ (gồm VAT)",
                     ref_type="po", ref_id=po.pk, url=f"/app/purchase/orders/{po.pk}", target_role="DIRECTOR")
-    else:
-        po.status = "APPROVED"
-        po.approved_at = timezone.now()
+        audit("SUBMIT", po)
+        return
+    po.status = "APPROVED"
+    po.approved_at = timezone.now()
     po.save()
+    audit("APPROVE", po, {"auto": "dưới ngưỡng duyệt"})
+    _po_trigger(po, "PO_APPROVED", user)
 
 
+@transaction.atomic
 def approve_po(po, user, approve=True, reason=""):
+    """Giám đốc duyệt -> SL PO chuyển từ pipeline sang "Đang về" (gọi check_replenishment PO_APPROVED).
+    Trả lại -> PO về Nháp, vẫn nằm trong pipeline (giả định G5)."""
+    # khóa dòng & đọc trạng thái thật trong DB, vẫn cập nhật đúng object của nơi gọi
+    po.status = PurchaseOrder.objects.select_for_update().values_list("status", flat=True).get(pk=po.pk)
     if po.status != "PENDING_APPROVAL":
         raise BusinessError("PO không ở trạng thái chờ duyệt.")
     if approve:
         po.status, po.approved_by, po.approved_at = "APPROVED", user, timezone.now()
     else:
-        po.status, po.cancel_reason = "CANCELLED", reason or "Director từ chối"
+        po.status, po.cancel_reason = "DRAFT", ""
+        po.note = (f"Giám đốc trả lại: {reason}" if reason else "Giám đốc trả lại")[:255]
     po.save()
     resolve_alerts("PO_APPROVAL", "po", po.pk)
-    audit("APPROVE" if approve else "REJECT", po)
+    audit("APPROVE" if approve else "RETURN", po, {"reason": reason} if reason else None)
+    _po_trigger(po, "PO_APPROVED" if approve else "PO_RETURNED", user)
+
+
+@transaction.atomic
+def cancel_po(po, reason, user=None):
+    """Hủy PO: phần chưa nhận rời khỏi "Đang về" (hoặc pipeline nếu chưa duyệt) -> có thể phải tạo PR mới (T12)."""
+    if po.status in ("PARTIAL", "RECEIVED", "CLOSED", "CANCELLED") or po.trips.exclude(status="CANCELLED").exists():
+        raise BusinessError("PO đã có chuyến / đã nhận hàng – không hủy được.")
+    cancel_doc(po, reason)
+    _po_trigger(po, "PO_CANCELLED", user)
 
 
 def send_po(po, pickup_date):
@@ -373,6 +421,8 @@ def check_in(slot, user):
 @transaction.atomic
 def submit_grn(gr, user):
     """Lệch > 2% -> chờ Director duyệt; ngược lại ghi sổ ngay."""
+    # bấm 2 lần / 2 request song song: khóa dòng, đọc trạng thái thật -> chỉ ghi sổ 1 lần
+    gr.status = GoodsReceipt.objects.select_for_update().values_list("status", flat=True).get(pk=gr.pk)
     if gr.status != "DRAFT":
         raise BusinessError("Phiếu nhập không ở trạng thái nháp.")
     limit = param("GRN_VARIANCE_PCT")
@@ -388,6 +438,7 @@ def submit_grn(gr, user):
 
 @transaction.atomic
 def approve_grn(gr, user):
+    gr.status = GoodsReceipt.objects.select_for_update().values_list("status", flat=True).get(pk=gr.pk)
     if gr.status != "PENDING_APPROVAL":
         raise BusinessError("Phiếu không chờ duyệt.")
     gr.approved_by = user
@@ -397,11 +448,20 @@ def approve_grn(gr, user):
 
 
 def post_grn(gr, user):
+    """Nhập kho POSTED: cộng tồn thực, tăng SL đã nhận của PO (incoming giảm đúng bằng lượng nhập), giữ hàng cho
+    backorder theo thứ tự ưu tiên, rồi sau commit gọi check_replenishment(GRN_POSTED). Hàng vào vị trí cách ly không
+    tính vào tồn thực nhưng vẫn tính là đã nhận của PO (T15)."""
+    from apps.inventory.replenishment import Trigger, fire_checks
     from apps.sales.services import retry_backorders
 
     quarantine = Location.objects.filter(warehouse=gr.warehouse, loc_type="QUARANTINE", is_active=True).first()
     now = timezone.now()
     shortage_amt = damage_amt = D0
+    for line in gr.lines.select_related("po_line"):  # G4: chặn nhập vượt SL còn lại của PO
+        pol = PurchaseOrderLine.objects.select_for_update().get(pk=line.po_line_id)
+        if line.qty_good > pol.qty - pol.qty_received:
+            raise BusinessError(f"{line.product.code}: nhập {line.qty_good:g} vượt SL còn lại của PO "
+                                f"({pol.qty - pol.qty_received:g}). Thu mua cần sửa PO trước.")
     for line in gr.lines.select_related("po_line", "product", "location"):
         if line.qty_good > 0:
             post_stock_move(line.product, line.location, line.qty_good, "IN_PURCHASE", "GRN", gr.pk,
@@ -437,5 +497,8 @@ def post_grn(gr, user):
         Claim.objects.create(code=next_doc_no("CL"), gr=gr, claim_type="DAMAGE", against="SUPPLIER",
                              amount=damage_amt, description="Hàng hư hỏng – đưa vào khu cách ly")
     audit("POST", gr)
-    for pid in set(gr.lines.values_list("product_id", flat=True)):
-        retry_backorders(pid)
+    trig = Trigger("GRN_POSTED", "GRN", gr.code, user)
+    pids = set(gr.lines.values_list("product_id", flat=True))
+    for pid in sorted(pids):
+        retry_backorders(pid, trig)
+    fire_checks(pids, trig)

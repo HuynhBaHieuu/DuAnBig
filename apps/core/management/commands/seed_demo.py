@@ -51,7 +51,8 @@ def fake_image(text, color=(230, 95, 43)):
     d.text((14, h - 20), timezone.localtime().strftime("%d/%m/%Y %H:%M") + "  ·  TRACON 80 – ảnh xác thực", fill="white")
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=82)
-    return ContentFile(buf.getvalue(), name="photo.jpg")
+    from django.core.files.uploadedfile import SimpleUploadedFile  # có content_type để qua check_image
+    return SimpleUploadedFile("photo.jpg", buf.getvalue(), content_type="image/jpeg")
 
 
 def fake_signature():

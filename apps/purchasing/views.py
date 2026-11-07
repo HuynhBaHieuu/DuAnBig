@@ -32,10 +32,23 @@ def _dec(v, default="0"):
 # ------------------------------------------------------------------ PR
 @role_required(*BUYERS)
 def pr_list(request):
-    qs = PurchaseRequisition.objects.select_related("requested_by").annotate(n=Count("lines")).order_by("-id")
+    from apps.inventory.replenishment import event_label, ref_url
+
+    qs = PurchaseRequisition.objects.select_related("requested_by", "trigger_user").annotate(n=Count("lines")) \
+        .prefetch_related("lines__product__base_uom", "lines__suggested_supplier").order_by("-id")
     if request.GET.get("status"):
         qs = qs.filter(status=request.GET["status"])
+    if request.GET.get("source"):
+        qs = qs.filter(source=request.GET["source"])
+    q = request.GET.get("q", "").strip()
+    if q:  # lọc theo vật tư (mã / tên) hoặc mã PR / chứng từ gây ra
+        qs = qs.filter(Q(lines__product__code__icontains=q) | Q(lines__product__name__icontains=q)
+                       | Q(code__icontains=q) | Q(trigger_ref_code__icontains=q)).distinct()
     page, qs_str = paginate(request, qs)
+    for pr in page:
+        pr.line_list = list(pr.lines.all())
+        pr.event_label = event_label(pr.trigger_event)
+        pr.ref_link = ref_url(pr.trigger_ref_type, pr.trigger_ref_code)
     return render(request, "purchasing/pr_list.html", {
         "title": "Đề xuất mua (PR)", "page_obj": page, "qs": qs_str, "statuses": PurchaseRequisition.STATUS,
         "warehouses": Warehouse.objects.filter(is_active=True)})
@@ -79,14 +92,25 @@ def pr_convert(request):
 @role_required(*BUYERS)
 @business_action
 def pr_detail(request, pk):
-    pr = get_object_or_404(PurchaseRequisition, pk=pk)
-    if request.method == "POST" and request.POST.get("op") == "cancel":
-        if pr.status == "CONVERTED":
-            raise BusinessError("PR đã lập PO.")
-        svc.cancel_doc(pr, request.POST.get("reason"))
+    from apps.inventory.replenishment import event_label, ref_url
+
+    pr = get_object_or_404(PurchaseRequisition.objects.select_related("trigger_user", "rejected_by"), pk=pk)
+    if request.method == "POST":
+        op = request.POST.get("op")
+        if op == "cancel":
+            if pr.status == "CONVERTED":
+                raise BusinessError("PR đã lập PO.")
+            svc.cancel_doc(pr, request.POST.get("reason"))
+        elif op == "reject":
+            if request.user.role not in ("PURCHASER", "ADMIN"):
+                raise BusinessError("Chỉ Thu mua được từ chối đề xuất mua.")
+            svc.reject_pr(pr, request.user, request.POST.get("reason", "").strip())
+            messages.success(request, f"Đã từ chối {pr.code}. Trong 24 giờ hệ thống chỉ tạo lại PR tự động khi có nhu cầu mới.")
         return redirect(request.path)
-    return render(request, "purchasing/pr_detail.html", {"title": pr.code, "pr": pr,
-                                                         "lines": pr.lines.select_related("product__base_uom", "suggested_supplier", "po_line__po")})
+    return render(request, "purchasing/pr_detail.html", {
+        "title": pr.code, "pr": pr, "event_label": event_label(pr.trigger_event),
+        "ref_link": ref_url(pr.trigger_ref_type, pr.trigger_ref_code), "snap": pr.snapshot or {},
+        "lines": pr.lines.select_related("product__base_uom", "suggested_supplier", "po_line__po")})
 
 
 # ------------------------------------------------------------------ PO (MH-22)
@@ -168,14 +192,12 @@ def po_detail(request, pk):
             if request.user.role not in ("DIRECTOR", "ADMIN"):
                 raise BusinessError("Chỉ Director được duyệt PO.")
             svc.approve_po(po, request.user, op == "approve", request.POST.get("reason", ""))
-            messages.success(request, "Đã duyệt PO." if op == "approve" else "Đã từ chối PO.")
+            messages.success(request, "Đã duyệt PO." if op == "approve" else "Đã trả lại PO về Nháp cho Thu mua.")
         elif op == "send":
             svc.send_po(po, request.POST.get("pickup_date") or po.pickup_date)
             messages.success(request, "Đã ghi nhận gửi NCC.")
         elif op == "cancel":
-            if po.status in ("PARTIAL", "RECEIVED", "CLOSED") or po.trips.exclude(status="CANCELLED").exists():
-                raise BusinessError("PO đã có chuyến / đã nhận hàng – không hủy được.")
-            svc.cancel_doc(po, request.POST.get("reason"))
+            svc.cancel_po(po, request.POST.get("reason"), request.user)
         elif op == "delete" and po.status == "DRAFT":
             po.delete()
             messages.success(request, "Đã xóa PO nháp.")

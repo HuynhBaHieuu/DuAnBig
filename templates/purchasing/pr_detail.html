@@ -1,11 +1,44 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><div class="crumbs"><a href="/app/purchase/requisitions">Đề xuất mua</a> /</div><h1 class="page-title">{{ pr.code }} {% status_badge pr %}</h1>
-    <div class="page-sub">{{ pr.get_source_display }} · tạo {{ pr.created_at|vn_dt }} · cần {{ pr.need_date|vn_d }} {% if pr.note %}· {{ pr.note }}{% endif %}</div></div>
-  {% if pr.status == "SUBMITTED" or pr.status == "DRAFT" %}{% include "partials/cancel_form.html" %}{% endif %}
+  <div><div class="crumbs"><a href="/app/purchase/requisitions">Đề xuất mua</a> /</div><h1 class="page-title">{{ pr.code }} {% status_badge pr %}{% if pr.urgency == "URGENT" %} <span class="badge badge-danger">Khẩn</span>{% endif %}</h1>
+    <div class="page-sub">{{ pr.get_source_display }} · tạo {{ pr.created_at|vn_dt }}{% if pr.source != "AUTO" %} bởi {{ pr.requested_by|default:"—" }}{% endif %} · cần {{ pr.need_date|vn_d }} {% if pr.note %}· {{ pr.note }}{% endif %}</div></div>
+  {% if pr.status == "SUBMITTED" or pr.status == "DRAFT" %}<div class="toolbar">
+    {% if user.role == "PURCHASER" or user.role == "ADMIN" %}
+    <form method="post" class="toolbar" x-data="{o:false}">{% csrf_token %}<input type="hidden" name="op" value="reject">
+      <button type="button" class="btn btn-outline" @click="o=!o" x-show="!o">Từ chối</button>
+      <template x-if="o"><span class="toolbar"><input class="input" name="reason" placeholder="Lý do từ chối" style="width:220px" required><button class="btn btn-danger">Xác nhận từ chối</button></span></template>
+    </form>{% endif %}
+    {% include "partials/cancel_form.html" %}
+  </div>{% endif %}
 </div>
 {% if pr.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ pr.cancel_reason }}</div>{% endif %}
+{% if pr.status == "REJECTED" %}<div class="flash flash-error"><i data-lucide="x-circle"></i><div>Thu mua <b>{{ pr.rejected_by|default:"—" }}</b> từ chối lúc {{ pr.rejected_at|vn_dt }}{% if pr.reject_reason %}: {{ pr.reject_reason }}{% endif %}. Position lúc từ chối: <b>{{ pr.rejected_position|qty }}</b> – trong 24 giờ hệ thống chỉ tạo lại PR tự động khi position thấp hơn mức này.</div></div>{% endif %}
+{% if pr.missing_supplier %}<div class="flash flash-warning"><i data-lucide="alert-triangle"></i>Vật tư chưa có nhà cung cấp mặc định – chọn NCC trong danh mục sản phẩm trước khi gộp thành PO.</div>{% endif %}
+
+{% if pr.source == "AUTO" and pr.trigger_event %}
+<div class="card card-body" style="margin-bottom:20px">
+  <h3 class="card-title" style="margin-bottom:12px"><i data-lucide="help-circle" style="width:18px"></i> Vì sao có PR này</h3>
+  <dl class="dl" style="margin-bottom:14px">
+    <dt>Sự kiện</dt><dd><b>{{ event_label }}</b></dd>
+    <dt>Chứng từ gây ra</dt><dd>{% if ref_link %}<a class="code text-primary" href="{{ ref_link }}">{{ pr.trigger_ref_code }}</a>{% else %}{{ pr.trigger_ref_code|default:"–" }}{% endif %}</dd>
+    <dt>Người thao tác</dt><dd>{{ pr.trigger_user|default:"Hệ thống" }}</dd>
+    <dt>Lúc</dt><dd>{{ pr.trigger_at|vn_dt }}</dd>
+  </dl>
+  {% if snap %}
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th class="num">Tồn thực</th><th class="num">Đã giữ</th><th class="num">Đang về</th><th class="num">Thiếu chưa giữ</th><th class="num">Đã đề xuất</th><th class="num">Tồn dự báo</th><th class="num">Position</th><th class="num">SS</th><th class="num">ROP</th><th class="num">Q</th></tr></thead>
+    <tbody><tr><td class="num">{{ snap.on_hand|qty }}</td><td class="num">{{ snap.reserved|qty }}</td><td class="num">{{ snap.incoming|qty }}</td><td class="num">{{ snap.demand_unreserved|qty }}</td><td class="num">{{ snap.pipeline|qty }}</td>
+      <td class="num"><b>{{ snap.projected|qty }}</b></td><td class="num"><b>{{ snap.position|qty }}</b></td><td class="num">{{ snap.SS|qty }}</td><td class="num">{{ snap.ROP|qty }}</td><td class="num">{{ snap.Q|qty }}</td></tr></tbody>
+  </table></div>
+  <div class="card-body" style="background:var(--input);border-radius:12px;margin-top:12px;font-size:13px;line-height:1.9">
+    <div>Tồn dự báo = Tồn thực + Đang về − Đã giữ − Thiếu chưa giữ = {{ snap.on_hand|qty }} + {{ snap.incoming|qty }} − {{ snap.reserved|qty }} − {{ snap.demand_unreserved|qty }} = <b>{{ snap.projected|qty }}</b> ≤ ROP {{ snap.ROP|qty }}</div>
+    <div>Position = Tồn dự báo + Đã đề xuất = {{ snap.projected|qty }} + {{ snap.pipeline|qty }} = <b>{{ snap.position|qty }}</b> ≤ ROP → cần đề xuất</div>
+    <div>SL = max(Q; ROP + Q − position) = max({{ snap.Q|qty }}; {{ snap.ROP|qty }} + {{ snap.Q|qty }} − {{ snap.position|qty }}) = <b>{{ snap.raw|qty }}</b>{% if snap.round_to_truck %} → làm tròn theo xe {{ snap.truck_qty|qty }} = <b>{{ snap.qty|qty }}</b>{% endif %}</div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 <div class="card"><table class="tbl">
   <thead><tr><th>Sản phẩm</th><th class="num">Số lượng</th><th>ĐVT</th><th>NCC gợi ý</th><th>Đã lập PO</th></tr></thead>
   <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty }}</td><td>{{ l.product.base_uom.code }}</td>

@@ -102,13 +102,11 @@ class ReplenishmentParam(models.Model):
         q = self.truck_ton * 1000 / w
         return Decimal(math.floor(q)) if q >= 1 else q  # đv đếm (bao, viên, cây): 1 xe chở trọn số đơn vị
 
-    def pr_qty(self, projected):
-        """Lượng PR = max(Q; ROP + Q − tồn dự báo), làm tròn lên theo chuyến xe nếu bật."""
-        q = self.order_q
-        qty = max(q, self.eff_rop + q - Decimal(projected), Decimal(0))
-        if self.round_by_truck and self.truck_qty > 0 and qty > 0:
-            qty = math.ceil(qty / self.truck_qty) * self.truck_qty
-        return Decimal(qty).quantize(Decimal("0.001"))
+    def pr_qty(self, position):
+        """Lượng PR = max(Q; ROP + Q − position), làm tròn lên theo chuyến xe nếu bật.
+        Chỉ là lối tắt tới replenishment.calc_order_qty – công thức nằm ở một chỗ duy nhất."""
+        from .replenishment import calc_order_qty, effective_params
+        return calc_order_qty(effective_params(self.product, self), position)[1]
 
 
 class ReplenishmentSnapshot(models.Model):
@@ -209,3 +207,48 @@ class StockAdjustmentLine(models.Model):
 
     class Meta:
         db_table = "stock_adjustment_line"
+
+
+# ----------------------------------------------------------------------------------------------
+# Móc xích QT1–QT2 (test/logic.docx): cảnh báo chạm ROP + nhật ký mỗi lần kiểm tra bổ sung tồn
+# ----------------------------------------------------------------------------------------------
+class ReplenishmentAlert(models.Model):
+    """Cảnh báo HIT_ROP: mở khi tồn dự báo ≤ ROP, tự đóng khi > ROP. Mỗi vật tư tối đa 1 cảnh báo đang mở."""
+    TYPES = [("HIT_ROP", "Chạm ROP")]
+    product = models.ForeignKey("masterdata.Product", on_delete=models.CASCADE, related_name="rop_alerts")
+    alert_type = models.CharField(max_length=10, choices=TYPES, default="HIT_ROP")
+    opened_at = models.DateTimeField()
+    opened_event = models.CharField(max_length=30)
+    opened_ref = models.CharField(max_length=40, blank=True)
+    opened_projected = models.DecimalField(max_digits=14, decimal_places=3)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_event = models.CharField(max_length=30, blank=True)
+    closed_ref = models.CharField(max_length=40, blank=True)
+
+    class Meta:
+        db_table = "replenishment_alert"
+        ordering = ["-opened_at"]
+        constraints = [models.UniqueConstraint(fields=["product", "alert_type"], condition=Q(closed_at__isnull=True),
+                                               name="uniq_open_rop_alert")]
+
+
+class ReplenishmentCheckLog(models.Model):
+    """Giải thích vì sao có / không có PR sau mỗi lần gọi check_replenishment."""
+    RESULTS = [("CHUA_CHAM", "Chưa chạm ROP"), ("DA_DU_DE_XUAT", "Đã đủ đề xuất"), ("TAO_PR", "Tạo PR"),
+               ("DA_TU_CHOI_GAN_DAY", "Đã từ chối gần đây"), ("KHONG_CAN", "SL đặt = 0"), ("LOI", "Lỗi")]
+    product = models.ForeignKey("masterdata.Product", on_delete=models.CASCADE, related_name="rop_checks")
+    at = models.DateTimeField(auto_now_add=True, db_index=True)
+    event = models.CharField(max_length=30)
+    ref = models.CharField(max_length=40, blank=True)
+    user = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    projected = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    position = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    rop = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    result = models.CharField(max_length=20, choices=RESULTS)
+    pr = models.ForeignKey("purchasing.PurchaseRequisition", null=True, blank=True, on_delete=models.SET_NULL,
+                           related_name="+")
+    note = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "replenishment_check_log"
+        ordering = ["-at", "-id"]

@@ -115,8 +115,11 @@ def so_form(request, pk=None):
             so.order_date = timezone.localdate()
             so.requested_date = request.POST.get("requested_date") or timezone.localdate()
             so.note = request.POST.get("note", "")
+            is_new = so.pk is None
             so.save()
             save_so_lines(so, request.POST.getlist("product"), request.POST.getlist("qty"), request.POST.getlist("price"))
+            svc.so_log(so, "CREATED" if is_new else "EDITED", request.user,
+                       {"lines": [{"product": l.product.code, "qty": float(l.qty)} for l in so.lines.select_related("product")]})
         if request.POST.get("submit"):
             ok = svc.submit_so(so, request.user)
             messages.success(request, _atp_msg(so) if ok else "Đơn cần Director duyệt: " + "; ".join(so.approval_reasons))
@@ -156,7 +159,7 @@ def so_detail(request, pk):
                 svc.reserve_line(l)
             messages.info(request, "Đã chạy lại ATP.")
         elif op == "cancel":
-            svc.cancel_so(so, request.POST.get("reason"))
+            svc.cancel_so(so, request.POST.get("reason"), request.user)
             messages.success(request, "Đã hủy đơn, nhả hàng giữ.")
         elif op == "delete" and so.status == "DRAFT":
             so.delete()
@@ -171,8 +174,15 @@ def so_detail(request, pk):
     else:
         for l in lines:
             l.short_qty = l.backorder_qty
+    from apps.inventory.replenishment import event_label
+    from apps.purchasing.models import PurchaseRequisition
+    history = list(so.history.select_related("user"))
+    trig_prs = list(PurchaseRequisition.objects.filter(trigger_ref_type="SO", trigger_ref_code=so.code)
+                    .prefetch_related("lines__product__base_uom"))
+    for pr in trig_prs:
+        pr.event_label = event_label(pr.trigger_event)
     return render(request, "sales/so_detail.html", {
-        "title": so.code, "so": so, "lines": lines, "preview": preview,
+        "title": so.code, "so": so, "lines": lines, "preview": preview, "history": history, "trig_prs": trig_prs,
         "stops": so.stops.select_related("trip__vehicle").prefetch_related("lines"), "debt": debt, "overdue": overdue,
         "allocs": Allocation.objects.filter(lines__so_line__so=so).distinct()})
 

@@ -1,29 +1,43 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><h1 class="page-title">Đề xuất mua (PR)</h1><div class="page-sub">PR sinh tự động khi tồn dự báo ≤ ROP hoặc tạo thủ công → gộp thành PO theo nhà cung cấp</div></div>
+  <div><h1 class="page-title">Đề xuất mua (PR)</h1><div class="page-sub">PR tự động sinh ngay khi một thao tác làm tồn dự báo ≤ ROP, hoặc tạo thủ công → gộp thành PO theo nhà cung cấp</div></div>
   <a href="/app/purchase/requisitions/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo PR thủ công</a>
 </div>
 <div class="tabs">
-  <a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả</a>
-  {% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }}</a>{% endfor %}
+  <a class="tab {% if not request.GET.status %}active{% endif %}" href="?{% if request.GET.source %}source={{ request.GET.source }}&{% endif %}{% if request.GET.q %}q={{ request.GET.q|urlencode }}{% endif %}">Tất cả</a>
+  {% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}{% if request.GET.source %}&source={{ request.GET.source }}{% endif %}{% if request.GET.q %}&q={{ request.GET.q|urlencode }}{% endif %}">{{ l }}</a>{% endfor %}
 </div>
 <form method="post" action="/app/purchase/requisitions/convert" class="card" x-data="{n:0}">{% csrf_token %}
-  <div class="card-head">
-    <span class="text-muted">Chọn các PR “Đã gửi” để gộp thành đơn mua</span>
+  <div class="card-head" style="flex-wrap:wrap;gap:10px">
     <div class="toolbar">
+      <input class="input" form="pr-filter" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Vật tư, mã PR, chứng từ" style="width:220px">
+      <select class="input" form="pr-filter" name="source" style="width:170px" onchange="document.getElementById('pr-filter').submit()">
+        <option value="">Mọi nguồn</option><option value="AUTO" {% if request.GET.source == "AUTO" %}selected{% endif %}>Tự động (ROP)</option><option value="MANUAL" {% if request.GET.source == "MANUAL" %}selected{% endif %}>Thủ công</option></select>
+      <button class="btn btn-soft" form="pr-filter">Lọc</button>
+    </div>
+    <div class="toolbar">
+      <span class="text-muted" style="font-size:13px">Chọn PR “Đã gửi” để gộp thành đơn mua</span>
       <select name="warehouse" class="input" style="width:180px">{% for w in warehouses %}<option value="{{ w.pk }}">Nhập về: {{ w.name }}</option>{% endfor %}</select>
       <button class="btn btn-primary" :disabled="n==0"><i data-lucide="git-merge"></i>Gộp thành PO (<span x-text="n"></span>)</button>
     </div>
   </div>
-  <div class="card-body" style="padding:12px 0 0"><table class="tbl">
-    <thead><tr><th style="width:36px"></th><th>Mã PR</th><th>Nguồn</th><th>Số dòng</th><th>Ngày cần</th><th>Người đề xuất</th><th>Ngày tạo</th><th>Trạng thái</th></tr></thead>
+  <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
+    <thead><tr><th style="width:36px"></th><th>Mã PR</th><th>Vật tư</th><th class="num">SL</th><th>Nguồn</th><th>Sự kiện sinh ra</th><th>Chứng từ gây ra</th><th>Tạo lúc</th><th>Mức</th><th>NCC</th><th>Trạng thái</th></tr></thead>
     <tbody>{% for pr in page_obj %}
       <tr><td>{% if pr.status == "SUBMITTED" %}<input type="checkbox" name="pr" value="{{ pr.pk }}" @change="n += $event.target.checked ? 1 : -1">{% endif %}</td>
         <td><a class="code" href="/app/purchase/requisitions/{{ pr.pk }}">{{ pr.code }}</a></td>
-        <td>{% if pr.source == "AUTO" %}<span class="badge badge-info"><i data-lucide="bot" style="width:12px"></i>Tự động ROP</span>{% else %}<span class="badge badge-gray">Thủ công</span>{% endif %}</td>
-        <td>{{ pr.n }}</td><td>{{ pr.need_date|vn_d }}</td><td>{{ pr.requested_by|default:"SYSTEM" }}</td><td class="text-muted">{{ pr.created_at|vn_dt }}</td><td>{% status_badge pr %}</td></tr>
-    {% empty %}<tr><td colspan="8" class="empty">Chưa có đề xuất mua.</td></tr>{% endfor %}</tbody>
-  </table>{% include "partials/pager.html" %}</div>
+        <td>{% for l in pr.line_list|slice:":2" %}<div><b>{{ l.product.code }}</b> <span class="text-muted" style="font-size:12px">{{ l.product.name|truncatechars:28 }}</span></div>{% endfor %}{% if pr.line_list|length > 2 %}<div class="text-muted" style="font-size:12px">+{{ pr.line_list|length|add:"-2" }} vật tư khác</div>{% endif %}</td>
+        <td class="num">{% for l in pr.line_list|slice:":2" %}<div>{{ l.qty|qty }} {{ l.product.base_uom.code }}</div>{% endfor %}</td>
+        <td>{% if pr.source == "AUTO" %}<span class="badge badge-info"><i data-lucide="bot" style="width:12px"></i>Tự động (ROP)</span>{% else %}<span class="badge badge-gray">Thủ công</span>{% endif %}</td>
+        <td>{{ pr.event_label|default:"—" }}{% if pr.trigger_user %}<div class="text-muted" style="font-size:12px">{{ pr.trigger_user }}</div>{% endif %}</td>
+        <td>{% if pr.ref_link %}<a class="code" href="{{ pr.ref_link }}">{{ pr.trigger_ref_code }}</a>{% else %}{{ pr.trigger_ref_code|default:"—" }}{% endif %}</td>
+        <td class="text-muted">{{ pr.created_at|vn_dt }}</td>
+        <td>{% if pr.urgency == "URGENT" %}<span class="badge badge-danger">Khẩn</span>{% else %}<span class="badge badge-gray">Thường</span>{% endif %}</td>
+        <td>{% with l=pr.line_list.0 %}{% if pr.missing_supplier or not l.suggested_supplier %}<span class="badge badge-warn" title="Chưa có NCC mặc định"><i data-lucide="alert-triangle" style="width:12px"></i>Thiếu NCC</span>{% else %}{{ l.suggested_supplier.name|truncatechars:22 }}{% endif %}{% endwith %}</td>
+        <td>{% status_badge pr %}</td></tr>
+    {% empty %}<tr><td colspan="11" class="empty">Chưa có đề xuất mua.</td></tr>{% endfor %}</tbody>
+  </table></div>{% include "partials/pager.html" %}</div>
 </form>
+<form id="pr-filter" method="get">{% if request.GET.status %}<input type="hidden" name="status" value="{{ request.GET.status }}">{% endif %}</form>
 {% endblock %}

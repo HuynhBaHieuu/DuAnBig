@@ -18,7 +18,7 @@ from .models import (InventoryCount, InventoryCountLine, ReplenishmentParam, Sto
 from .services import calc_param, demand_series, post_stock_move, run_replenishment, stock_summary, transfer
 
 INTERNAL = ("DIRECTOR", "PURCHASER", "DISPATCHER", "WAREHOUSE", "ACCOUNTANT")
-LEVEL_LABEL = {"OK": ("Đủ hàng", "success"), "BELOW_ROP": ("Dưới ROP", "warn"), "BELOW_SS": ("Dưới SS", "danger"),
+LEVEL_LABEL = {"OK": ("Bình thường", "success"), "BELOW_ROP": ("Chạm ROP", "warn"), "BELOW_SS": ("Dưới SS", "danger"),
                "STOCKOUT": ("Hết hàng", "danger")}
 
 
@@ -48,14 +48,16 @@ def stock(request):
     rows.sort(key=lambda r: ({"STOCKOUT": 0, "BELOW_SS": 1, "BELOW_ROP": 2, "OK": 3}[r["level"]], r["product"].code))
 
     if request.GET.get("export") == "xlsx":
-        head = ["Mã", "Tên", "ĐVT", "Tồn thực", "Đã giữ", "Khả dụng", "Đang về", "Dự báo", "SS", "ROP", "Số ngày đủ"]
+        head = ["Mã", "Tên", "ĐVT", "Tồn thực", "Đã giữ", "Khả dụng", "Đang về", "Đã đề xuất", "Dự báo", "SS", "ROP",
+                "Lượng PR gợi ý", "Số ngày đủ", "Tình trạng"]
         if request.user.can_see_cost:
             head.append("Giá trị tồn")
         data = []
         for r in rows:
             p = r["product"]
             line = [p.code, p.name, p.base_uom.code, r["on_hand"], r["reserved"], r["available"], r["incoming"],
-                    r["projected"], r["ss"], r["rop"], round(float(r["days_cover"]), 1) if r["days_cover"] else None]
+                    r["pipeline"], r["projected"], r["ss"], r["rop"], r["suggested_q"],
+                    round(float(r["days_cover"]), 1) if r["days_cover"] else None, r["level_label"]]
             if request.user.can_see_cost:
                 line.append(r["on_hand"] * p.avg_cost)
             data.append(line)
@@ -113,7 +115,10 @@ def stock_add(request):
         StockAdjustmentLine.objects.create(adjustment=adj, product=prod, location=loc, qty_diff=qty, unit_cost=cost)
         post_stock_move(prod, loc, qty, "ADJ", "ADJ", adj.pk, unit_cost=cost, note=f"{adj.code} – {reason}"[:255])
         audit("CREATE", adj, {"product": prod.code, "location": loc.code, "qty": str(qty), "reason": reason})
-        retry_backorders(prod.pk)
+        from .replenishment import Trigger, fire_checks
+        trig = Trigger("STOCK_ADJUSTED", "ADJ", adj.code, request.user)
+        retry_backorders(prod.pk, trig)
+        fire_checks([prod.pk], trig)
     messages.success(request, f"Đã thêm {qty:g} {prod.base_uom.code} {prod.code} vào {loc.code} (phiếu {adj.code}).")
     return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
 
@@ -160,7 +165,7 @@ def replenishment(request):
         }
     calc = None
     if rp:
-        q, proj = rp.order_q, sel["projected"]
+        q, proj = rp.order_q, sel["position"]  # SL PR tính từ position = tồn dự báo + đã đề xuất (giống hàm lõi)
         raw = max(q, sel["rop"] + q - proj, Decimal(0))
         calc = {"q": q, "raw": raw, "pr": rp.pr_qty(proj), "proj": proj, "rop": sel["rop"],
                 "trips": (rp.pr_qty(proj) / rp.truck_qty) if rp.truck_qty else None}
@@ -193,9 +198,10 @@ def _num(request, name, cast=Decimal, default=None):
 @business_action
 def replenishment_save(request, pk):
     rp = get_object_or_404(ReplenishmentParam.objects.select_related("product"), product_id=pk)
+    from .replenishment import Trigger, fire_checks
     op = request.POST.get("op")
     if op == "run_all":
-        res = run_replenishment()
+        res = run_replenishment(trigger=Trigger("NIGHTLY_JOB", "", "Chạy tay", request.user))
         messages.success(request, f"Đã tính lại {res['products']} sản phẩm."
                          + (f" Sinh PR tự động {res['auto_pr']} ({res['lines']} dòng)." if res["auto_pr"] else ""))
         return redirect(f"/app/inventory/replenishment?product={pk}")
@@ -233,11 +239,12 @@ def replenishment_save(request, pk):
         rp, _ = calc_param(rp.product)
         if rp.d_avg == 0 and rp.manual_q is None:
             raise BusinessError("Vật tư chưa có lịch sử xuất (D̄ = 0): bắt buộc nhập Q tay.")
-        rp.suggested_q = rp.pr_qty(stock_summary([rp.product])[rp.product_id]["projected"])
+        rp.suggested_q = stock_summary([rp.product])[rp.product_id]["suggested_q"]
         rp.save(update_fields=["suggested_q"])
         changes = {f: [str(old[f]), str(getattr(rp, f))] for f in AUDIT_FIELDS if old[f] != getattr(rp, f)}
         if changes:
             audit("UPDATE", rp, changes)
+        fire_checks([rp.product_id], Trigger("PARAM_SAVED", "", rp.product.code, request.user))
     messages.success(request, f"Đã lưu & tính lại SS/ROP cho {rp.product.code}.")
     return redirect(f"/app/inventory/replenishment?product={pk}")
 
@@ -297,7 +304,7 @@ def _rop_report(rp, sel):
     from openpyxl.styles import Font
 
     days, raw, used, dropped, cut = demand_series(rp)
-    v = _rop_values(rp, used, sel["projected"])
+    v = _rop_values(rp, used, sel["position"])
     wb = Workbook()
     ws = wb.active
     ws.title = "NhuCau"
@@ -333,8 +340,8 @@ def _rop_report(rp, sel):
         ("Chu kỳ đặt (ngày)", rp.review_days, "=B15", ""),
         ("Q áp dụng", v["q"], float(rp.manual_q) if rp.manual_q is not None else "=MAX(C14,ROUNDUP(C7*C15,0))",
          "Q nhập tay, hoặc max(MOQ; D̄ × chu kỳ)"),
-        ("Tồn dự báo", v["projected"], "=B17", "Khả dụng + đang về"),
-        ("Lượng PR", v["pr"], "=MAX(C16,C13+C16-C17)", "max(Q; ROP + Q − dự báo)"),
+        ("Position (tồn dự báo + đã đề xuất)", v["projected"], "=B17", "Tồn thực + đang về − đã giữ − thiếu chưa giữ + PR/PO chưa duyệt"),
+        ("Lượng PR", v["pr"], "=MAX(C16,C13+C16-C17)", "max(Q; ROP + Q − position)"),
     ]
     if rp.round_by_truck:
         rows.append(("Tải 1 xe (đv gốc)", v["truck"], "=B19", f"{rp.truck_ton} tấn/xe"))
@@ -368,7 +375,7 @@ def _rop_report_all(summary):
     nc = wb.create_sheet("NhuCau")
     head = ["Mã SP", "Tên SP", "ĐVT", "Phương pháp", "Z", "LT (ngày)", "σLT (ngày)", "D̄/ngày", "σD/ngày",
             "SS tự tính", "ROP tự tính", "Khóa tay", "SS áp dụng", "ROP áp dụng", "MOQ", "Chu kỳ (ngày)", "Q áp dụng",
-            "Khả dụng", "Đang về", "Tồn dự báo", "Lượng PR", "Tình trạng",
+            "Khả dụng", "Đang về", "Position (dự báo + đề xuất)", "Lượng PR", "Tình trạng",
             # cột công thức Excel tự tính lại (đối chiếu)
             "D̄ (Excel)", "σD (Excel)", "SS (Excel)", "ROP (Excel)", "Q (Excel)", "Lượng PR (Excel)"]
     ws.append(head)
@@ -379,7 +386,7 @@ def _rop_report_all(summary):
     for pid, s in sorted(summary.items(), key=lambda kv: kv[1]["product"].code):
         rp = params.get(pid) or ReplenishmentParam.objects.create(product_id=pid, z=param("SERVICE_Z"))
         days, _, used, _, _ = demand_series(rp)
-        v = _rop_values(rp, used, s["projected"])
+        v = _rop_values(rp, used, s["position"])
         col += 1
         L = get_column_letter(col)
         nc.cell(1, col, rp.product.code)
@@ -475,6 +482,9 @@ def _approve_count(ic, lines, user):
     ic.save()
     resolve_alerts("COUNT_APPROVAL", "inventory_count", ic.pk)
     audit("APPROVE", ic)
+    from .replenishment import Trigger, fire_checks
+    fire_checks([l.product_id for l in lines if (l.final_qty or 0) != l.book_qty],
+                Trigger("COUNT_APPROVED", "IC", ic.code, user))
     return adj
 
 

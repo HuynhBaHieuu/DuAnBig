@@ -52,10 +52,22 @@
     <div class="card card-body"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 class="card-title">Thông tin khách hàng</h3><button type="button" class="btn btn-outline btn-sm" @click="side = false" title="Ẩn sang bên">✕</button></div><dl class="dl">
       <dt>Khách hàng</dt><dd>{{ so.customer }}</dd><dt>Công trình</dt><dd>{{ so.site.name }}<div class="text-muted" style="font-size:12px">{{ so.site.address }}</div></dd>
       <dt>Ưu tiên CT</dt><dd>{{ so.site.priority }}{% if so.site.penalty_date %} · mốc phạt {{ so.site.penalty_date|vn_d }}{% endif %}</dd>
-      <dt>Người lập</dt><dd>{{ so.created_by|default:"—" }}</dd><dt>Người duyệt</dt><dd>{{ so.approved_by|default:"—" }}</dd><dt>Ghi chú</dt><dd>{{ so.note|default:"—" }}</dd></dl></div>
+      <dt>Người lập</dt><dd>{{ so.created_by|default:"—" }} <span class="text-muted" style="font-size:12px">{{ so.created_at|vn_dt }}</span></dd>
+      <dt>Xác nhận</dt><dd>{% if so.confirmed_at %}Lúc <b>{{ so.confirmed_at|vn_dt }}</b> bởi <b>{{ so.confirmed_by|default:"—" }}</b>{% else %}—{% endif %}</dd>
+      <dt>Người duyệt</dt><dd>{{ so.approved_by|default:"—" }}{% if so.approved_at %} <span class="text-muted" style="font-size:12px">{{ so.approved_at|vn_dt }}</span>{% endif %}</dd>
+      {% if so.cancelled_at %}<dt>Hủy</dt><dd>{{ so.cancelled_at|vn_dt }} bởi {{ so.cancelled_by|default:"—" }}</dd>{% endif %}<dt>Ghi chú</dt><dd>{{ so.note|default:"—" }}</dd></dl></div>
     {% if so.order_type == "B2B" %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Tín dụng khách hàng</h3><dl class="dl">
       <dt>Hạn mức</dt><dd>{{ so.customer.credit_limit|vnd }}</dd><dt>Nợ hiện tại</dt><dd>{{ debt|vnd }}</dd>
       <dt>Quá hạn > 30 ngày</dt><dd style="color:{% if overdue %}var(--danger-ink){% endif %}">{{ overdue|vnd }}</dd></dl></div>{% endif %}
+    {% if trig_prs %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Đề xuất mua do đơn này kích hoạt</h3>
+      {% for pr in trig_prs %}<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
+        <div>{% if user.role == "DIRECTOR" or user.role == "PURCHASER" or user.role == "ADMIN" %}<a class="code" href="/app/purchase/requisitions/{{ pr.pk }}">{{ pr.code }}</a>{% else %}<b>{{ pr.code }}</b>{% endif %}
+          <div class="text-muted" style="font-size:12px">{% for l in pr.lines.all %}{{ l.product.code }} {{ l.qty|qty }} {{ l.product.base_uom.code }} {% endfor %}· {{ pr.event_label }} · {{ pr.trigger_at|vn_dt }}</div></div>{% status_badge pr %}</div>{% endfor %}</div>{% endif %}
+    {% if history %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Lịch sử đơn</h3>
+      {% for h in history %}<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px">
+        <span class="dot-i" style="margin-top:6px;background:var(--primary)"></span>
+        <div style="flex:1"><b>{{ h.get_event_display }}</b>{% if h.data.reason %} – {{ h.data.reason }}{% endif %}{% if h.data.product %} – {{ h.data.product }} {{ h.data.qty }}{% endif %}{% if h.data.gi %} – {{ h.data.gi }}{% endif %}
+          <div class="text-muted" style="font-size:12px">{{ h.at|vn_dt }} · {{ h.user|default:"Hệ thống" }}</div></div></div>{% endfor %}</div>{% endif %}
     {% if allocs %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Phân bổ thiếu hàng</h3>{% for a in allocs %}<a href="/app/sales/allocations/{{ a.pk }}" style="display:flex;justify-content:space-between;padding:6px 0"><b>{{ a.code }}</b>{% status_badge a %}</a>{% endfor %}</div>{% endif %}
   </div>
 </div>

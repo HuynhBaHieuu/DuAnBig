@@ -65,6 +65,13 @@ def approval_reasons(so):
     return reasons
 
 
+def so_log(so, event, user=None, data=None):
+    """Ghi lịch sử đơn bán (trang chi tiết đơn hiển thị)."""
+    from .models import SalesOrderHistory
+    SalesOrderHistory.objects.create(so=so, event=event, data=data or {},
+                                     user=user if (user is not None and getattr(user, "is_authenticated", False)) else None)
+
+
 @transaction.atomic
 def submit_so(so, user):
     if so.status != "DRAFT":
@@ -72,14 +79,17 @@ def submit_so(so, user):
     if not so.lines.exists():
         raise BusinessError("Đơn chưa có dòng hàng.")
     so.recalc_total()
+    so.submitted_at = timezone.now()
     so.approval_reasons = approval_reasons(so)
     if so.approval_reasons:
+        # chờ Giám đốc duyệt: KHÔNG giữ hàng, không tính vào reserved / demand_unreserved (đặc tả 6.2)
         so.status = "PENDING_APPROVAL"
         so.save()
+        so_log(so, "PENDING_APPROVAL", user, {"reasons": so.approval_reasons})
         raise_alert("SO_APPROVAL", f"SO {so.code} chờ duyệt", "; ".join(so.approval_reasons), ref_type="so",
                     ref_id=so.pk, url=f"/app/sales/orders/{so.pk}", target_role="DIRECTOR")
         return False
-    confirm_so(so)
+    confirm_so(so, user, "SO_CONFIRMED")
     return True
 
 
@@ -90,20 +100,35 @@ def approve_so(so, user, approve=True, reason=""):
     resolve_alerts("SO_APPROVAL", "so", so.pk)
     if not approve:
         so.status, so.cancel_reason = "CANCELLED", reason or "Director từ chối"
+        so.cancelled_at, so.cancelled_by = timezone.now(), user
         so.save()
+        so_log(so, "REJECTED", user, {"reason": so.cancel_reason})
         audit("REJECT", so)
         return
     so.approved_by, so.approved_at = user, timezone.now()
     so.save()
+    so_log(so, "APPROVED", user)
     audit("APPROVE", so)
-    confirm_so(so)
+    confirm_so(so, user, "SO_APPROVED")
 
 
-def confirm_so(so):
+def confirm_so(so, user=None, event="SO_CONFIRMED"):
+    """QT2 – xác nhận đơn: giữ hàng từng dòng (theo mã dòng); KHÔNG trừ tồn thực (chỉ tăng Đã giữ).
+
+    Sau commit gọi check_replenishment cho MỌI vật tư trong đơn, kể cả dòng đủ hàng (đặc tả 6.2, lỗi L1)."""
+    from apps.inventory.replenishment import Trigger, fire_checks
+
     so.status = "CONFIRMED"
+    so.confirmed_at, so.confirmed_by = timezone.now(), user
     so.save()
-    for line in so.lines.select_related("product"):
+    lines = list(so.lines.select_related("product").order_by("id"))
+    for line in lines:
         reserve_line(line)
+    so_log(so, "CONFIRMED", user, {"lines": [{"product": l.product.code, "qty": float(l.qty),
+                                              "reserved": float(l.reserved_qty), "short": float(l.backorder_qty)}
+                                             for l in lines]})
+    audit("CONFIRM", so)
+    fire_checks([l.product_id for l in lines], Trigger(event, "SO", so.code, user))
 
 
 # ------------------------------------------------------------------ ATP & giữ hàng
@@ -234,27 +259,22 @@ def approve_allocation(alloc, user, approved):
     alloc.save()
     resolve_alerts("ALLOCATION", "allocation", alloc.pk)
     audit("APPROVE", alloc)
+    from apps.inventory.replenishment import Trigger, fire_checks
+    fire_checks([alloc.product_id], Trigger("ALLOCATION_APPROVED", "AL", alloc.code, user))
 
 
-def retry_backorders(product_id):
-    """Khi có hàng về (GRN / trả hàng): thử giữ hàng lại cho các dòng backorder theo FIFO."""
-    lines = SalesOrderLine.objects.filter(product_id=product_id, atp_status__in=["BACKORDER", "SHORT"],
-                                          so__status__in=["CONFIRMED", "PARTIAL"]).select_related("so", "product")
+def retry_backorders(product_id, trigger=None):
+    """Có hàng về / vừa nhả hàng: giữ cho các dòng đang thiếu theo thứ tự ưu tiên (đặc tả mục 5).
+
+    Nếu đang có đề xuất phân bổ chờ Director duyệt cho vật tư này -> chỉ tính lại đề xuất theo lượng khả dụng mới."""
+    from apps.inventory.replenishment import Trigger, allocate_backorders
+
     product = Product.objects.get(pk=product_id)
     pending = Allocation.objects.filter(product=product, status="PROPOSED").first()
     if pending:
-        # đang chờ Director phân bổ -> tính lại đề xuất theo lượng khả dụng mới
         propose_allocation(product, pending.priority_rule)
-        return
-    for line in sorted(lines, key=lambda l: (l.so.order_date, l.so_id)):
-        need = line.qty - line.reserved_qty - line.delivered_qty
-        avail = available_qty(product)
-        if avail <= 0:
-            break
-        q = min(need, avail)
-        _reserve(line, q)
-        line.atp_status = "OK" if q >= need else "BACKORDER"
-        line.save(update_fields=["atp_status"])
+        return []
+    return allocate_backorders(product, trigger or Trigger("STOCK_ADJUSTED"))
 
 
 # ------------------------------------------------------------------ Kế hoạch giao (kéo–thả)
@@ -351,6 +371,8 @@ def confirm_picking(picking, user, picked):
 
 @transaction.atomic
 def post_goods_issue(gi, user):
+    # bấm 2 lần chỉ ghi sổ 1 lần: khóa dòng, đọc trạng thái thật trong DB
+    gi.status = GoodsIssue.objects.select_for_update().values_list("status", flat=True).get(pk=gi.pk)
     if gi.status != "DRAFT":
         raise BusinessError("Phiếu xuất đã ghi sổ.")
     now = timezone.now()
@@ -372,6 +394,10 @@ def post_goods_issue(gi, user):
                 dl.so_line.save(update_fields=["planned_qty"])
     gi.status, gi.posted_at = "POSTED", now
     gi.save()
+    for so in {l.so_line.so for l in gi.lines.select_related("so_line__so")}:
+        so_log(so, "ISSUED", user, {"gi": gi.code})
+    from apps.inventory.replenishment import Trigger, fire_checks
+    fire_checks(gi.lines.values_list("product_id", flat=True), Trigger("ISSUE_POSTED", "GIN", gi.code, user))
     trip = gi.trip
     trip.status, trip.departed_at = "IN_TRANSIT", now
     trip.save()
@@ -495,12 +521,20 @@ def post_sales_return(ret, user):
         post_stock_move(line.product, line.location, line.qty, "IN_RETURN", "RT", ret.pk, note=ret.code)
     ret.status = "POSTED"
     ret.save()
-    for pid in set(ret.lines.values_list("product_id", flat=True)):
-        retry_backorders(pid)
+    from apps.inventory.replenishment import Trigger, fire_checks
+    trig = Trigger("STOCK_ADJUSTED", "RT", ret.code, user)
+    pids = set(ret.lines.values_list("product_id", flat=True))
+    for pid in pids:
+        retry_backorders(pid, trig)
     audit("POST", ret)
+    fire_checks(pids, trig)
 
 
-def cancel_so(so, reason):
+def cancel_so(so, reason, user=None):
+    """Hủy đơn chưa xuất: nhả toàn bộ hàng giữ, xóa backorder. PR đã sinh KHÔNG bị xóa / sửa / hủy ngầm.
+    Hàng vừa nhả được giữ tiếp cho backorder của đơn khác (giả định G2), rồi mới gọi check_replenishment."""
+    from apps.inventory.replenishment import Trigger, fire_checks
+
     if so.status in ("DELIVERED", "CLOSED", "CANCELLED"):
         raise BusinessError("Không thể hủy đơn ở trạng thái này.")
     if any(l.planned_qty > 0 or l.delivered_qty > 0 for l in so.lines.all()):
@@ -508,11 +542,20 @@ def cancel_so(so, reason):
     if not reason:
         raise BusinessError("Phải nhập lý do hủy.")
     with transaction.atomic():
+        was_open = so.status in ("CONFIRMED", "PARTIAL")
+        pids = list(so.lines.values_list("product_id", flat=True))
         StockReservation.objects.filter(so_line__so=so, status="ACTIVE").update(status="RELEASED")
         so.lines.update(reserved_qty=0, atp_status="")
         so.status, so.cancel_reason = "CANCELLED", reason
+        so.cancelled_at, so.cancelled_by = timezone.now(), user
         so.save()
+        so_log(so, "CANCELLED", user, {"reason": reason})
         audit("CANCEL", so, {"reason": reason})
+        if was_open:
+            trig = Trigger("SO_CANCELLED", "SO", so.code, user)
+            for pid in sorted(set(pids)):
+                retry_backorders(pid, trig)
+            fire_checks(pids, trig)
 
 
 # ------------------------------------------------------------------ Trạng thái tài xế (khi chọn người lập chuyến)

@@ -230,13 +230,13 @@ def dashboard(request):
              "/app/purchase/orders?status=SENT", "info", "truck")
         todo("Chuyến trễ mốc hành trình", active_trips.filter(is_late=True, status__in=InboundTrip.ACTIVE).count(), "/app/inbound/board", "danger",
              "alarm-clock")
-        todo("Sản phẩm dưới ROP", len(below), "/app/inventory/replenishment?level=low", "danger", "trending-down")
+        todo("Vật tư chạm ROP / dưới SS", len(below), "/app/inventory/replenishment?level=low", "danger", "trending-down")
         labels, values = _series_by_day(PurchaseOrder.objects.exclude(status__in=["DRAFT", "CANCELLED"]),
                                         "created_at", Sum("total_amount"), 14)
         charts.append({"id": "po", "type": "bar", "title": "Giá trị PO 14 ngày (triệu ₫)", "labels": labels,
                        "datasets": [{"label": "PO", "data": [round(v / 1e6, 1) for v in values], "color": "primary"}]})
         charts.append({"id": "lv", "type": "doughnut", "title": "Tình trạng tồn theo ROP",
-                       "labels": ["Đủ", "Dưới ROP", "Dưới SS", "Hết hàng"],
+                       "labels": ["Bình thường", "Chạm ROP", "Dưới SS", "Hết hàng"],
                        "datasets": [{"label": "SP", "data": [sum(1 for s in summary.values() if s["level"] == k)
                                                              for k in ["OK", "BELOW_ROP", "BELOW_SS", "STOCKOUT"]]}]})
 

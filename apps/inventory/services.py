@@ -13,7 +13,7 @@ from apps.core.middleware import get_current_user
 from apps.core.services import BusinessError, next_doc_no, param, raise_alert, resolve_alerts
 from apps.masterdata.models import Location, Product
 
-from .models import ReplenishmentParam, ReplenishmentSnapshot, StockAlert, StockMove, StockQuant
+from .models import ReplenishmentParam, ReplenishmentSnapshot, StockMove, StockQuant
 
 D0 = Decimal(0)
 IN_TYPES = ("IN_PURCHASE", "IN_RETURN")
@@ -80,40 +80,41 @@ def transfer(product, from_loc, to_loc, qty, note=""):
 # Chỉ số tồn: on_hand, reserved, available, incoming, projected, days_cover
 # ----------------------------------------------------------------------------------------------
 def stock_summary(products=None):
-    from apps.purchasing.models import PurchaseOrderLine
-    from apps.sales.models import StockReservation
+    """Chỉ số tồn cho màn hình / báo cáo – đọc đúng công thức của apps.inventory.replenishment.stock_metrics.
 
-    qs = products if products is not None else Product.objects.filter(is_active=True)
+    Mức (level): STOCKOUT khả dụng ≤ 0 · BELOW_SS khả dụng < SS ("Dưới SS") · BELOW_ROP tồn dự báo ≤ ROP
+    ("Chạm ROP", trùng điều kiện mở cảnh báo HIT_ROP) · OK ("Bình thường")."""
+    from .replenishment import calc_order_qty, effective_params, stock_metrics
+
+    qs = list(products if products is not None else Product.objects.filter(is_active=True))
     ids = [p.pk for p in qs]
-    on_hand = dict(StockQuant.objects.filter(product_id__in=ids, location__loc_type__in=["STORAGE", "STAGING_OUT"])
-                   .values_list("product_id").annotate(s=Sum("on_hand")))
-    quarantine = dict(StockQuant.objects.filter(product_id__in=ids, location__loc_type="QUARANTINE")
-                      .values_list("product_id").annotate(s=Sum("on_hand")))
-    reserved = dict(StockReservation.objects.filter(product_id__in=ids, status="ACTIVE")
-                    .values_list("product_id").annotate(s=Sum("qty")))
-    incoming = dict(PurchaseOrderLine.objects
-                    .filter(product_id__in=ids, po__status__in=["APPROVED", "SENT", "PARTIAL"], qty__gt=F("qty_received"))
-                    .values_list("product_id").annotate(s=Sum(F("qty") - F("qty_received"))))
+    metrics = stock_metrics(qs)
     params = {p.product_id: p for p in ReplenishmentParam.objects.filter(product_id__in=ids)}
+    open_alerts = set(ReplenishmentAlertModel().objects.filter(product_id__in=ids, closed_at__isnull=True)
+                      .values_list("product_id", flat=True))
     out = {}
     for p in qs:
-        oh = on_hand.get(p.pk) or D0
-        rs = reserved.get(p.pk) or D0
-        inc = incoming.get(p.pk) or D0
+        m = metrics[p.pk]
         rp = params.get(p.pk)
-        av = oh - rs
-        proj = av + inc
+        av, proj = m["available"], m["projected"]
         d_avg = rp.d_avg if rp else D0
         ss = rp.eff_ss if rp else D0
         rop = rp.eff_rop if rp else D0
+        sugg = calc_order_qty(effective_params(p, rp), m["position"])[1] if rp else D0
+        tracked = p.track_rop and rp is not None
         out[p.pk] = {
-            "product": p, "on_hand": oh, "quarantine": quarantine.get(p.pk) or D0, "reserved": rs, "available": av,
-            "incoming": inc, "projected": proj, "d_avg": d_avg, "ss": ss, "rop": rop,
+            "product": p, **m, "d_avg": d_avg, "ss": ss, "rop": rop,
             "days_cover": (av / d_avg) if d_avg else None, "locked": bool(rp and rp.manual_lock),
-            "suggested_q": rp.suggested_q if rp else D0,
-            "level": "STOCKOUT" if av <= 0 else ("BELOW_SS" if proj <= ss else ("BELOW_ROP" if proj <= rop else "OK")),
+            "suggested_q": sugg, "hit_rop_alert": p.pk in open_alerts,
+            "level": "STOCKOUT" if av <= 0 else ("BELOW_SS" if tracked and av < ss else
+                                                 ("BELOW_ROP" if tracked and proj <= rop else "OK")),
         }
     return out
+
+
+def ReplenishmentAlertModel():
+    from .models import ReplenishmentAlert
+    return ReplenishmentAlert
 
 
 def fifo_quants(product, qty_needed, loc_types=("STORAGE",)):
@@ -190,7 +191,8 @@ def calc_param(product, today=None):
     lts = [float(x) for x in GoodsReceiptLine.objects.filter(product=product, gr__status="POSTED",
                                                               gr__lead_time_days__isnull=False)
            .order_by("-gr__posted_at").values_list("gr__lead_time_days", flat=True)[:20]]
-    lt = statistics.fmean(lts) if lts else float(rp.lead_time_days or 3)
+    # LT thực tế chỉ dùng khi đã có ≥ 3 chuyến nhập xong, ngược lại giữ lead time mặc định (đặc tả mục 2)
+    lt = statistics.fmean(lts) if len(lts) >= 3 else float(rp.lead_time_days or 3)
     lt_std = statistics.pstdev(lts) if len(lts) > 1 else 0.0
 
     z = float(rp.z)
@@ -210,51 +212,29 @@ def calc_param(product, today=None):
     return rp, series
 
 
-@transaction.atomic
-def run_replenishment(today=None):
-    """Tính lại SS/ROP, chụp snapshot, cảnh báo và tự sinh PR (SUBMITTED) khi projected <= ROP."""
-    from apps.purchasing.models import PurchaseRequisition, PurchaseRequisitionLine
+def run_replenishment(today=None, trigger=None):
+    """Tác vụ đêm / nút "Chạy tính toàn bộ ngay": tính lại SS/ROP (vật tư Khóa thủ công giữ nguyên số khóa),
+    chụp snapshot, rồi gọi hàm lõi check_replenishment cho từng vật tư theo dõi – chỉ là LỚP QUÉT DỰ PHÒNG,
+    PR chính được tạo ngay tại các điểm kích hoạt (xác nhận đơn, duyệt PO, nhập kho...)."""
+    from .replenishment import Trigger, safe_check
 
     today = today or timezone.localdate()
+    trigger = trigger or Trigger("NIGHTLY_JOB")
     products = list(Product.objects.filter(is_active=True, track_rop=True))
-    for p in products:
-        calc_param(p, today)
-    summary = stock_summary(products)
-
-    pending = set(PurchaseRequisitionLine.objects.filter(pr__status__in=["DRAFT", "SUBMITTED"])
-                  .values_list("product_id", flat=True))
-    to_order = []
-    for p in products:
-        s = summary[p.pk]
-        rp = p.rop_param
-        rp.suggested_q = rp.pr_qty(s["projected"])
-        rp.save(update_fields=["suggested_q"])
-        y_demand = -(StockMove.objects.filter(product=p, move_type__in=OUT_DEMAND_TYPES,
-                                               at__date=today - timedelta(days=1)).aggregate(s=Sum("qty"))["s"] or D0)
-        ReplenishmentSnapshot.objects.update_or_create(
-            product=p, date=today,
-            defaults=dict(on_hand=s["on_hand"], reserved=s["reserved"], incoming=s["incoming"],
-                          projected=s["projected"], demand=y_demand, d_avg=s["d_avg"], ss=s["ss"], rop=s["rop"]))
-
-        if s["level"] != "OK":
-            StockAlert.objects.filter(product=p, is_resolved=False).exclude(alert_type=s["level"]).update(is_resolved=True)
-            if not StockAlert.objects.filter(product=p, alert_type=s["level"], is_resolved=False).exists():
-                StockAlert.objects.create(product=p, alert_type=s["level"], projected=s["projected"],
-                                          threshold=s["rop"] if s["level"] == "BELOW_ROP" else s["ss"])
-            raise_alert("BELOW_ROP", f"{p.code} dưới điểm đặt hàng",
-                        f"Dự báo {s['projected']:.0f} ≤ ROP {s['rop']:.0f}", ref_type="product", ref_id=p.pk,
-                        url="/app/inventory/replenishment?product=%d" % p.pk, target_role="PURCHASER")
-            if p.pk not in pending and rp.suggested_q > 0:
-                to_order.append((p, rp.suggested_q))
-        else:
-            StockAlert.objects.filter(product=p, is_resolved=False).update(is_resolved=True)
-            resolve_alerts("BELOW_ROP", "product", p.pk)
-
-    pr = None
-    if to_order:
-        pr = PurchaseRequisition.objects.create(code=next_doc_no("PR"), status="SUBMITTED", source="AUTO",
-                                                need_date=today + timedelta(days=3),
-                                                note="Sinh tự động khi tồn dự báo ≤ ROP")
-        for p, q in to_order:
-            PurchaseRequisitionLine.objects.create(pr=pr, product=p, qty=q, suggested_supplier=p.default_supplier)
-    return {"products": len(products), "auto_pr": pr.code if pr else None, "lines": len(to_order)}
+    with transaction.atomic():
+        for p in products:
+            calc_param(p, today)
+        summary = stock_summary(products)
+        for p in products:
+            s = summary[p.pk]
+            rp = p.rop_param
+            rp.suggested_q = s["suggested_q"]
+            rp.save(update_fields=["suggested_q"])
+            y_demand = -(StockMove.objects.filter(product=p, move_type__in=OUT_DEMAND_TYPES,
+                                                   at__date=today - timedelta(days=1)).aggregate(s=Sum("qty"))["s"] or D0)
+            ReplenishmentSnapshot.objects.update_or_create(
+                product=p, date=today,
+                defaults=dict(on_hand=s["on_hand"], reserved=s["reserved"], incoming=s["incoming"],
+                              projected=s["projected"], demand=y_demand, d_avg=s["d_avg"], ss=s["ss"], rop=s["rop"]))
+    prs = [pr for pr in (safe_check(p.pk, trigger) for p in sorted(products, key=lambda x: x.pk)) if pr]
+    return {"products": len(products), "auto_pr": ", ".join(pr.code for pr in prs) or None, "lines": len(prs)}

@@ -166,6 +166,7 @@ BUSINESS = {
     "SLOT_PROPOSE_HOURS": 4,                  # ETA <= 4h -> đề xuất lịch hạ tải
     "SERVICE_Z": 1.65,                        # Hệ số Z mặc định (95%)
     "VAT_RATE": 8,
+    "PO_VAT_RATE": 10,                        # VAT đơn mua (giá mua lưu chưa VAT) – test/logic.docx, giả định G3
     "LOGIN_MAX_FAIL": 5,
     "LOGIN_LOCK_MIN": 15,
 }
