@@ -546,6 +546,42 @@ class RuleTest(Base):
         self.assertIn(pr.code, html)
 
 
+class QuantEditTest(Base):
+    """Nút Sửa / Xoá tồn tại 1 vị trí (màn Tồn kho)."""
+
+    def post(self, user, quant, **data):
+        c = Client()
+        c.force_login(user)
+        with self.captureOnCommitCallbacks(execute=True):
+            return c.post(f"/app/inventory/stock/quant/{quant.pk}", data, HTTP_REFERER="/app/inventory/stock")
+
+    def quant(self, loc=None):
+        from .models import StockQuant
+        return StockQuant.objects.get(product=self.product, location=loc or self.loc)
+
+    def test_set_and_delete_write_ledger_and_trigger(self):
+        self.post(self.warehouse_user, self.quant(), op="set", qty="80", reason="Đếm lại")
+        self.assertEqual(self.quant().on_hand, D(80))
+        self.assertTrue(self.product.moves.filter(move_type="ADJ", qty=-20).exists())   # sổ kho ghi chênh lệch
+        post_stock_move(self.product, self.qloc, D(30), "ADJ", "ADJ", 0)
+        self.post(self.warehouse_user, self.quant(self.qloc), op="delete", reason="Hủy hàng lỗi")
+        self.assertEqual(self.quant(self.qloc).on_hand, D(0))
+        self.post(self.warehouse_user, self.quant(), op="set", qty="50", reason="Hao hụt")
+        self.assertEqual(self.auto_prs().get().trigger_event, "STOCK_ADJUSTED")       # 50 ≤ ROP 60 -> PR
+
+    def test_blocked_below_reserved_and_requires_reason(self):
+        self.so(90)
+        self.post(self.warehouse_user, self.quant(), op="set", qty="50", reason="x")
+        self.assertEqual(self.quant().on_hand, D(100))                                  # đang giữ 90 -> chặn
+        self.post(self.warehouse_user, self.quant(), op="delete", reason="")
+        self.assertEqual(self.quant().on_hand, D(100))                                  # thiếu lý do -> chặn
+
+    def test_forbidden_roles(self):
+        r = self.post(self.dispatcher, self.quant(), op="delete", reason="x")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.quant().on_hand, D(100))
+
+
 # ======================================================================================= T3 đồng thời
 @skipUnlessDBFeature("has_select_for_update")
 class ConcurrencyTest(Fixture, TransactionTestCase):

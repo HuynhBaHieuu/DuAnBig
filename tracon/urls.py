@@ -24,6 +24,7 @@ app_patterns = [
     path("inventory/stock/<int:pk>/locations", inv.stock_locations),
     path("inventory/transfer", inv.stock_transfer),
     path("inventory/stock/add", inv.stock_add),
+    path("inventory/stock/quant/<int:pk>", inv.stock_quant_edit),
     path("inventory/replenishment", inv.replenishment),                    # MH-12
     path("inventory/replenishment/<int:pk>", inv.replenishment_save),
     path("inventory/moves", inv.moves),

@@ -1,10 +1,28 @@
 <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;padding:6px 0">
-  <table class="tbl" style="max-width:560px;background:#fff;border-radius:10px">
-    <thead><tr><th>Vị trí</th><th>Khu</th><th>Loại</th><th class="num">Tồn</th><th>Nhập sớm nhất (FIFO)</th></tr></thead>
-    <tbody>{% for q in quants %}
+  <table class="tbl" style="max-width:680px;background:#fff;border-radius:10px">
+    <thead><tr><th>Vị trí</th><th>Khu</th><th>Loại</th><th class="num">Tồn</th><th>Nhập sớm nhất (FIFO)</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+    {% for q in quants %}
+    <tbody x-data="{mode:''}" @click.stop>
       <tr><td class="code">{{ q.location.code }}</td><td>{{ q.location.get_zone_display }}</td><td>{{ q.location.get_loc_type_display }}</td>
-        <td class="num">{{ q.on_hand|qty }}</td><td class="text-muted">{{ q.in_date_first|vn_dt }}</td></tr>
-    {% empty %}<tr><td colspan="5" class="empty">Không có tồn tại vị trí nào.</td></tr>{% endfor %}</tbody>
+        <td class="num">{{ q.on_hand|qty }}</td><td class="text-muted">{{ q.in_date_first|vn_dt }}</td>
+        {% if can_edit %}<td style="white-space:nowrap;text-align:right">
+          <button type="button" class="btn btn-soft btn-sm" @click="mode = mode === 'set' ? '' : 'set'" title="Sửa số tồn thực tế tại vị trí này"><i data-lucide="pencil" style="width:14px"></i>Sửa</button>
+          <button type="button" class="btn btn-danger btn-sm" @click="mode = mode === 'delete' ? '' : 'delete'" title="Đưa tồn tại vị trí này về 0"><i data-lucide="trash-2" style="width:14px"></i>Xoá</button>
+        </td>{% endif %}</tr>
+      {% if can_edit %}<tr x-show="mode" x-cloak><td colspan="6" style="background:var(--input)">
+        <form method="post" action="/app/inventory/stock/quant/{{ q.pk }}" class="toolbar" style="flex-wrap:wrap">{% csrf_token %}
+          <input type="hidden" name="op" :value="mode">
+          <template x-if="mode === 'set'"><span class="toolbar">SL mới ({{ q.product.base_uom.code }}):
+            <input class="input input-sm num" name="qty" type="number" step="0.001" min="0" value="{{ q.on_hand|floatformat:'-3' }}" style="width:110px" required></span></template>
+          <template x-if="mode === 'delete'"><span style="color:var(--danger-ink);font-weight:600">Xoá {{ q.on_hand|qty }} {{ q.product.base_uom.code }} khỏi {{ q.location.code }}?</span></template>
+          <input class="input input-sm" name="reason" maxlength="200" placeholder="Lý do (bắt buộc)" style="width:220px" required>
+          <button class="btn btn-sm" :class="mode === 'delete' ? 'btn-danger' : 'btn-primary'" x-text="mode === 'delete' ? 'Xác nhận xoá' : 'Lưu'"></button>
+          <button type="button" class="btn btn-outline btn-sm" @click="mode=''">Hủy</button>
+        </form>
+        <div class="text-muted" style="font-size:12px;margin-top:4px">Ghi phiếu điều chỉnh ADJ vào sổ kho theo chênh lệch; không giảm được dưới lượng đang giữ cho đơn bán.</div>
+      </td></tr>{% endif %}
+    </tbody>
+    {% empty %}<tbody><tr><td colspan="6" class="empty">Không có tồn tại vị trí nào.</td></tr></tbody>{% endfor %}
   </table>
   {% if user.role == "WAREHOUSE" or user.role == "DIRECTOR" or user.role == "ADMIN" %}
   <form method="post" action="/app/inventory/stock/add" class="card card-body" style="width:340px" @click.stop>{% csrf_token %}

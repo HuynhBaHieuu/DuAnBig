@@ -75,13 +75,74 @@ def stock(request):
 @role_required(*INTERNAL)
 def stock_locations(request, pk):
     """HTMX: chi tiết tồn theo vị trí (FIFO)."""
-    quants = StockQuant.objects.filter(product_id=pk, on_hand__gt=0).select_related("location__warehouse") \
+    quants = StockQuant.objects.filter(product_id=pk, on_hand__gt=0).select_related("location__warehouse", "product__base_uom") \
         .order_by("in_date_first")
     product = get_object_or_404(Product.objects.select_related("base_uom"), pk=pk)
     return render(request, "inventory/_quants.html", {
         "quants": quants, "pk": pk, "product": product,
+        "can_edit": request.user.role in ("WAREHOUSE", "DIRECTOR", "ADMIN"),
         "locations": Location.objects.filter(is_active=True).select_related("warehouse")
         .order_by("loc_type", "warehouse__name", "code")})
+
+
+@role_required("WAREHOUSE", "DIRECTOR")
+@require_POST
+@business_action
+def stock_quant_edit(request, pk):
+    """Sửa / Xoá tồn tại 1 vị trí: đặt lại SL thực tế (op=set) hoặc đưa về 0 (op=delete).
+
+    Không sửa trực tiếp stock_quant: ghi phiếu điều chỉnh ADJ + post_stock_move theo chênh lệch để có sổ kho,
+    nhật ký; sau đó giữ hàng cho backorder (nếu tăng) và gọi check_replenishment (STOCK_ADJUSTED)."""
+    from apps.sales.models import StockReservation
+    from apps.sales.services import retry_backorders
+
+    from .replenishment import Trigger, fire_checks
+
+    op = request.POST.get("op")
+    reason = request.POST.get("reason", "").strip()
+    if not reason:
+        raise BusinessError("Phải nhập lý do sửa / xoá tồn.")
+    with transaction.atomic():
+        q = StockQuant.objects.select_for_update().select_related("product__base_uom", "location").get(pk=pk)
+        prod, loc = q.product, q.location
+        if op == "delete":
+            new_qty = Decimal(0)
+        elif op == "set":
+            new_qty = _num(request, "qty")
+            if new_qty is None:
+                raise BusinessError("Nhập số lượng mới.")
+        else:
+            raise BusinessError("Thao tác không hợp lệ.")
+        diff = new_qty - q.on_hand
+        if diff == 0:
+            messages.info(request, "Số lượng không đổi.")
+            return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
+        if diff < 0 and loc.loc_type != "QUARANTINE":
+            # không cho giảm tồn thực xuống dưới lượng đang giữ cho đơn bán
+            sellable = StockQuant.objects.filter(product=prod).exclude(location__loc_type="QUARANTINE") \
+                .aggregate(s=Sum("on_hand"))["s"] or Decimal(0)
+            held = StockReservation.objects.filter(product=prod, status="ACTIVE",
+                                                   so_line__so__status__in=["CONFIRMED", "PARTIAL"]) \
+                .aggregate(s=Sum("qty"))["s"] or Decimal(0)
+            if sellable + diff < held:
+                raise BusinessError(f"Không giảm được: {prod.code} đang giữ {held:g} {prod.base_uom.code} cho đơn bán, "
+                                    f"sau khi sửa tồn thực chỉ còn {sellable + diff:g}. Hủy / giảm đơn trước.")
+        label = "Xoá tồn" if op == "delete" else "Sửa tồn"
+        adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), reason=f"{label} {loc.code}: {reason}"[:255],
+                                             approved_by=request.user, status="POSTED")
+        StockAdjustmentLine.objects.create(adjustment=adj, product=prod, location=loc, qty_diff=diff,
+                                           unit_cost=prod.avg_cost)
+        post_stock_move(prod, loc, diff, "ADJ", "ADJ", adj.pk, note=f"{adj.code} – {label}: {reason}"[:255])
+        audit("UPDATE" if op == "set" else "DELETE", adj,
+              {"product": prod.code, "location": loc.code, "old": str(q.on_hand), "new": str(new_qty), "reason": reason})
+        trig = Trigger("STOCK_ADJUSTED", "ADJ", adj.code, request.user)
+        if diff > 0:
+            retry_backorders(prod.pk, trig)
+        fire_checks([prod.pk], trig)
+    from apps.core.templatetags.tracon import qty as fmt_qty
+    messages.success(request, f"{label} {prod.code} tại {loc.code}: {fmt_qty(q.on_hand)} → {fmt_qty(new_qty)} "
+                              f"{prod.base_uom.code} (phiếu {adj.code}).")
+    return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
 
 
 @role_required("WAREHOUSE", "DIRECTOR")
