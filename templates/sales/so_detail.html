@@ -2,7 +2,14 @@
 {% block content %}
 <div class="page-head">
   <div><div class="crumbs"><a href="/app/sales/orders">Đơn bán</a> /</div><h1 class="page-title">{{ so.code }} {% status_badge so %}</h1>
-    <div class="page-sub">{{ so.customer.name }} · {{ so.site.name }} · {{ so.get_order_type_display }} · cần giao {{ so.requested_date|vn_d }}{% if so.source == "PORTAL" %} · từ cổng khách hàng{% endif %}</div></div>
+    <div class="page-sub">{{ so.customer.name }} · {{ so.site.name }} · {{ so.get_order_type_display }} · cần giao {{ so.requested_date|vn_d }}{% if so.source == "PORTAL" %} · từ cổng khách hàng{% endif %}</div>
+    <div class="page-sub" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap">
+      <span><i data-lucide="file-plus" style="width:13px"></i> Lập {{ so.created_at|vn_dt }}{% if so.created_by %} bởi {{ so.created_by }}{% endif %}</span>
+      {% if so.submitted_at %}<span><i data-lucide="send" style="width:13px"></i> Gửi {{ so.submitted_at|vn_dt }}</span>{% endif %}
+      <span><i data-lucide="check-circle" style="width:13px"></i> {% if so.confirmed_at %}Xác nhận <b>{{ so.confirmed_at|vn_dt }}</b> bởi <b>{{ so.confirmed_by|default:"Hệ thống" }}</b>{% else %}Chưa xác nhận{% endif %}</span>
+      {% if so.approved_at %}<span><i data-lucide="shield-check" style="width:13px"></i> Giám đốc duyệt {{ so.approved_at|vn_dt }} bởi {{ so.approved_by|default:"—" }}</span>{% endif %}
+      {% if so.cancelled_at %}<span style="color:var(--danger-ink)"><i data-lucide="x-circle" style="width:13px"></i> Hủy {{ so.cancelled_at|vn_dt }} bởi {{ so.cancelled_by|default:"—" }}</span>{% endif %}
+    </div></div>
   {% if user.role != "ACCOUNTANT" %}<div class="toolbar">
     {% if so.status == "DRAFT" %}
       <a href="/app/sales/orders/{{ so.pk }}/edit" class="btn btn-outline"><i data-lucide="pencil"></i>Sửa</a>
@@ -17,6 +24,9 @@
     {% if so.status in "DRAFT PENDING_APPROVAL CONFIRMED" %}{% include "partials/cancel_form.html" with label="Hủy đơn" %}{% endif %}
   </div>{% endif %}
 </div>
+<div x-data="{tab: location.hash === '#lich-su' ? 'h' : 'd'}">
+<div class="tabs"><a class="tab" :class="tab === 'd' && 'active'" href="#" @click.prevent="tab = 'd'; history.replaceState(null, '', location.pathname + location.search)">Chi tiết</a><a class="tab" :class="tab === 'h' && 'active'" href="#lich-su" @click.prevent="tab = 'h'; history.replaceState(null, '', '#lich-su')"><i data-lucide="history" style="width:14px"></i> Lịch sử</a></div>
+<div x-show="tab === 'd'">
 {% if so.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i><div><b>Cần Director duyệt:</b><ul style="margin:4px 0 0;padding-left:18px">{% for r in so.approval_reasons %}<li>{{ r }}</li>{% endfor %}</ul></div></div>{% endif %}
 {% if so.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ so.cancel_reason }}</div>{% endif %}
 <div class="grid g-main" x-data="{side: localStorage.getItem('so_side') !== '0'}" :class="side ? '' : 'side-hidden'" x-init="$watch('side', v => localStorage.setItem('so_side', v ? '1' : '0'))">
@@ -63,12 +73,16 @@
       {% for pr in trig_prs %}<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft)">
         <div>{% if user.role == "DIRECTOR" or user.role == "PURCHASER" or user.role == "ADMIN" %}<a class="code" href="/app/purchase/requisitions/{{ pr.pk }}">{{ pr.code }}</a>{% else %}<b>{{ pr.code }}</b>{% endif %}
           <div class="text-muted" style="font-size:12px">{% for l in pr.lines.all %}{{ l.product.code }} {{ l.qty|qty }} {{ l.product.base_uom.code }} {% endfor %}· {{ pr.event_label }} · {{ pr.trigger_at|vn_dt }}</div></div>{% status_badge pr %}</div>{% endfor %}</div>{% endif %}
-    {% if history %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Lịch sử đơn</h3>
-      {% for h in history %}<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px">
-        <span class="dot-i" style="margin-top:6px;background:var(--primary)"></span>
-        <div style="flex:1"><b>{{ h.get_event_display }}</b>{% if h.data.reason %} – {{ h.data.reason }}{% endif %}{% if h.data.product %} – {{ h.data.product }} {{ h.data.qty }}{% endif %}{% if h.data.gi %} – {{ h.data.gi }}{% endif %}
-          <div class="text-muted" style="font-size:12px">{{ h.at|vn_dt }} · {{ h.user|default:"Hệ thống" }}</div></div></div>{% endfor %}</div>{% endif %}
+    {% if rop_checks %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:4px">Kiểm tra bổ sung tồn (ROP)</h3>
+      <div class="text-muted" style="font-size:12px;margin-bottom:6px">Hệ thống kiểm tra mọi vật tư của đơn ngay sau khi đơn được xác nhận / duyệt / hủy.</div>
+      {% for c in rop_checks %}<div style="padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px">
+        <div style="display:flex;justify-content:space-between;gap:8px"><b>{{ c.product.code }}</b>{% code_badge c.result c.get_result_display %}</div>
+        <div class="text-muted" style="font-size:12px">{{ c.event_label }} · {{ c.at|vn_dt }}{% if c.projected is not None %} · tồn dự báo {{ c.projected|qty }} / ROP {{ c.rop|qty }}{% if c.position is not None %} · position {{ c.position|qty }}{% endif %}{% endif %}
+          {% if c.pr %} · {% if user.role == "DIRECTOR" or user.role == "PURCHASER" or user.role == "ADMIN" %}<a class="code" href="/app/purchase/requisitions/{{ c.pr.pk }}">{{ c.pr.code }}</a>{% else %}{{ c.pr.code }}{% endif %}{% endif %}{% if c.note %} · {{ c.note }}{% endif %}</div></div>{% endfor %}</div>{% endif %}
     {% if allocs %}<div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Phân bổ thiếu hàng</h3>{% for a in allocs %}<a href="/app/sales/allocations/{{ a.pk }}" style="display:flex;justify-content:space-between;padding:6px 0"><b>{{ a.code }}</b>{% status_badge a %}</a>{% endfor %}</div>{% endif %}
   </div>
+</div>
+</div>
+<div x-show="tab === 'h'" x-cloak>{% doc_history so %}</div>
 </div>
 {% endblock %}

@@ -9,6 +9,9 @@
     {% if not slot and trip.status != "RECEIVED" and trip.status != "CANCELLED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="propose_slot"><button class="btn btn-outline"><i data-lucide="calendar-plus"></i>Đề xuất lịch hạ tải</button></form>{% endif %}
   </div>
 </div>
+<div x-data="{tab: location.hash === '#lich-su' ? 'h' : 'd'}">
+<div class="tabs"><a class="tab" :class="tab === 'd' && 'active'" href="#" @click.prevent="tab = 'd'; history.replaceState(null, '', location.pathname + location.search)">Chi tiết</a><a class="tab" :class="tab === 'h' && 'active'" href="#lich-su" @click.prevent="tab = 'h'; history.replaceState(null, '', '#lich-su')"><i data-lucide="history" style="width:14px"></i> Lịch sử</a></div>
+<div x-show="tab === 'd'">
 {% if overdue_min %}<div class="flash flash-error"><i data-lucide="alarm-clock"></i><div>Chuyến <b>quá hạn {{ overdue_min|dur }}</b> so với kế hoạch: mốc “{{ next_ms.name }}” dự kiến {{ next_ms.planned_at|vn_dt }} nhưng chưa được cập nhật. Các mốc còn lại đã tự dời lịch (“Dự kiến lại”), ETA được tính lại theo thời gian thực.</div></div>{% endif %}
 <div class="grid g-4" style="margin-bottom:20px">
   {% include "partials/kpi.html" with label="ETA hiện tại" value=trip.eta|vn_dt icon="clock" tone="primary" %}
@@ -35,13 +38,13 @@
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
               <b>{{ m.name }} {% if m.photo_required %}<span class="badge badge-gray"><i data-lucide="camera" style="width:12px"></i>Bắt buộc ảnh</span>{% endif %}</b>
-              <span class="text-muted" style="font-size:12px;text-align:right">Dự kiến {{ m.planned_at|vn_dt }}
+              <span class="text-muted" style="font-size:12px;text-align:right">Dự kiến {{ m.expected_at|vn_dt }}{% if m.replanned_at %}<br><span title="Mốc trước tới sớm – tính lại theo mốc thực tế">kế hoạch gốc {{ m.planned_at|vn_dt }}</span>{% endif %}
                 {% if m.overdue_min %}<br><span class="badge badge-danger">Quá hạn {{ m.overdue_min|dur }}</span>{% endif %}
                 {% if m.resched_at %}<br>Dự kiến lại <b style="color:var(--danger-ink)">{{ m.resched_at|vn_dt }}</b>{% endif %}</span>
             </div>
             {% if m.actual_at %}
               <div style="font-size:13px;margin-top:4px">Thực tế <b>{{ m.actual_at|vn_dt }}</b>
-                {% if m.delay_min > 60 %}<span class="badge badge-danger">trễ {{ m.delay_min|dur }}</span>{% elif m.delay_min > 0 %}<span class="badge badge-warn">trễ {{ m.delay_min|dur }}</span>{% else %}<span class="badge badge-success">đúng giờ</span>{% endif %}
+                {% milestone_badge m %}
                 · {{ m.by_user|default:"" }} {% if m.note %}· {{ m.note }}{% endif %}</div>
               {% if m.photo %}<a href="{{ m.photo.url }}" class="ms-photo" data-lightbox="{{ m.name }} · {{ m.actual_at|vn_dt }}{% if m.by_user %} · {{ m.by_user }}{% endif %}" title="Bấm để phóng to ảnh tài xế gửi">
                 <img src="{{ m.photo.url }}" alt="Ảnh xác thực mốc {{ m.name }}" loading="lazy" onerror="this.parentNode.classList.add('broken');this.parentNode.innerHTML='Không tải được ảnh'">
@@ -110,6 +113,9 @@
         <dt>Mốc trễ</dt><dd>{% if sla.late %}<span style="color:var(--danger-ink);font-weight:600">{{ sla.late }}</span> · trễ tối đa {{ sla.max_delay|dur }}{% else %}0 – đúng tiến độ{% endif %}</dd></dl>
     </div>{% endif %}
   </div>
+</div>
+</div>
+<div x-show="tab === 'h'" x-cloak>{% doc_history trip %}</div>
 </div>
 {% endblock %}
 

@@ -1,7 +1,7 @@
 """Luồng A: PR -> PO -> Chuyến Inbound (mốc thủ công + ảnh) -> Lịch hạ tải -> GRN -> Tồn kho."""
 import math
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db import transaction
@@ -270,6 +270,7 @@ def record_milestone(trip, milestone, user, photo=None, note="", loaded_qty=None
     if photo:
         milestone.photo = photo
     milestone.save()
+    replan_after_early(trip, milestone)
     trip.status = MILESTONE_STATUS.get(milestone.code, trip.status)
     if milestone.code == "GATE":
         trip.arrived_at = now
@@ -282,6 +283,20 @@ def record_milestone(trip, milestone, user, photo=None, note="", loaded_qty=None
         set_eta(trip, now, "Xe tới cổng")
         if not hasattr_slot(trip):
             propose_slot(trip)
+
+
+def replan_after_early(trip, milestone):
+    """Mốc thực tế SỚM hơn dự kiến quá ngưỡng (mặc định 30') -> tính lại giờ dự kiến các mốc sau theo mốc thực tế:
+    dự kiến mới = thực tế mốc này + (kế hoạch gốc mốc sau − kế hoạch gốc mốc này). Kế hoạch gốc giữ nguyên."""
+    t = milestone.timing()
+    if not t or t[0] != "EARLY":
+        return 0
+    n = 0
+    for m in trip.milestones.filter(seq__gt=milestone.seq, actual_at__isnull=True):
+        m.replanned_at = milestone.actual_at + (m.planned_at - milestone.planned_at)
+        m.save(update_fields=["replanned_at"])
+        n += 1
+    return n
 
 
 def report_incident(trip, user, incident_type, description, delay_minutes=0, photo=None):
@@ -313,12 +328,12 @@ def scan_inbound():
     n = 0
     for trip in InboundTrip.objects.exclude(status__in=["ARRIVED", "UNLOADING", "RECEIVED", "CANCELLED"]):
         nxt = trip.next_milestone
-        if nxt and now > nxt.planned_at + timedelta(minutes=late_min):
+        if nxt and now > nxt.expected_at + timedelta(minutes=late_min):
             if not trip.is_late:
                 trip.is_late = True
                 trip.save(update_fields=["is_late"])
             raise_alert("MILESTONE_LATE", f"Chuyến {trip.code} trễ mốc '{nxt.name}'",
-                        f"Dự kiến {timezone.localtime(nxt.planned_at):%H:%M}, chưa cập nhật.", ref_type="inbound_trip",
+                        f"Dự kiến {timezone.localtime(nxt.expected_at):%H:%M}, chưa cập nhật.", ref_type="inbound_trip",
                         ref_id=trip.pk, url=f"/app/inbound/trips/{trip.pk}", target_role="PURCHASER")
             # chưa có mốc -> đẩy ETA theo thời gian trễ thực tế
             offset_left = float(trip.route.std_hours) * 60 - (nxt.planned_at - trip.planned_departure).total_seconds() / 60
@@ -327,10 +342,57 @@ def scan_inbound():
             n += 1
         elif trip.eta and trip.eta - now <= timedelta(hours=param("SLOT_PROPOSE_HOURS")) and not hasattr_slot(trip):
             propose_slot(trip)
+    normalize_slots()
     return n
 
 
-# ------------------------------------------------------------------ Lịch hạ tải (bến × 15’)
+# ------------------------------------------------------------------ Lịch hạ tải (bến × 15’, khung 06:00–21:00)
+def _parse_hm(raw, default):
+    """'06:00' / '6' / '6.5' -> time; giá trị lỗi -> default."""
+    try:
+        raw = str(raw).strip()
+        if ":" in raw:
+            h, m = raw.split(":")[:2]
+            return time(int(h), int(m))
+        f = float(raw)
+        return time(int(f), int(round((f % 1) * 60)))
+    except (TypeError, ValueError):
+        return default
+
+
+def slot_hours():
+    """Khung giờ hạ tải (giờ mở, giờ đóng) – tham số SLOT_DAY_START / SLOT_DAY_END, mặc định 06:00–21:00.
+    Dùng chung cho tự xếp lịch, kéo–thả và lưới hiển thị."""
+    start = _parse_hm(param("SLOT_DAY_START", str) or "06:00", time(6))
+    end = _parse_hm(param("SLOT_DAY_END", str) or "21:00", time(21))
+    if end <= start:
+        return time(6), time(21)
+    return start, end
+
+
+def slot_window(day):
+    """(đầu khung, cuối khung) của 1 ngày, có múi giờ."""
+    h0, h1 = slot_hours()
+    tz = timezone.get_current_timezone()
+    return timezone.make_aware(datetime.combine(day, h0), tz), timezone.make_aware(datetime.combine(day, h1), tz)
+
+
+def fit_window(start, dur):
+    """Đưa giờ bắt đầu vào khung: trước giờ mở -> giờ mở cùng ngày; bắt đầu + thời lượng vượt giờ đóng -> giờ mở hôm sau."""
+    start = timezone.localtime(start)
+    ws, we = slot_window(start.date())
+    if start < ws:
+        return ws
+    if start + dur > we:
+        return slot_window(start.date() + timedelta(days=1))[0]
+    return start
+
+
+def in_window(start, end):
+    ws, we = slot_window(timezone.localtime(start).date())
+    return ws <= start and end <= we
+
+
 def _ceil_step(dt):
     dt = timezone.localtime(dt).replace(second=0, microsecond=0)
     extra = (-dt.minute) % SLOT_STEP
@@ -350,26 +412,59 @@ def _overlaps(dock, start, end, exclude_pk=None):
     return qs.exists()
 
 
+def find_free_slot(docks, start_from, dur, exclude_pk=None, days=14):
+    """Khung trống sớm nhất ≥ start_from và NẰM TRONG khung giờ hạ tải. Trả về (dock, start) hoặc (None, None)."""
+    start = fit_window(_ceil_step(start_from), dur)
+    limit = start + timedelta(days=days)
+    while start < limit:
+        for dock in docks:
+            if not _overlaps(dock, start, start + dur, exclude_pk):
+                return dock, start
+        start = fit_window(start + timedelta(minutes=SLOT_STEP), dur)
+    return None, None
+
+
 @transaction.atomic
 def propose_slot(trip):
-    """Tìm bến trống sớm nhất từ ETA, chống trùng bến."""
+    """Tìm bến trống sớm nhất từ ETA trong khung giờ hạ tải (mặc định 06:00–21:00), chống trùng bến.
+    Hết khung trong ngày -> giờ mở hôm sau (trùng thì lấy khung trống kế tiếp)."""
     docks = list(Dock.objects.filter(warehouse=trip.po.warehouse, is_active=True))
     if not docks:
         return None
     dur = slot_duration(trip)
-    start = _ceil_step(max(trip.eta or timezone.now(), timezone.now()))
     existing = UnloadingSlot.objects.filter(trip=trip).first()
-    for _ in range(96):  # thử trong 24h
-        for dock in docks:
-            if not _overlaps(dock, start, start + dur, existing.pk if existing else None):
-                if existing:
-                    existing.dock, existing.start_at, existing.end_at = dock, start, start + dur
-                    existing.status = "PROPOSED" if existing.status in ("PROPOSED", "CANCELLED") else existing.status
-                    existing.save()
-                    return existing
-                return UnloadingSlot.objects.create(trip=trip, dock=dock, start_at=start, end_at=start + dur)
-        start += timedelta(minutes=SLOT_STEP)
-    return None
+    dock, start = find_free_slot(docks, max(trip.eta or timezone.now(), timezone.now()), dur,
+                                 existing.pk if existing else None)
+    if dock is None:
+        return None
+    if existing:
+        existing.dock, existing.start_at, existing.end_at = dock, start, start + dur
+        existing.status = "PROPOSED" if existing.status in ("PROPOSED", "CANCELLED") else existing.status
+        existing.save()
+        return existing
+    return UnloadingSlot.objects.create(trip=trip, dock=dock, start_at=start, end_at=start + dur)
+
+
+def normalize_slots():
+    """Dời các lịch chưa check-in đang nằm ngoài khung giờ hạ tải về khung trống hợp lệ sớm nhất.
+    Lịch đã xác nhận bị dời -> quay về "Đề xuất" để Thủ kho xác nhận lại giờ mới."""
+    moved = 0
+    now = timezone.now()
+    for slot in UnloadingSlot.objects.filter(status__in=["PROPOSED", "CONFIRMED"]).select_related("dock"):
+        if in_window(slot.start_at, slot.end_at):
+            continue
+        others = Dock.objects.filter(warehouse_id=slot.dock.warehouse_id, is_active=True).exclude(pk=slot.dock_id)
+        docks = [slot.dock] + list(others)
+        dur = slot.end_at - slot.start_at
+        with transaction.atomic():
+            dock, start = find_free_slot(docks, max(slot.start_at, now), dur, slot.pk)
+            if dock is None:
+                continue
+            slot.dock, slot.start_at, slot.end_at, slot.status = dock, start, start + dur, "PROPOSED"
+            slot.save()
+            audit("UPDATE", slot.trip, {"Lý do dời lịch hạ tải": "Lịch cũ ngoài khung giờ hạ tải – tự dời về khung hợp lệ"})
+        moved += 1
+    return moved
 
 
 def move_slot(slot, dock, start):
@@ -377,6 +472,10 @@ def move_slot(slot, dock, start):
         raise BusinessError("Xe đã check-in, không đổi lịch được.")
     start = _ceil_step(start)
     end = start + (slot.end_at - slot.start_at)
+    if not in_window(start, end):
+        h0, h1 = slot_hours()
+        raise BusinessError(f"Chỉ được xếp lịch hạ tải trong khung {h0:%H:%M}–{h1:%H:%M} "
+                            f"(lịch này {timezone.localtime(start):%H:%M}–{timezone.localtime(end):%H:%M}).")
     if _overlaps(dock, start, end, slot.pk):
         raise BusinessError(f"Bến {dock.code} đã có lịch trong khung {timezone.localtime(start):%H:%M}.")
     slot.dock, slot.start_at, slot.end_at = dock, start, end

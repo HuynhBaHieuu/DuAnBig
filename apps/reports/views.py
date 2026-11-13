@@ -9,6 +9,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from apps.core.permissions import role_required
+from apps.core.services import param
 from apps.core.utils import excel_response
 from apps.inventory.models import InventoryCount, InventoryCountLine, StockMove, StockQuant
 from apps.inventory.services import stock_summary
@@ -73,7 +74,8 @@ def wait_data(d_from, d_to):
 def milestone_ontime(d_from, d_to):
     ms = TripMilestone.objects.filter(actual_at__date__range=(d_from, d_to))
     n = ms.count()
-    late = sum(1 for m in ms if m.delay_min and m.delay_min > 60)
+    tol = param("MILESTONE_ONTIME_MIN")
+    late = sum(1 for m in ms if m.delay_min and m.delay_min > tol)  # trễ = lệch > +30' (giống nhãn mốc)
     return ((n - late) / n * 100) if n else None
 
 
@@ -107,7 +109,10 @@ def index(request):
         {"code": "KPI-6", "label": "Tỷ lệ mã hàng hết hàng", "value": stockout, "unit": "%", "target": 2, "higher": False, "url": "/app/reports/rop"},
         {"code": "KPI-7", "label": "Số ngày tồn kho (DOI)", "value": doi, "unit": " ngày", "target": 30, "higher": False, "url": "/app/reports/nxt"},
     ]
+    from apps.core.permissions import can_open
     for k in kpis:
+        if not can_open(request.user, k["url"]):
+            k["url"] = None  # vai trò không có quyền mở trang chi tiết -> thẻ KPI không có link
         v = k["value"]
         k["ok"] = None if v is None else (v >= k["target"] if k["higher"] else v <= k["target"])
     return render(request, "reports/index.html", {"title": "Báo cáo KPI dự án", "kpis": kpis, "d_from": d_from, "d_to": d_to})

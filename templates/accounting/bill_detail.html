@@ -10,6 +10,9 @@
     {% if bill.status in "DRAFT MATCHED MISMATCH ACCEPTED" %}{% include "partials/cancel_form.html" %}{% endif %}
   </div>
 </div>
+<div x-data="{tab: location.hash === '#lich-su' ? 'h' : 'd'}">
+<div class="tabs"><a class="tab" :class="tab === 'd' && 'active'" href="#" @click.prevent="tab = 'd'; history.replaceState(null, '', location.pathname + location.search)">Chi tiết</a><a class="tab" :class="tab === 'h' && 'active'" href="#lich-su" @click.prevent="tab = 'h'; history.replaceState(null, '', '#lich-su')"><i data-lucide="history" style="width:14px"></i> Lịch sử</a></div>
+<div x-show="tab === 'd'">
 {% if bill.status == "MISMATCH" %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i>Hóa đơn lệch đối chiếu 3 bên – bị chặn ghi sổ cho tới khi Director chấp nhận.</div>{% endif %}
 {% if bill.status == "ACCEPTED" %}<div class="flash flash-warning"><i data-lucide="shield-check"></i>Chênh lệch đã được {{ bill.accepted_by }} chấp nhận.</div>{% endif %}
 <div class="card">
@@ -27,4 +30,7 @@
 </div>
 <div class="card card-body" style="margin-top:20px;max-width:520px"><dl class="dl"><dt>Đã trả</dt><dd>{{ bill.paid_amount|vnd }}</dd><dt>Còn phải trả</dt><dd><b>{{ bill.balance|vnd }}</b></dd><dt>Hạn thanh toán</dt><dd>{{ bill.due_date|vn_d }}</dd></dl>
   {% for a in allocs %}<div style="display:flex;justify-content:space-between;padding:4px 0"><span>{{ a.payment.code }}</span><b>{{ a.amount|vnd }}</b></div>{% endfor %}</div>
+</div>
+<div x-show="tab === 'h'" x-cloak>{% doc_history bill %}</div>
+</div>
 {% endblock %}

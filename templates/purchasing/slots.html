@@ -2,7 +2,7 @@
 {% block content %}
 <div class="page-head">
   <div><div class="crumbs">MH-26 · Kho</div><h1 class="page-title">Lịch hạ tải</h1>
-    <div class="page-sub">Lưới bến × khung 15 phút · kéo–thả để đổi lịch (hệ thống chặn trùng bến) · {{ wh.name }}</div></div>
+    <div class="page-sub">Lưới bến × khung 15 phút · khung hạ tải {{ h0|time:"H:i" }}–{{ h1|time:"H:i" }} · kéo–thả để đổi lịch (hệ thống chặn trùng bến và ngoài khung giờ) · {{ wh.name }}</div></div>
   <div class="toolbar">
     <a href="?date={{ prev|date:'Y-m-d' }}&wh={{ wh.pk }}" class="btn btn-outline btn-sm">‹</a>
     <form class="toolbar"><input type="date" class="input" name="date" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" style="width:160px">
@@ -10,7 +10,7 @@
     <a href="?date={{ next|date:'Y-m-d' }}&wh={{ wh.pk }}" class="btn btn-outline btn-sm">›</a>
   </div>
 </div>
-<div class="grid" style="grid-template-columns:1fr 320px">
+<div class="grid g-stack" style="grid-template-columns:1fr 320px">
   <div class="card card-body" x-data="slotGrid()">
     <div class="toolbar" style="margin-bottom:12px;font-size:12px">
       <span class="badge badge-primary">Đề xuất</span><span class="badge badge-info">Đã xác nhận</span><span class="badge badge-warn">Đã check-in</span><span class="badge badge-success">Hoàn tất</span>
@@ -56,6 +56,7 @@ function slotGrid() {
       const grid = document.getElementById("grid");
       const cells = grid.querySelectorAll(".cell");
       const items = {{ items_json|safe }};
+      this.items = items;
       const cols = {{ docks|length }}, rows = {{ rows }};
       // Toạ độ dọc của mốc "row" (đơn vị 15'): lấy theo đúng ô của lưới (các hàng có thể cao khác nhau do viền giờ)
       const yAt = row => {
@@ -135,6 +136,14 @@ function slotGrid() {
       cell.classList.remove("drop");
       const id = e.dataTransfer.getData("text/plain");
       const day = JSON.parse(document.getElementById("day").textContent);
+      // không cho thả ra ngoài khung giờ hạ tải: giờ kết thúc (ô thả + thời lượng) phải ≤ giờ đóng
+      const it = (this.items || []).find(x => String(x.id) === String(id));
+      const cells = [...document.querySelectorAll("#grid .cell")].filter(c => c.dataset.dock === cell.dataset.dock);
+      const idx = cells.indexOf(cell);
+      if (it && idx >= 0 && idx + Math.ceil(it.h - 1e-6) > {{ rows }}) {
+        alert("Chỉ được xếp lịch hạ tải trong khung {{ h0|time:'H:i' }}–{{ h1|time:'H:i' }}: lịch này sẽ kết thúc sau {{ h1|time:'H:i' }}.");
+        return;
+      }
       try {
         await postJSON(`/app/warehouse/slots/${id}`, { dock: cell.dataset.dock, start: `${day}T${cell.dataset.time}:00` });
         location.reload();

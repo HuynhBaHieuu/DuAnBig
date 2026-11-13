@@ -372,6 +372,8 @@ def search(request):
             for u in match_users(q)[:10]:
                 results.append({"type": "Tài khoản", "code": u.username, "name": f"{u.display_name} · {u.get_role_display()}",
                                 "url": f"/app/admin/users/{u.pk}"})
+    from .permissions import can_open
+    results = [r for r in results if can_open(request.user, r["url"])]  # bỏ kết quả vai trò không có quyền mở
     return render(request, "core/search.html", {"title": f"Tìm kiếm “{q}”", "results": results, "q": q})
 
 

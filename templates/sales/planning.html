@@ -5,7 +5,7 @@
     <div class="page-sub">Kéo đơn từ cột trái thả vào chuyến xe bên phải · hệ thống chặn vượt tải trọng · phát lệnh soạn hàng theo FIFO</div></div>
   <form class="toolbar"><input type="date" class="input" name="date" value="{{ date }}" onchange="this.form.submit()" style="width:170px"></form>
 </div>
-<div class="grid" style="grid-template-columns:minmax(320px,400px) 1fr" x-data="planner()">
+<div class="grid g-stack" style="grid-template-columns:minmax(320px,400px) 1fr" x-data="planner()">
   <div class="kcol" style="align-self:start;max-height:78vh;overflow:auto">
     <div class="kcol-head"><span class="dot-i" style="background:var(--primary)"></span>Đơn chờ giao<span class="n">{{ orders|length }}</span></div>
     {% for o in orders %}

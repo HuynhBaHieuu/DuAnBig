@@ -1,13 +1,13 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head"><div><h1 class="page-title">Phiếu thu / chi</h1><div class="page-sub">Số tiền tự động phân bổ FIFO vào các chứng từ còn nợ có hạn thanh toán sớm nhất</div></div></div>
-<div class="grid" style="grid-template-columns:1fr 360px">
+<div class="grid g-stack" style="grid-template-columns:1fr 360px">
   <div class="card">
     <div class="tabs" style="padding:0 20px;margin:0"><a class="tab {% if not request.GET.direction %}active{% endif %}" href="?">Tất cả</a><a class="tab {% if request.GET.direction == 'IN' %}active{% endif %}" href="?direction=IN">Phiếu thu</a><a class="tab {% if request.GET.direction == 'OUT' %}active{% endif %}" href="?direction=OUT">Phiếu chi</a></div>
-    <table class="tbl"><thead><tr><th>Mã</th><th>Loại</th><th>Đối tác</th><th>Ngày</th><th>Hình thức</th><th class="num">Số tiền</th><th>Phân bổ</th></tr></thead>
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Mã</th><th>Loại</th><th>Đối tác</th><th>Ngày</th><th>Hình thức</th><th class="num">Số tiền</th><th>Phân bổ</th></tr></thead>
       <tbody>{% for p in page_obj %}<tr><td class="code">{{ p.code }}</td><td>{% if p.direction == "IN" %}<span class="badge badge-success">Thu</span>{% else %}<span class="badge badge-warn">Chi</span>{% endif %}</td><td>{{ p.partner.name }}</td><td>{{ p.paid_at|vn_d }}</td><td>{{ p.get_method_display }}</td>
         <td class="num"><b>{{ p.amount|vnd }}</b></td><td style="font-size:12px">{% for a in p.allocations.all %}<div>{% if a.invoice %}{{ a.invoice.code }}{% else %}{{ a.bill.code }}{% endif %}: {{ a.amount|vnd }}</div>{% empty %}<span class="text-muted">Trả trước</span>{% endfor %}</td></tr>
-      {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu.</td></tr>{% endfor %}</tbody></table>
+      {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu.</td></tr>{% endfor %}</tbody></table></div>
     {% include "partials/pager.html" %}
   </div>
   <form method="post" class="card card-body" style="align-self:start;display:flex;flex-direction:column;gap:12px" x-data="{d:'IN', t:'customer'}">{% csrf_token %}

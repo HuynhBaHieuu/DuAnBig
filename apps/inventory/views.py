@@ -13,7 +13,7 @@ from apps.core.services import BusinessError, audit, next_doc_no, param, raise_a
 from apps.core.utils import business_action, excel_response, paginate
 from apps.masterdata.models import Location, Product, ProductCategory, Warehouse
 
-from .models import (InventoryCount, InventoryCountLine, ReplenishmentParam, StockAdjustment, StockAdjustmentLine,
+from .models import (InventoryCount, InventoryCountLine, ReplenishmentJobRun, ReplenishmentParam, StockAdjustment, StockAdjustmentLine,
                      StockMove, StockQuant)
 from .services import calc_param, demand_series, post_stock_move, run_replenishment, stock_summary, transfer
 
@@ -194,6 +194,9 @@ def stock_transfer(request):
     if src == dst:
         raise BusinessError("Vị trí đích phải khác vị trí nguồn.")
     transfer(p, src, dst, Decimal(request.POST["qty"]), note="Chuyển vị trí")
+    if "QUARANTINE" in (src.loc_type, dst.loc_type):  # vào / ra khu cách ly làm đổi tồn dùng được -> kiểm tra ROP
+        from .replenishment import Trigger, fire_checks
+        fire_checks([p.pk], Trigger("STOCK_ADJUSTED", "", f"Chuyển {src.code}→{dst.code}", request.user))
     messages.success(request, f"Đã chuyển {request.POST['qty']} {p.code} từ {src} sang {dst}.")
     return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
 
@@ -232,7 +235,8 @@ def replenishment(request):
                 "trips": (rp.pr_qty(proj) / rp.truck_qty) if rp.truck_qty else None}
     return render(request, "inventory/replenishment.html", {
         "title": "Tham số mốc đặt hàng lại", "rows": rows, "sel": sel, "rp": rp, "chart": chart, "sel_id": sel_id,
-        "dropped": dropped, "calc": calc, "can_lock": request.user.role in LOCK_ROLES})
+        "dropped": dropped, "calc": calc, "can_lock": request.user.role in LOCK_ROLES,
+        "job_runs": ReplenishmentJobRun.objects.select_related("user")[:10]})
 
 
 LOCK_ROLES = ("DIRECTOR", "PURCHASER")
@@ -263,7 +267,8 @@ def replenishment_save(request, pk):
     op = request.POST.get("op")
     if op == "run_all":
         res = run_replenishment(trigger=Trigger("NIGHTLY_JOB", "", "Chạy tay", request.user))
-        messages.success(request, f"Đã tính lại {res['products']} sản phẩm."
+        messages.success(request, f"Đã kiểm tra {res['products']} sản phẩm (tính lại SS/ROP {res['recalculated']}, "
+                         f"giữ nguyên {res['locked_skipped']} vật tư Khóa thủ công)."
                          + (f" Sinh PR tự động {res['auto_pr']} ({res['lines']} dòng)." if res["auto_pr"] else ""))
         return redirect(f"/app/inventory/replenishment?product={pk}")
     old = {f: getattr(rp, f) for f in AUDIT_FIELDS}

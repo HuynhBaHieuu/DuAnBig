@@ -1,0 +1,11 @@
+{% load tracon %}{% if card %}<div class="card" id="lich-su"><div class="card-head"><h3 class="card-title"><i data-lucide="history"></i> {{ title }}</h3><span class="text-muted" style="font-size:12px">{{ items|length }} mục · ai, làm gì, lúc nào, giá trị cũ → mới</span></div><div class="card-body">{% endif %}
+{% for h in items %}<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:13px">
+  <span class="dot-i" style="margin-top:6px;background:var(--primary)"></span>
+  <div style="flex:1;min-width:0">
+    <div><b>{{ h.action }}</b>{% if h.note %} – {{ h.note }}{% endif %}</div>
+    {% if h.changes %}<ul style="margin:4px 0 0;padding-left:16px">{% for k, old, new in h.changes %}
+      <li>{% if old is not None %}{{ k }}: <span class="text-muted" style="text-decoration:line-through">{{ old }}</span> → <b>{{ new }}</b>{% else %}{{ k }}{% if new %}: {{ new }}{% endif %}{% endif %}</li>{% endfor %}</ul>{% endif %}
+    <div class="text-muted" style="font-size:12px;margin-top:2px">{{ h.at|vn_dt }} · {{ h.user|default:"Hệ thống" }}</div>
+  </div>
+</div>{% empty %}<div class="text-muted">Chưa có lịch sử.</div>{% endfor %}
+{% if card %}</div></div>{% endif %}

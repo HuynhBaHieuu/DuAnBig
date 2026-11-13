@@ -3,7 +3,7 @@
 {% include "reports/_nav.html" %}
 <div class="grid g-4">
   {% for k in kpis %}
-  <a href="{{ k.url }}" class="card kpi" style="gap:10px">
+  <a {% if k.url %}href="{{ k.url }}"{% endif %} class="card kpi" style="gap:10px">
     <div style="display:flex;justify-content:space-between;align-items:center"><span class="badge badge-primary">{{ k.code }}</span>
       {% if k.ok is None %}<span class="badge badge-gray">Chưa có dữ liệu</span>{% elif k.ok %}<span class="badge badge-success">Đạt</span>{% else %}<span class="badge badge-danger">Chưa đạt</span>{% endif %}</div>
     <div class="label">{{ k.label }}</div>

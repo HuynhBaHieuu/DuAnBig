@@ -8,7 +8,7 @@
     <form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}">{% csrf_token %}<input type="hidden" name="op" value="run_all">
     <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Chạy tính toàn bộ ngay</button></form></div>{% endif %}
 </div>
-<div class="grid" style="grid-template-columns:minmax(300px,380px) 1fr">
+<div class="grid g-stack" style="grid-template-columns:minmax(300px,380px) 1fr">
   <div class="card" style="align-self:start">
     <div class="card-head"><h3 class="card-title">Sản phẩm</h3>
       <div class="toolbar"><a href="?" class="badge {% if request.GET.level != 'low' %}badge-primary{% else %}badge-gray{% endif %}">Tất cả</a><a href="?level=low" class="badge {% if request.GET.level == 'low' %}badge-primary{% else %}badge-gray{% endif %}">Cần đặt</a></div></div>
@@ -94,6 +94,18 @@
     </form>
   </div>
   {% endif %}
+</div>
+<div class="card" style="margin-top:16px">
+  <div class="card-head"><h3 class="card-title">Nhật ký tác vụ đêm</h3>
+    <span class="text-muted" style="font-size:12px">Lớp quét dự phòng – chạy 01:00 hằng đêm (Vercel Cron): tính lại SS/ROP (bỏ qua vật tư Khóa thủ công) rồi kiểm tra mọi vật tư theo dõi ROP. PR chính sinh ngay khi có sự kiện, nên thường tác vụ đêm tạo 0 PR.</span></div>
+  <div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Bắt đầu</th><th>Kết thúc</th><th>Nguồn</th><th class="num">Vật tư kiểm tra</th><th class="num">Tính lại SS/ROP</th><th class="num">Khóa thủ công (giữ nguyên)</th><th class="num">PR tạo</th><th>Mã PR / lỗi</th></tr></thead>
+    <tbody>{% for r in job_runs %}<tr class="{% if r.error %}row-danger{% elif r.pr_created %}row-warn{% endif %}">
+      <td>{{ r.started_at|vn_dt }}</td><td>{% if r.finished_at %}{{ r.finished_at|vn_dt }} <span class="text-muted" style="font-size:12px">({{ r.duration_s|floatformat:1 }} giây)</span>{% else %}<span class="badge badge-warn">Đang chạy / dừng giữa chừng</span>{% endif %}</td>
+      <td>{{ r.get_source_display }}{% if r.user %} · {{ r.user }}{% endif %}</td><td class="num">{{ r.products }}</td><td class="num">{{ r.recalculated }}</td><td class="num">{{ r.locked_skipped }}</td>
+      <td class="num"><b>{{ r.pr_created }}</b></td><td style="font-size:12px">{% if r.error %}<span style="color:var(--danger-ink)">{{ r.error }}</span>{% else %}{{ r.pr_codes|default:"—" }}{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="8" class="text-muted">Chưa có lần chạy nào được ghi nhật ký.</td></tr>{% endfor %}</tbody>
+  </table></div>
 </div>
 {{ chart|json_script:"chart-data" }}
 {% endblock %}

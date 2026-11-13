@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.core.permissions import role_required
-from apps.core.services import BusinessError, next_doc_no
+from apps.core.services import BusinessError, next_doc_no, param
 from apps.core.utils import business_action, paginate, pdf_response
 from apps.masterdata.models import Carrier, Dock, Driver, Location, Product, Route, Supplier, Vehicle, Warehouse
 
@@ -308,7 +308,8 @@ def trip_detail(request, pk):
         return redirect(request.path)
     milestones, overdue_min = _plan_vs_actual(trip)
     done = [m for m in milestones if m.actual_at]
-    late_ms = [m for m in done if m.delay_min > 0]
+    tol = param("MILESTONE_ONTIME_MIN")
+    late_ms = [m for m in done if m.delay_min > tol]  # trễ = lệch > +30' (cùng quy tắc nhãn mốc)
     return render(request, "purchasing/trip_detail.html", {
         "title": trip.code, "trip": trip, "milestones": milestones, "next_ms": trip.next_milestone,
         "lines": trip.lines.select_related("po_line__product__base_uom"), "incidents": trip.incidents.all(),
@@ -331,12 +332,12 @@ def _plan_vs_actual(trip):
     delay = max(0, last_done.delay_min if last_done else 0)
     pending = [m for m in ms if not m.actual_at]
     overdue = 0
-    if active and pending and now > pending[0].planned_at:
-        overdue = int((now - pending[0].planned_at).total_seconds() // 60)
+    if active and pending and now > pending[0].expected_at:
+        overdue = int((now - pending[0].expected_at).total_seconds() // 60)
         delay = max(delay, overdue)
     for m in pending:
-        m.overdue_min = int((now - m.planned_at).total_seconds() // 60) if active and now > m.planned_at else 0
-        m.resched_at = m.planned_at + timedelta(minutes=delay) if active and delay else None
+        m.overdue_min = int((now - m.expected_at).total_seconds() // 60) if active and now > m.expected_at else 0
+        m.resched_at = m.expected_at + timedelta(minutes=delay) if active and delay else None
     return ms, overdue
 
 
@@ -372,13 +373,12 @@ def slots(request):
     day = datetime.strptime(day, "%Y-%m-%d").date() if day else timezone.localdate()
     wh = Warehouse.objects.filter(pk=request.GET.get("wh")).first() or Warehouse.objects.filter(is_active=True).first()
     docks = list(Dock.objects.filter(warehouse=wh, is_active=True)) if wh else []
-    h0, h1 = 6, 22  # khung 06:00–22:00
-    tz = timezone.get_current_timezone()
-    day_start = timezone.make_aware(datetime.combine(day, time(h0)), tz)
-    day_end = timezone.make_aware(datetime.combine(day, time(h1)), tz)
+    svc.normalize_slots()  # lịch cũ nằm ngoài khung giờ hạ tải -> dời về khung hợp lệ
+    h0, h1 = svc.slot_hours()  # khung giờ hạ tải (tham số SLOT_DAY_START / SLOT_DAY_END, mặc định 06:00–21:00)
+    day_start, day_end = svc.slot_window(day)
     qs = UnloadingSlot.objects.filter(dock__in=docks, start_at__lt=day_end, end_at__gt=day_start) \
         .exclude(status="CANCELLED").select_related("trip__vehicle", "trip__po__supplier", "dock")
-    rows = (h1 - h0) * 4
+    rows = int((day_end - day_start).total_seconds() // 900)
     items = []
     for s in qs:
         top = max(0, (s.start_at - day_start).total_seconds() / 900)
@@ -388,7 +388,7 @@ def slots(request):
     now_row = (now - day_start).total_seconds() / 900 if day_start <= now <= day_end else None
     waiting = InboundTrip.objects.filter(status__in=["IN_TRANSIT", "LOADED", "ARRIVED"], po__warehouse=wh) \
         .exclude(slot__status__in=["PROPOSED", "CONFIRMED", "CHECKED_IN", "DONE"]).select_related("vehicle")
-    times = [f"{h0 + i // 4:02d}:{(i % 4) * 15:02d}" for i in range(rows)]
+    times = [timezone.localtime(day_start + timedelta(minutes=15 * i)).strftime("%H:%M") for i in range(rows)]
     items_json = json.dumps([{
         "id": it["s"].pk, "trip_id": it["s"].trip_id, "code": it["s"].trip.code, "plate": it["s"].trip.vehicle.plate,
         "status": it["s"].status, "col": it["col"], "row": it["row"], "h": it["h"],
@@ -398,7 +398,7 @@ def slots(request):
         "items_json": items_json,
         "title": "Lịch hạ tải", "day": day, "prev": day - timedelta(days=1), "next": day + timedelta(days=1),
         "wh": wh, "warehouses": Warehouse.objects.filter(is_active=True), "docks": docks, "items": items,
-        "times": times, "rows": rows, "now_row": now_row, "waiting": waiting, "h0": h0,
+        "times": times, "rows": rows, "now_row": now_row, "waiting": waiting, "h0": h0, "h1": h1,
         "slot_list": sorted(qs, key=lambda s: s.start_at)})
 
 

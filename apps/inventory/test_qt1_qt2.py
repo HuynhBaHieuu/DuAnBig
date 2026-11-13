@@ -542,7 +542,7 @@ class RuleTest(Base):
         d = Client()
         d.force_login(self.dispatcher)
         html = d.get(f"/app/sales/orders/{b.pk}").content.decode()
-        self.assertIn("Lịch sử đơn", html)
+        self.assertIn("Xác nhận &amp; giữ hàng", html)  # tab "Lịch sử" của đơn
         self.assertIn(pr.code, html)
 
 

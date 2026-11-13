@@ -181,7 +181,9 @@ class TripMilestone(models.Model):
     code = models.CharField(max_length=15)
     name = models.CharField(max_length=120)
     photo_required = models.BooleanField(default=False)
-    planned_at = models.DateTimeField()
+    planned_at = models.DateTimeField()  # kế hoạch gốc – giữ nguyên cho báo cáo
+    # dự kiến lại khi mốc trước thực tế SỚM hơn kế hoạch > ngưỡng (các mốc sau tính theo mốc thực tế)
+    replanned_at = models.DateTimeField(null=True, blank=True)
     actual_at = models.DateTimeField(null=True, blank=True)
     photo = models.ImageField(upload_to="milestones/%Y/%m/", null=True, blank=True)
     note = models.CharField(max_length=255, blank=True)
@@ -192,10 +194,31 @@ class TripMilestone(models.Model):
         ordering = ["trip", "seq"]
 
     @property
+    def expected_at(self):
+        """Giờ dự kiến đang hiệu lực: dự kiến lại (nếu có) hoặc kế hoạch gốc."""
+        return self.replanned_at or self.planned_at
+
+    @property
     def delay_min(self):
+        """Lệch = thực tế − dự kiến (phút, âm = sớm)."""
         if self.actual_at:
-            return int((self.actual_at - self.planned_at).total_seconds() // 60)
+            return round((self.actual_at - self.expected_at).total_seconds() / 60)
         return None
+
+    def timing(self, tol=None):
+        """('ONTIME' | 'EARLY' | 'LATE', số phút lệch tuyệt đối) – None nếu chưa có thực tế.
+        Lệch trong [−tol; +tol] phút là đúng giờ (mặc định tol = MILESTONE_ONTIME_MIN = 30)."""
+        d = self.delay_min
+        if d is None:
+            return None
+        if tol is None:
+            from apps.core.services import param
+            tol = param("MILESTONE_ONTIME_MIN")
+        if d < -tol:
+            return "EARLY", -d
+        if d > tol:
+            return "LATE", d
+        return "ONTIME", abs(d)
 
 
 class TripIncident(models.Model):

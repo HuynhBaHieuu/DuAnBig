@@ -213,28 +213,49 @@ def calc_param(product, today=None):
 
 
 def run_replenishment(today=None, trigger=None):
-    """Tác vụ đêm / nút "Chạy tính toàn bộ ngay": tính lại SS/ROP (vật tư Khóa thủ công giữ nguyên số khóa),
-    chụp snapshot, rồi gọi hàm lõi check_replenishment cho từng vật tư theo dõi – chỉ là LỚP QUÉT DỰ PHÒNG,
-    PR chính được tạo ngay tại các điểm kích hoạt (xác nhận đơn, duyệt PO, nhập kho...)."""
+    """Tác vụ đêm (Vercel Cron) / nút "Chạy tính toàn bộ ngay" – chỉ là LỚP QUÉT DỰ PHÒNG; PR chính sinh ngay tại
+    các điểm kích hoạt (xác nhận đơn, duyệt PO, nhập kho...). Làm đúng 2 việc:
+      1. Tính lại SS/ROP cho vật tư theo dõi ROP – BỎ QUA vật tư Khóa thủ công (giữ nguyên số khóa);
+      2. Gọi hàm lõi check_replenishment cho MỌI vật tư theo dõi ROP để bắt nhu cầu đến hạn và các trường hợp lọt.
+    Mỗi lần chạy ghi 1 dòng ReplenishmentJobRun: giờ bắt đầu / kết thúc, số vật tư, số PR tạo."""
+    from .models import ReplenishmentJobRun
     from .replenishment import Trigger, safe_check
 
     today = today or timezone.localdate()
     trigger = trigger or Trigger("NIGHTLY_JOB")
-    products = list(Product.objects.filter(is_active=True, track_rop=True))
-    with transaction.atomic():
-        for p in products:
-            calc_param(p, today)
-        summary = stock_summary(products)
-        for p in products:
-            s = summary[p.pk]
-            rp = p.rop_param
-            rp.suggested_q = s["suggested_q"]
-            rp.save(update_fields=["suggested_q"])
-            y_demand = -(StockMove.objects.filter(product=p, move_type__in=OUT_DEMAND_TYPES,
-                                                   at__date=today - timedelta(days=1)).aggregate(s=Sum("qty"))["s"] or D0)
-            ReplenishmentSnapshot.objects.update_or_create(
-                product=p, date=today,
-                defaults=dict(on_hand=s["on_hand"], reserved=s["reserved"], incoming=s["incoming"],
-                              projected=s["projected"], demand=y_demand, d_avg=s["d_avg"], ss=s["ss"], rop=s["rop"]))
-    prs = [pr for pr in (safe_check(p.pk, trigger) for p in sorted(products, key=lambda x: x.pk)) if pr]
-    return {"products": len(products), "auto_pr": ", ".join(pr.code for pr in prs) or None, "lines": len(prs)}
+    run = ReplenishmentJobRun.objects.create(started_at=timezone.now(), user=trigger.user_obj,
+                                             source="MANUAL" if trigger.user_obj else "CRON")
+    products = list(Product.objects.filter(is_active=True, track_rop=True).select_related("rop_param"))
+    prs, recalculated, locked = [], 0, 0
+    try:
+        with transaction.atomic():
+            for p in products:
+                rp = getattr(p, "rop_param", None)
+                if rp is not None and rp.manual_lock:
+                    locked += 1
+                    continue
+                calc_param(p, today)
+                recalculated += 1
+            summary = stock_summary(products)
+            for p in products:
+                s = summary[p.pk]
+                rp = ReplenishmentParam.objects.get(product=p)
+                rp.suggested_q = s["suggested_q"]
+                rp.save(update_fields=["suggested_q"])
+                y_demand = -(StockMove.objects.filter(product=p, move_type__in=OUT_DEMAND_TYPES,
+                                                       at__date=today - timedelta(days=1)).aggregate(s=Sum("qty"))["s"] or D0)
+                ReplenishmentSnapshot.objects.update_or_create(
+                    product=p, date=today,
+                    defaults=dict(on_hand=s["on_hand"], reserved=s["reserved"], incoming=s["incoming"],
+                                  projected=s["projected"], demand=y_demand, d_avg=s["d_avg"], ss=s["ss"], rop=s["rop"]))
+        prs = [pr for pr in (safe_check(p.pk, trigger) for p in sorted(products, key=lambda x: x.pk)) if pr]
+    except Exception as e:  # ghi lỗi vào nhật ký chạy rồi ném tiếp
+        run.error = f"{type(e).__name__}: {e}"[:2000]
+        raise
+    finally:
+        run.finished_at = timezone.now()
+        run.products, run.recalculated, run.locked_skipped = len(products), recalculated, locked
+        run.pr_created, run.pr_codes = len(prs), ", ".join(pr.code for pr in prs)
+        run.save()
+    return {"products": len(products), "recalculated": recalculated, "locked_skipped": locked,
+            "auto_pr": ", ".join(pr.code for pr in prs) or None, "lines": len(prs), "run_id": run.pk}

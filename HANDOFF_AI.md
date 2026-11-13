@@ -50,7 +50,18 @@ Sửa theo file test của tester (`test/test1.pdf`, 20 mục):
 
 Thêm sau: **"Thêm tồn thực"** ở màn Tồn kho (bấm dòng sản phẩm): `stock_add` → phiếu ADJ + `post_stock_move`, tự giữ hàng cho đơn backorder. Quyền: WAREHOUSE, DIRECTOR, ADMIN.
 
-## 3b. Móc xích QT1–QT2 (đặc tả `test/logic.docx`) – CHƯA commit
+## 3c. Sửa theo `test/test tracon.docx` (13/11/2026)
+| STT | Nội dung | Vị trí chính |
+|---|---|---|
+| 9 | Xác nhận đơn vốn đã gọi `fire_checks` (test B3 qua view tạo PR ngay); không tái hiện được trên bản local. Bổ sung: khối "Kiểm tra bổ sung tồn (ROP)" trên trang đơn (đọc `ReplenishmentCheckLog` theo mã đơn: Tạo PR / Chưa chạm ROP / Đã đủ đề xuất / Lỗi), thông báo sau xác nhận có mã PR, chuyển hàng vào/ra khu cách ly gọi kiểm tra. **Sau deploy:** nếu tester vẫn thấy không có PR, khối này cho biết lý do. | `apps/sales/views.py`, `templates/sales/so_detail.html`, `apps/inventory/views.py` (`stock_transfer`) |
+| 11 | Giờ/người xác nhận ở đầu trang đơn; tab **Chi tiết / Lịch sử** cho 10 loại chứng từ. Signal audit giờ ghi **cũ → mới** (chỉ trường đổi), dòng con ghi vào chứng từ cha; Thủ kho/Tài xế không thấy thay đổi về giá. | `apps/core/signals.py`, `apps/core/history.py`, `templates/partials/history.html`, tag `{% doc_history obj %}` |
+| 3 | Tác vụ đêm bỏ qua tính lại vật tư Khóa thủ công, ghi `ReplenishmentJobRun` (bắt đầu/kết thúc, số vật tư, số PR); bảng "Nhật ký tác vụ đêm" ở trang SS/ROP. | `apps/inventory/services.py` (`run_replenishment`), migration `inventory 0005` |
+| 16 | Lịch hạ tải chỉ trong khung `SLOT_DAY_START`–`SLOT_DAY_END` (06:00–21:00, tham số hệ thống) cho tự xếp, kéo–thả (chặn cả client lẫn server) và lưới; `normalize_slots()` dời lịch cũ ngoài khung (chạy khi mở trang lịch & trong quét Inbound). | `apps/purchasing/services.py` (`slot_hours`, `fit_window`, `find_free_slot`, `normalize_slots`) |
+| 17 | Nhãn mốc: lệch = thực tế − dự kiến; ±`MILESTONE_ONTIME_MIN` (30') "Đúng giờ", sớm hơn "Sớm X", trễ hơn "Trễ X". Mốc sớm → các mốc sau có `replanned_at` (kế hoạch gốc giữ nguyên). KPI-5 dùng cùng ngưỡng. | `TripMilestone.timing()`, `replan_after_early`, tag `milestone_badge`, migration `purchasing 0004` |
+
+Kèm theo: ẩn link không có quyền (sidebar "Mở bảng điều phối", KPI, kết quả tìm kiếm) qua `can_open(user, url)`; xóa cảnh báo của đề xuất phân bổ cũ khi tính lại (tránh link 404); lưới 2 cột inline xếp 1 cột trên màn ≤ 900px (`.g-stack`). Test: `apps/inventory/test_tracon_fixes.py` (17 test). Tổng 54 test OK.
+
+## 3b. Móc xích QT1–QT2 (đặc tả `test/logic.docx`)
 - Toàn bộ logic bổ sung tồn nằm ở **`apps/inventory/replenishment.py`**: `stock_metrics` (projected = on_hand + incoming − reserved − demand_unreserved; position = projected + pipeline), `effective_params`, `calc_order_qty`, `check_replenishment`, `fire_checks` (chạy sau commit bằng `transaction.on_commit`), `allocate_backorders`. Đầu file có bảng ánh xạ trạng thái đặc tả → code (G6).
 - Điểm kích hoạt: xác nhận / duyệt / hủy SO, duyệt phân bổ, xuất kho, kiểm kê duyệt, thêm tồn, trả hàng, gửi duyệt / duyệt / trả lại / hủy PO, nhập kho, lưu tham số SS/ROP, tick "Theo dõi SS/ROP", tác vụ đêm (`run_replenishment` giờ chỉ là lớp quét dự phòng).
 - Model mới / thêm trường (migration `inventory 0004`, `purchasing 0003`, `sales 0003`): `ReplenishmentAlert` (HIT_ROP), `ReplenishmentCheckLog`, `SalesOrderHistory`; PR có `trigger_*`, `snapshot`, `urgency`, `missing_supplier`, `rejected_*` + trạng thái REJECTED; SO có `submitted_at`, `confirmed_at/by`, `cancelled_at/by`.
@@ -68,4 +79,4 @@ Thêm sau: **"Thêm tồn thực"** ở màn Tồn kho (bấm dòng sản phẩm
 ## 5. Lưu ý khi làm tiếp
 - Giao diện, thông báo, comment đều bằng tiếng Việt; giữ phong cách này.
 - Phân quyền view bằng `@role_required(...)` (ADMIN luôn qua); lỗi nghiệp vụ ném `BusinessError` và dùng `@business_action` để hiện thông báo.
-- Đổi CSS/JS thì tăng `?v=` trong `templates/base.html` để trình duyệt không dùng bản cũ (đang là `v=5`).
+- Đổi CSS/JS thì tăng `?v=` trong `templates/base.html` để trình duyệt không dùng bản cũ (đang là `v=6`).

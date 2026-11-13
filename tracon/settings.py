@@ -164,6 +164,9 @@ BUSINESS = {
     "MILESTONE_LATE_MIN": 60,                 # Trễ mốc > 60 phút -> cảnh báo
     "ETA_LOG_MIN": 15,                        # Quét trễ mốc chỉ cập nhật / ghi log ETA khi lệch >= 15 phút
     "SLOT_PROPOSE_HOURS": 4,                  # ETA <= 4h -> đề xuất lịch hạ tải
+    "SLOT_DAY_START": "06:00",                # Khung hạ tải: giờ bắt đầu sớm nhất (dùng cho tự xếp lịch & lưới lịch)
+    "SLOT_DAY_END": "21:00",                  # Khung hạ tải: giờ kết thúc muộn nhất (bắt đầu + thời lượng ≤ giờ này)
+    "MILESTONE_ONTIME_MIN": 30,               # Mốc lệch trong ±30' = "Đúng giờ"; < -30' "Sớm"; > +30' "Trễ"
     "SERVICE_Z": 1.65,                        # Hệ số Z mặc định (95%)
     "VAT_RATE": 8,
     "PO_VAT_RATE": 10,                        # VAT đơn mua (giá mua lưu chưa VAT) – test/logic.docx, giả định G3

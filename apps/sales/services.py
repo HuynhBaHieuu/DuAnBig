@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
+from apps.core.models import Alert
 from apps.core.services import BusinessError, audit, next_doc_no, param, raise_alert, resolve_alerts
 from apps.inventory.services import default_storage_location, fifo_quants, post_stock_move, stock_summary
 from apps.masterdata.models import Location, PriceListLine, Product
@@ -213,7 +214,8 @@ def priority_key(line, rule):
 def propose_allocation(product, rule="PENALTY"):
     """Gom các dòng đang thiếu của 1 sản phẩm, chia lượng khả dụng theo quy tắc ưu tiên."""
     for old in Allocation.objects.filter(product=product, status="PROPOSED"):  # đề xuất cũ chưa duyệt -> làm lại
-        resolve_alerts("ALLOCATION", "allocation", old.pk)
+        # xóa luôn cảnh báo của đề xuất cũ: giữ lại sẽ là link tới trang không còn tồn tại (404)
+        Alert.objects.filter(alert_type="ALLOCATION", ref_type="allocation", ref_id=old.pk).delete()
         old.delete()
     lines = list(SalesOrderLine.objects.filter(product=product, atp_status="SHORT",
                                                so__status__in=["CONFIRMED", "PARTIAL"])

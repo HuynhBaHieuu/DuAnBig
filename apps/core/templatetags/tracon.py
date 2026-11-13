@@ -103,6 +103,30 @@ def dur(minutes):
 
 
 @register.filter
+def can_open(user, url):
+    """{% if user|can_open:"/app/inbound/board" %} – ẩn link tới trang vai trò này không có quyền."""
+    from apps.core.permissions import can_open as _can
+    return _can(user, url)
+
+
+@register.simple_tag
+def milestone_badge(m):
+    """Nhãn mốc: lệch = thực tế − dự kiến. |lệch| ≤ 30' "Đúng giờ"; < −30' "Sớm X"; > +30' "Trễ X"."""
+    from django.utils.html import format_html
+    t = m.timing() if hasattr(m, "timing") else None
+    if not t:
+        return ""
+    kind, mins = t
+    if kind == "EARLY":
+        return format_html('<span class="badge badge-info" title="Thực tế sớm hơn dự kiến">Sớm {}</span>', dur(mins))
+    if kind == "LATE":
+        tone = "danger" if mins > 60 else "warn"
+        return format_html('<span class="badge badge-{}" title="Thực tế trễ hơn dự kiến">Trễ {}</span>', tone, dur(mins))
+    return format_html('<span class="badge badge-success" title="Lệch {} so với dự kiến">Đúng giờ</span>',
+                       dur(m.delay_min))
+
+
+@register.filter
 def hm(value):
     if not value:
         return "—"
@@ -111,6 +135,7 @@ def hm(value):
 
 TONE = {
     # tím = mới/nháp, cam = đang xử lý/chờ, xanh = hoàn tất, đỏ = hủy/lỗi
+    "TAO_PR": "warn", "CHUA_CHAM": "success", "DA_DU_DE_XUAT": "info", "DA_TU_CHOI_GAN_DAY": "gray", "KHONG_CAN": "gray", "LOI": "danger",
     "DRAFT": "gray", "PLANNED": "primary", "SUBMITTED": "primary", "PROPOSED": "primary", "SENT": "primary",
     "PENDING_APPROVAL": "warn", "PENDING": "warn", "COUNTING": "warn", "RECOUNT": "warn", "AT_FACTORY": "warn",
     "LOADED": "warn", "IN_TRANSIT": "warn", "PICKING": "warn", "IN_PROGRESS": "warn", "PARTIAL": "warn",
@@ -156,3 +181,18 @@ def clamp_pct(value):
         return max(0, min(100, float(value)))
     except (TypeError, ValueError):
         return 0
+
+
+@register.inclusion_tag("partials/history.html", takes_context=True)
+def doc_history(context, obj, title="Lịch sử", card=True):
+    """Tab / thẻ "Lịch sử" của chứng từ: ai, làm gì, lúc nào, giá trị cũ → mới.
+    Người không được xem giá (Thủ kho, Tài xế) không thấy các thay đổi về giá / tiền."""
+    from apps.core.history import doc_history as _h
+    from apps.core.signals import PRICE_WORDS
+    items = _h(obj) if obj is not None else []
+    user = context.get("user")
+    if user is not None and not getattr(user, "can_see_price", True):
+        for it in items:
+            it["changes"] = [c for c in it["changes"] if not any(w in str(c[0]).lower() for w in PRICE_WORDS)]
+        items = [it for it in items if it["changes"] or it["action"] != "Cập nhật"]
+    return {"items": items, "title": title, "card": card}

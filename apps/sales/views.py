@@ -31,14 +31,24 @@ def _dec(v, default="0"):
 
 
 def save_so_lines(so, products, qtys, prices, user_can_price=True):
-    so.lines.all().delete()
+    """Lưu dòng đơn nháp. Dòng cũ được CẬP NHẬT tại chỗ (không xóa – tạo lại) để lịch sử ghi đúng cũ → mới."""
+    old = list(so.lines.order_by("id"))
+    i = 0
     for pid, q, pr in zip(products, qtys, prices):
         if pid and _dec(q) > 0:
             product = Product.objects.get(pk=pid)
             price = _dec(pr) if (user_can_price and pr not in (None, "")) else svc.default_price(so.customer, product)
             if so.order_type == "INTERNAL":
                 price = svc.default_price(so.customer, product)  # nội bộ: luôn giá vốn
-            SalesOrderLine.objects.create(so=so, product=product, qty=_dec(q), unit_price=price)
+            if i < len(old):
+                line = old[i]
+                line.product, line.qty, line.unit_price = product, _dec(q), price
+                line.save()
+            else:
+                SalesOrderLine.objects.create(so=so, product=product, qty=_dec(q), unit_price=price)
+            i += 1
+    for line in old[i:]:
+        line.delete()
     if not so.lines.exists():
         raise BusinessError("Đơn cần ít nhất 1 dòng hàng.")
     so.recalc_total()
@@ -46,10 +56,14 @@ def save_so_lines(so, products, qtys, prices, user_can_price=True):
 
 
 def _atp_msg(so):
-    """Thông báo sau khi chạy ATP: chỉ báo phần thiếu = SL đặt − lượng đã giữ."""
+    """Thông báo sau khi chạy ATP: chỉ báo phần thiếu = SL đặt − lượng đã giữ; kèm PR tự động vừa sinh (nếu có)."""
+    from apps.purchasing.models import PurchaseRequisition
     short = [f"{l.product.code} giữ {l.reserved_qty.normalize():f}, thiếu {l.backorder_qty.normalize():f}"
              for l in so.lines.select_related("product") if l.backorder_qty > 0]
-    return "Đã xác nhận đơn & giữ hàng." + (" Thiếu hàng: " + "; ".join(short) + "." if short else "")
+    prs = list(PurchaseRequisition.objects.filter(trigger_ref_type="SO", trigger_ref_code=so.code)
+               .values_list("code", flat=True))
+    return ("Đã xác nhận đơn & giữ hàng." + (" Thiếu hàng: " + "; ".join(short) + "." if short else "")
+            + (f" Tồn dự báo chạm ROP – đã sinh đề xuất mua {', '.join(prs)}." if prs else ""))
 
 
 # ------------------------------------------------------------------ SO (MH-31)
@@ -176,13 +190,16 @@ def so_detail(request, pk):
             l.short_qty = l.backorder_qty
     from apps.inventory.replenishment import event_label
     from apps.purchasing.models import PurchaseRequisition
-    history = list(so.history.select_related("user"))
+    from apps.inventory.models import ReplenishmentCheckLog
+    rop_checks = list(ReplenishmentCheckLog.objects.filter(ref=so.code).select_related("product", "pr")[:20])
+    for c in rop_checks:
+        c.event_label = event_label(c.event)
     trig_prs = list(PurchaseRequisition.objects.filter(trigger_ref_type="SO", trigger_ref_code=so.code)
                     .prefetch_related("lines__product__base_uom"))
     for pr in trig_prs:
         pr.event_label = event_label(pr.trigger_event)
     return render(request, "sales/so_detail.html", {
-        "title": so.code, "so": so, "lines": lines, "preview": preview, "history": history, "trig_prs": trig_prs,
+        "title": so.code, "so": so, "lines": lines, "preview": preview, "rop_checks": rop_checks, "trig_prs": trig_prs,
         "stops": so.stops.select_related("trip__vehicle").prefetch_related("lines"), "debt": debt, "overdue": overdue,
         "allocs": Allocation.objects.filter(lines__so_line__so=so).distinct()})
 

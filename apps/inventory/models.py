@@ -252,3 +252,26 @@ class ReplenishmentCheckLog(models.Model):
     class Meta:
         db_table = "replenishment_check_log"
         ordering = ["-at", "-id"]
+
+
+class ReplenishmentJobRun(models.Model):
+    """Nhật ký mỗi lần chạy tác vụ đêm / nút "Chạy tính toàn bộ ngay" (lớp quét dự phòng của QT1)."""
+    SOURCES = [("CRON", "Tác vụ đêm (Vercel Cron)"), ("MANUAL", "Chạy tay")]
+    started_at = models.DateTimeField(db_index=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    source = models.CharField(max_length=10, choices=SOURCES, default="CRON")
+    user = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    products = models.PositiveIntegerField(default=0)       # số vật tư theo dõi ROP được kiểm tra
+    recalculated = models.PositiveIntegerField(default=0)   # số vật tư được tính lại SS/ROP (bỏ qua Khóa thủ công)
+    locked_skipped = models.PositiveIntegerField(default=0)  # số vật tư Khóa thủ công giữ nguyên
+    pr_created = models.PositiveIntegerField(default=0)
+    pr_codes = models.TextField(blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "replenishment_job_run"
+        ordering = ["-started_at", "-id"]
+
+    @property
+    def duration_s(self):
+        return (self.finished_at - self.started_at).total_seconds() if self.finished_at else None

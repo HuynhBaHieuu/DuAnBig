@@ -273,6 +273,7 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .g-main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
 @media (max-width: 1200px) { .g-4, .g-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .g-main { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
+  .g-stack { grid-template-columns: minmax(0, 1fr) !important; } /* lưới 2 cột inline -> 1 cột trên điện thoại / máy tính bảng */
   .sidebar { display: none; } .g-2, .g-3 { grid-template-columns: 1fr; } .content { padding: 20px 16px; }
   .topbar { padding: 0 16px; }
 }
