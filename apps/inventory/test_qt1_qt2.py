@@ -325,10 +325,10 @@ class RuleTest(Base):
         po.save()
         self.assertEqual((self.metrics()["incoming"], self.metrics()["pipeline"]), (D(0), D(40)))
         self.adjust(-100)
-        self.so(10, days=30)                                                     # backorder cần sau hôm nay + LT
-        self.assertEqual(self.metrics()["demand_unreserved"], D(0))
+        self.so(10, days=30)                         # cần giao xa (sau hôm nay + LT) vẫn tính – test Gà STT 18
+        self.assertEqual(self.metrics()["demand_unreserved"], D(10))
         self.so(5, days=1)
-        self.assertEqual(self.metrics()["demand_unreserved"], D(5))
+        self.assertEqual(self.metrics()["demand_unreserved"], D(15))
         # PR đã gộp (CONVERTED, có po_line) không đếm hai lần
         pr = self.auto_prs().order_by("id").first()
         before = self.metrics()["pipeline"]

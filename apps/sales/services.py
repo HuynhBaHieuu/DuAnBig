@@ -148,7 +148,7 @@ def reserve_line(line):
       ngược lại là backorder (tự giữ tiếp khi có hàng về).
     """
     Product.objects.select_for_update().get(pk=line.product_id)  # tuần tự hóa giữ hàng theo sản phẩm
-    need = line.qty - line.reserved_qty - line.delivered_qty
+    need = line.qty - line.reserved_qty
     if need <= 0:
         line.atp_status = "OK"
         line.save(update_fields=["atp_status"])
@@ -178,7 +178,7 @@ def atp_preview(lines):
     left = {pid: max(D0, s["available"]) for pid, s in summ.items()}
     for l in lines:
         avail = left.get(l.product_id, D0)
-        need = max(D0, l.qty - l.reserved_qty - l.delivered_qty)
+        need = max(D0, l.qty - l.reserved_qty)
         take = min(avail, need)
         left[l.product_id] = avail - take
         l.avail_qty = summ[l.product_id]["available"] if l.product_id in summ else D0
@@ -224,12 +224,12 @@ def propose_allocation(product, rule="PENALTY"):
         return None
     avail = max(D0, available_qty(product))
     lines.sort(key=lambda l: priority_key(l, rule))
-    demand = sum((l.qty - l.reserved_qty - l.delivered_qty for l in lines), D0)
+    demand = sum((l.qty - l.reserved_qty for l in lines), D0)
     alloc = Allocation.objects.create(code=next_doc_no("AL"), product=product, priority_rule=rule,
                                       available_qty=avail, demand_qty=demand)
     remain = avail
     for i, l in enumerate(lines, 1):
-        d = l.qty - l.reserved_qty - l.delivered_qty
+        d = l.qty - l.reserved_qty
         p = min(d, remain)
         remain -= p
         AllocationLine.objects.create(allocation=alloc, so_line=l, demand_qty=d, proposed_qty=p, rank=i)

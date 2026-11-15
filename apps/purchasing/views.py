@@ -399,7 +399,15 @@ def slots(request):
         "title": "Lịch hạ tải", "day": day, "prev": day - timedelta(days=1), "next": day + timedelta(days=1),
         "wh": wh, "warehouses": Warehouse.objects.filter(is_active=True), "docks": docks, "items": items,
         "times": times, "rows": rows, "now_row": now_row, "waiting": waiting, "h0": h0, "h1": h1,
-        "slot_list": sorted(qs, key=lambda s: s.start_at)})
+        "slot_list": _with_checkin_state(sorted(qs, key=lambda s: s.start_at))})
+
+
+def _with_checkin_state(slots):
+    """Gắn tình trạng check-in (sớm/muộn so với slot, bến có trống không) cho các lịch còn chờ check-in."""
+    now = timezone.now()
+    for s in slots:
+        s.ci = svc.checkin_state(s, now) if s.status in ("PROPOSED", "CONFIRMED") else None
+    return slots
 
 
 @role_required("DIRECTOR", "PURCHASER", "WAREHOUSE")
@@ -418,7 +426,7 @@ def slot_action(request, pk):
         svc.confirm_slot(slot)
         messages.success(request, f"Đã xác nhận lịch hạ tải {slot.trip.code}.")
     elif op == "checkin":
-        gr = svc.check_in(slot, request.user)
+        gr = svc.check_in(slot, request.user, reason=request.POST.get("reason", ""), enforce_window=True)
         messages.success(request, f"Đã check-in xe {slot.trip.vehicle.plate}. Mở phiếu nhập {gr.code}.")
         return redirect(f"/app/warehouse/receipts/{gr.pk}")
     return redirect(request.META.get("HTTP_REFERER") or "/app/warehouse/slots")

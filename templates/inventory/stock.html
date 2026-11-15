@@ -47,7 +47,7 @@
         <td class="num" style="{% if r.projected < 0 %}color:var(--danger-ink);font-weight:700{% endif %}">{{ r.projected|qty }}</td>
         <td style="min-width:170px">
           <div class="ropbar" title="Dự báo {{ r.projected|qty }} · SS {{ r.ss|qty }} · ROP {{ r.rop|qty }}">
-            <div class="fill" style="width:{{ r.bar.fill }}%;background:{% if r.level == 'OK' %}var(--success){% elif r.level == 'BELOW_ROP' %}var(--warn){% else %}var(--danger){% endif %}"></div>
+            <div class="fill" style="width:{{ r.bar.fill }}%;background:var(--{{ r.bar.tone }})"></div>
             <div class="mark ss" style="left:{{ r.bar.ss|clamp_pct }}%"></div><div class="mark rop" style="left:{{ r.bar.rop|clamp_pct }}%"></div>
           </div>
           <div class="text-muted" style="font-size:11px;margin-top:4px">SS {{ r.ss|qty }} · ROP {{ r.rop|qty }}</div>

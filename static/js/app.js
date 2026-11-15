@@ -84,21 +84,26 @@ document.addEventListener("submit", async e => {
       fd.delete(i.name);
       for (const f of i.files) fd.append(i.name, await shrinkImage(f));
     }
-    if (!isAsync) {  // form thường: gán lại file đã thu nhỏ rồi submit gốc
+    if (!isAsync) {  // form thường: gán lại file đã thu nhỏ rồi GỬI LẠI form (đã preventDefault ở trên)
       if (window.DataTransfer) {
-        for (const i of form.querySelectorAll("input[type=file]")) {
-          if (!i.name || !i.files.length) continue;
-          const dt = new DataTransfer();
-          fd.getAll(i.name).forEach(f => dt.items.add(f));
-          i.files = dt.files;
-        }
+        try {
+          for (const i of form.querySelectorAll("input[type=file]")) {
+            if (!i.name || !i.files.length) continue;
+            const dt = new DataTransfer();
+            fd.getAll(i.name).forEach(f => dt.items.add(f));
+            i.files = dt.files;
+          }
+        } catch (_) { /* không gán được -> gửi ảnh gốc */ }
       }
-      busyOverlay(false);
-      delete form.dataset.sending;
+      // form.submit() không gửi kèm tên nút bấm -> thêm input ẩn tương ứng
+      if (btn && btn.name) {
+        const h = document.createElement("input");
+        h.type = "hidden"; h.name = btn.name; h.value = btn.value;
+        form.appendChild(h);
+      }
+      busyOverlay(true, "Đang gửi lên máy chủ…");
       form.dataset.shrunk = "1";
-      if (form.requestSubmit) form.requestSubmit(btn && btn.form === form ? btn : undefined);
-      else form.submit();
-      delete form.dataset.shrunk;
+      HTMLFormElement.prototype.submit.call(form);  // gửi thật, không phát lại sự kiện submit
       return;
     }
     busyOverlay(true, "Đang gửi lên máy chủ…");

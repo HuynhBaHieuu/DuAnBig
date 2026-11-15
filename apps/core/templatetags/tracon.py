@@ -54,6 +54,21 @@ def qty(value):
 
 
 @register.filter
+def qty_input(value):
+    """Giá trị cho ô nhập số (input type=number): 15.000 -> "15", 12.500 -> "12.5" – không dấu nghìn,
+    chỉ giữ phần thập phân khi có (tránh đọc nhầm "15.000" thành 15 nghìn)."""
+    if value is None or value == "":
+        return ""
+    try:
+        d = Decimal(value)
+    except Exception:
+        return value
+    if d == d.to_integral():
+        return str(d.quantize(Decimal(1)))
+    return format(d.normalize(), "f")
+
+
+@register.filter
 def pct(value, decimals=1):
     try:
         return f"{float(value):.{int(decimals)}f}%".replace(".", ",")

@@ -14,7 +14,8 @@ MỌI logic bổ sung tồn nằm ở đây, không nhân bản ở view / signa
            APPROVED, SENT, CONFIRMED        -> APPROVED, SENT (code không có bước "NCC xác nhận")
            PARTIALLY_RECEIVED               -> PARTIAL
   PR       DRAFT, SUBMITTED, CONVERTED, REJECTED, CANCELLED (giống đặc tả)
-  Đơn bán: backorder_qty là thuộc tính tính từ qty − reserved_qty − delivered_qty (không lưu cột riêng).
+  Đơn bán: backorder_qty là thuộc tính tính từ qty − reserved_qty (không lưu cột riêng); reserved_qty là lũy kế
+           đã giữ, GỒM cả phần đã xuất/giao -> không trừ thêm delivered_qty.
 """
 import logging
 import math
@@ -120,7 +121,7 @@ def calc_order_qty(p, pos):
 
 
 # ------------------------------------------------------------------ Số liệu (mục 2) – một công thức cho mọi nơi
-def stock_metrics(products, today=None):
+def stock_metrics(products, today=None):  # today: giữ để tương thích, không còn dùng (bỏ lọc ngày cần giao)
     """{product_id: dict} với on_hand, quarantine, reserved, available, incoming, demand_unreserved, projected,
     pipeline, position.
 
@@ -128,9 +129,8 @@ def stock_metrics(products, today=None):
     from apps.purchasing.models import PurchaseOrderLine, PurchaseRequisitionLine
     from apps.sales.models import SalesOrderLine, StockReservation
 
-    from .models import ReplenishmentParam, StockQuant
+    from .models import StockQuant
 
-    today = today or timezone.localdate()
     products = list(products)
     ids = [p.pk for p in products]
 
@@ -147,14 +147,13 @@ def stock_metrics(products, today=None):
     pr_pipe = agg(PurchaseRequisitionLine.objects.filter(product_id__in=ids, pr__status__in=PR_PIPELINE,
                                                          po_line__isnull=True), Sum("qty"))
     po_pipe = agg(PurchaseOrderLine.objects.filter(product_id__in=ids, po__status__in=PO_PIPELINE), Sum("qty"))
-    lt = {r.product_id: r.lead_time_days for r in ReplenishmentParam.objects.filter(product_id__in=ids)}
+    # Σ phần thiếu chưa giữ của MỌI dòng đơn đã xác nhận (kể cả dòng "Giữ một phần" và đơn cần giao xa):
+    # không lọc theo ngày cần giao, không chặn ở 0 (test Gà STT 18: SO giữ 195/230 -> dự báo −35).
     unres = {}
     for l in SalesOrderLine.objects.filter(product_id__in=ids, so__status__in=SO_OPEN) \
-            .values("product_id", "qty", "reserved_qty", "delivered_qty", "so__requested_date"):
-        horizon = today + timedelta(days=math.ceil(float(lt.get(l["product_id"]) or 0)))
-        if l["so__requested_date"] <= horizon:  # backorder cần sau hôm nay + LT chưa tính vào dự báo (G7)
-            bo = max(l["qty"] - l["reserved_qty"] - l["delivered_qty"], D0)
-            unres[l["product_id"]] = unres.get(l["product_id"], D0) + bo
+            .values("product_id", "qty", "reserved_qty"):
+        bo = max(l["qty"] - l["reserved_qty"], D0)
+        unres[l["product_id"]] = unres.get(l["product_id"], D0) + bo
     out = {}
     for p in products:
         oh, rs, inc = on_hand.get(p.pk, D0), reserved.get(p.pk, D0), incoming.get(p.pk, D0)
@@ -323,7 +322,7 @@ def allocate_backorders(product, trigger):
     avail = max(available_qty(product), D0)
     done = []
     for line in lines:
-        need = line.qty - line.reserved_qty - line.delivered_qty
+        need = line.qty - line.reserved_qty
         if avail <= 0:
             break
         if need <= 0:

@@ -36,7 +36,15 @@
         <div class="toolbar" style="margin-top:8px">
           {% if s.status == "PROPOSED" %}<form method="post" action="/app/warehouse/slots/{{ s.pk }}">{% csrf_token %}<input type="hidden" name="op" value="confirm"><button class="btn btn-soft btn-sm">Xác nhận</button></form>{% endif %}
           {% if s.status == "PROPOSED" or s.status == "CONFIRMED" %}{% if s.trip.status == "ARRIVED" or s.trip.status == "IN_TRANSIT" or s.trip.status == "LOADED" %}
-            <form method="post" action="/app/warehouse/slots/{{ s.pk }}">{% csrf_token %}<input type="hidden" name="op" value="checkin"><button class="btn btn-primary btn-sm"><i data-lucide="log-in"></i>Check-in & mở GRN</button></form>{% endif %}{% endif %}
+            {% if s.ci.blocker %}
+            <div class="text-muted" style="font-size:12px;width:100%"><span class="badge badge-warn">Phải đợi</span> Xe sớm {{ s.ci.early_min|dur }} so với slot, bến {{ s.dock.code }} đang bận ({{ s.ci.blocker.trip.code }}{% if s.ci.blocker.status == "CHECKED_IN" %} đang hạ tải{% else %} {{ s.ci.blocker.start_at|hm }}–{{ s.ci.blocker.end_at|hm }}{% endif %}).</div>
+            <button class="btn btn-soft btn-sm" disabled title="Bến chưa trống – chờ tới khi bến trống hoặc tới giờ slot"><i data-lucide="log-in"></i>Check-in & mở GRN</button>
+            {% else %}
+            <form method="post" action="/app/warehouse/slots/{{ s.pk }}" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%">{% csrf_token %}<input type="hidden" name="op" value="checkin">
+              {% if s.ci.early_min or s.ci.late_min %}<span class="badge {% if s.ci.need_reason %}badge-danger{% else %}badge-gray{% endif %}">{% if s.ci.early_min %}Sớm {{ s.ci.early_min|dur }}{% else %}Muộn {{ s.ci.late_min|dur }}{% endif %} so với slot</span>{% endif %}
+              {% if s.ci.need_reason %}<input class="input input-sm" name="reason" required maxlength="255" placeholder="Lý do check-in lệch slot (bắt buộc)" style="flex:1;min-width:180px">{% endif %}
+              <button class="btn btn-primary btn-sm"><i data-lucide="log-in"></i>Check-in & mở GRN</button></form>
+            {% endif %}{% endif %}{% endif %}
         </div>
       </div>
       {% empty %}<div class="text-muted">Chưa có lịch hạ tải.</div>{% endfor %}

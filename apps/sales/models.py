@@ -144,7 +144,8 @@ class SalesOrderLine(models.Model):
 
     @property
     def backorder_qty(self):
-        return max(self.qty - self.reserved_qty - self.delivered_qty, Decimal(0))
+        # reserved_qty là lũy kế đã giữ, đã gồm phần đã giao -> không trừ delivered_qty lần nữa
+        return max(self.qty - self.reserved_qty, Decimal(0))
 
 
 class StockReservation(models.Model):

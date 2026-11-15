@@ -26,6 +26,10 @@ def _bar(s):
     top = max(float(s["projected"]), float(s["rop"]) * 1.5, float(s["ss"]) * 2, 1)
     s["bar"] = {"fill": max(0, min(100, float(s["projected"]) / top * 100)),
                 "ss": float(s["ss"]) / top * 100, "rop": float(s["rop"]) / top * 100}
+    # Màu thanh theo TỒN DỰ BÁO (chính là chỉ số được vẽ và so với vạch SS/ROP), không theo Khả dụng:
+    # ≤ SS (hoặc ≤ 0) đỏ · ≤ ROP cam · trên ROP xanh
+    proj, ss, rop = s["projected"], s["ss"], s["rop"]
+    s["bar"]["tone"] = "danger" if proj <= 0 or (ss and proj <= ss) else ("warn" if rop and proj <= rop else "success")
     s["level_label"], s["level_tone"] = LEVEL_LABEL[s["level"]]
     return s
 

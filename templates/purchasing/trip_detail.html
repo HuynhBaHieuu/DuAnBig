@@ -51,7 +51,7 @@
                 <span class="ms-photo-badge"><i data-lucide="camera"></i>Ảnh tài xế</span></a>
               {% elif m.photo_required %}<div class="text-muted" style="font-size:12px;margin-top:6px"><i data-lucide="image-off" style="width:13px"></i> Chưa có ảnh</div>{% endif %}
             {% elif next_ms and m.pk == next_ms.pk and user.role != "WAREHOUSE" %}
-              <form method="post" enctype="multipart/form-data" class="toolbar" style="margin-top:8px" x-data="photoGuard({{ m.photo_required|yesno:'true,false' }})">{% csrf_token %}
+              <form method="post" enctype="multipart/form-data" data-async class="toolbar" style="margin-top:8px" x-data="photoGuard({{ m.photo_required|yesno:'true,false' }})">{% csrf_token %}
                 <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ m.pk }}">
                 <input type="file" name="photo" accept="image/*" {% if m.photo_required %}required{% endif %} style="font-size:12px" @change="pick($event)">
                 <input class="input input-sm" name="note" placeholder="Ghi chú (vd: tài xế báo qua điện thoại)" style="width:240px">
@@ -76,7 +76,7 @@
     <div class="card card-body">
       <h3 class="card-title" style="margin-bottom:12px">Lịch hạ tải</h3>
       {% if slot %}<dl class="dl"><dt>Bến</dt><dd>{{ slot.dock.code }} – {{ slot.dock.name }}</dd><dt>Khung giờ</dt><dd>{{ slot.start_at|vn_dt }} – {{ slot.end_at|hm }}</dd>
-        <dt>Trạng thái</dt><dd>{% status_badge slot %}</dd><dt>Check-in</dt><dd>{{ slot.checked_in_at|vn_dt }}</dd>{% if slot.wait_minutes is not None %}<dt>Chờ hạ tải</dt><dd>{{ slot.wait_minutes|dur }}</dd>{% endif %}</dl>
+        <dt>Trạng thái</dt><dd>{% status_badge slot %}</dd><dt>Check-in</dt><dd>{{ slot.checked_in_at|vn_dt }}</dd>{% if slot.wait_minutes is not None %}<dt>Chờ hạ tải</dt><dd>{{ slot.wait_minutes|dur }}</dd>{% endif %}{% if slot.checkin_reason %}<dt>Lý do lệch slot</dt><dd>{{ slot.checkin_reason }}</dd>{% endif %}</dl>
         <a href="/app/warehouse/slots?date={{ slot.start_at|date:'Y-m-d' }}" class="btn btn-soft btn-sm" style="margin-top:12px">Mở lịch hạ tải</a>
       {% else %}<div class="text-muted">Hệ thống tự đề xuất khi ETA ≤ 4 giờ.</div>{% endif %}
       {% for g in receipts %}<div class="divider"></div><a href="/app/warehouse/receipts/{{ g.pk }}" style="display:flex;justify-content:space-between"><b>{{ g.code }}</b>{% status_badge g %}</a>{% endfor %}
@@ -91,7 +91,7 @@
       </div>
       {% empty %}<div class="text-muted" style="margin-bottom:10px">Chưa có sự cố.</div>{% endfor %}
       {% if trip.status != "RECEIVED" and trip.status != "CANCELLED" and user.role != "WAREHOUSE" %}
-      <form method="post" enctype="multipart/form-data" style="display:flex;flex-direction:column;gap:8px;margin-top:12px" x-data="{o:false}">{% csrf_token %}
+      <form method="post" enctype="multipart/form-data" data-async style="display:flex;flex-direction:column;gap:8px;margin-top:12px" x-data="{o:false}">{% csrf_token %}
         <button type="button" class="btn btn-outline btn-sm" @click="o=!o"><i data-lucide="siren"></i>Ghi nhận sự cố</button>
         <template x-if="o"><div style="display:flex;flex-direction:column;gap:8px">
           <input type="hidden" name="op" value="incident">

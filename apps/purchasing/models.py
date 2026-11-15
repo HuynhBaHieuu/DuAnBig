@@ -259,6 +259,7 @@ class UnloadingSlot(models.Model):
     end_at = models.DateTimeField()
     status = models.CharField(max_length=12, choices=STATUS, default="PROPOSED")
     checked_in_at = models.DateTimeField(null=True, blank=True)
+    checkin_reason = models.CharField("Lý do check-in lệch slot", max_length=255, blank=True)
     done_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

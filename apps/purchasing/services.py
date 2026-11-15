@@ -489,19 +489,68 @@ def confirm_slot(slot):
     slot.save(update_fields=["status"])
 
 
+def _dur(minutes):
+    from apps.core.templatetags.tracon import dur
+    return dur(minutes)
+
+
+def checkin_state(slot, now=None):
+    """Tình trạng check-in so với khung slot (dùng cho cả màn Lịch hạ tải lẫn kiểm tra phía máy chủ).
+
+    early_min: số phút tới SỚM hơn giờ bắt đầu slot · late_min: số phút tới MUỘN hơn giờ kết thúc slot.
+    need_reason: lệch khung slot quá SLOT_CHECKIN_TOLERANCE_MIN (mặc định 60') -> bắt buộc nhập lý do.
+    blocker: khi tới sớm, lịch khác đang chiếm bến (đang hạ tải, hoặc đã đặt giờ chồng lên khoảng từ bây giờ
+    tới hết thời lượng hạ tải của xe này) -> xe phải đợi; None = bến trống, cho check-in sớm."""
+    now = now or timezone.now()
+    tol = int(param("SLOT_CHECKIN_TOLERANCE_MIN") or 60)
+    early = max(0, int((slot.start_at - now).total_seconds() // 60))
+    late = max(0, int((now - slot.end_at).total_seconds() // 60))
+    blocker = None
+    if early > 0:
+        dur = slot.end_at - slot.start_at
+        others = UnloadingSlot.objects.filter(dock_id=slot.dock_id).exclude(pk=slot.pk).select_related("trip")
+        blocker = (others.filter(status="CHECKED_IN").first()
+                   or others.filter(status__in=["PROPOSED", "CONFIRMED"], start_at__lt=now + dur, end_at__gt=now)
+                   .order_by("start_at").first())
+    return {"early_min": early, "late_min": late, "need_reason": max(early, late) > tol, "tolerance": tol,
+            "blocker": blocker}
+
+
 @transaction.atomic
-def check_in(slot, user):
-    """Thủ kho check-in xe -> mở phiếu nhập GRN nháp từ hàng đã bốc."""
+def check_in(slot, user, reason="", enforce_window=False):
+    """Thủ kho check-in xe -> mở phiếu nhập GRN nháp từ hàng đã bốc.
+
+    enforce_window=True (thao tác của Thủ kho trên màn Lịch hạ tải):
+      - tới sớm hơn giờ slot: chỉ cho check-in khi bến đang trống, ngược lại xe phải đợi;
+      - lệch khung slot quá SLOT_CHECKIN_TOLERANCE_MIN phút: bắt buộc nhập lý do (lưu ở slot + lịch sử chuyến)."""
     if slot.status not in ("PROPOSED", "CONFIRMED"):
         raise BusinessError("Lịch đã check-in hoặc bị hủy.")
     trip = slot.trip
     if trip.status not in ("ARRIVED", "IN_TRANSIT", "LOADED"):
         raise BusinessError("Xe chưa tới cổng.")
     now = timezone.now()
+    reason = (reason or "").strip()
+    if enforce_window:
+        st = checkin_state(slot, now)
+        start_s = f"{timezone.localtime(slot.start_at):%H:%M}–{timezone.localtime(slot.end_at):%H:%M}"
+        if st["blocker"] is not None:
+            b = st["blocker"]
+            what = "đang hạ tải" if b.status == "CHECKED_IN" else \
+                f"đã có lịch {timezone.localtime(b.start_at):%H:%M}–{timezone.localtime(b.end_at):%H:%M}"
+            raise BusinessError(f"Xe tới sớm hơn slot {start_s} nhưng bến {slot.dock.code} không trống "
+                                f"({b.trip.code} {what}). Xe phải đợi tới khi bến trống hoặc tới giờ slot.")
+        if st["need_reason"] and not reason:
+            dev = (f"sớm {_dur(st['early_min'])}" if st["early_min"] else f"muộn {_dur(st['late_min'])}")
+            raise BusinessError(f"Check-in lệch slot {start_s} quá {st['tolerance']} phút ({dev}). "
+                                f"Vui lòng nhập lý do check-in lệch giờ.")
     if not trip.arrived_at:
         trip.arrived_at = now
     slot.status, slot.checked_in_at = "CHECKED_IN", now
+    if reason:
+        slot.checkin_reason = reason[:255]
     slot.save()
+    if reason:
+        audit("UPDATE", trip, {"Lý do check-in lệch slot": reason[:255]})
     trip.status, trip.is_late = "UNLOADING", False  # đã tới kho: hết trạng thái "trễ mốc" (độ trễ vẫn lưu ở từng mốc)
     trip.save()
     resolve_alerts("MILESTONE_LATE", "inbound_trip", trip.pk)

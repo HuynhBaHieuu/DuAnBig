@@ -166,6 +166,7 @@ BUSINESS = {
     "SLOT_PROPOSE_HOURS": 4,                  # ETA <= 4h -> đề xuất lịch hạ tải
     "SLOT_DAY_START": "06:00",                # Khung hạ tải: giờ bắt đầu sớm nhất (dùng cho tự xếp lịch & lưới lịch)
     "SLOT_DAY_END": "21:00",                  # Khung hạ tải: giờ kết thúc muộn nhất (bắt đầu + thời lượng ≤ giờ này)
+    "SLOT_CHECKIN_TOLERANCE_MIN": 60,         # Check-in lệch khung slot quá 60' -> bắt buộc nhập lý do
     "MILESTONE_ONTIME_MIN": 30,               # Mốc lệch trong ±30' = "Đúng giờ"; < -30' "Sớm"; > +30' "Trễ"
     "SERVICE_Z": 1.65,                        # Hệ số Z mặc định (95%)
     "VAT_RATE": 8,

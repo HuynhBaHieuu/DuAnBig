@@ -61,6 +61,17 @@ Thêm sau: **"Thêm tồn thực"** ở màn Tồn kho (bấm dòng sản phẩm
 
 Kèm theo: ẩn link không có quyền (sidebar "Mở bảng điều phối", KPI, kết quả tìm kiếm) qua `can_open(user, url)`; xóa cảnh báo của đề xuất phân bổ cũ khi tính lại (tránh link 404); lưới 2 cột inline xếp 1 cột trên màn ≤ 900px (`.g-stack`). Test: `apps/inventory/test_tracon_fixes.py` (17 test). Tổng 54 test OK.
 
+## 3d. Sửa theo sheet "Gà" trong `test/HỆ THỐNG QUẢN LÝ CHUỖI CUNG ỨNG ... (LOGISTICS & WMS).xlsx` (15/11/2026)
+| STT | Nội dung | Vị trí chính |
+|---|---|---|
+| 18 | Tồn dự báo = thực + về − giữ − Σ thiếu chưa giữ của **mọi** SO đã xác nhận: bỏ lọc ngày cần giao (giả định G7 cũ), không chặn 0. Đồng thời sửa công thức thiếu: `reserved_qty` là lũy kế (đã gồm phần đã giao) nên thiếu = `qty − reserved_qty` (trước đây trừ `delivered_qty` lần nữa -> dòng giữ một phần đã giao bị coi là đủ). | `apps/inventory/replenishment.py` (`stock_metrics`, `allocate_backorders`), `apps/sales/models.py` (`backorder_qty`), `apps/sales/services.py` |
+| 19 | Form "Cập nhật thay tài xế" + "Báo sự cố" ở chi tiết chuyến Inbound gửi bằng fetch (`data-async`); nhánh form thường trong app.js gửi lại bằng `form.submit()` + input ẩn tên nút. | `templates/purchasing/trip_detail.html`, `static/js/app.js` (`?v=7`) |
+| 20 | Ô "Số lượng thực giao" hiện "15" kèm đơn vị (filter `qty_input`). | `templates/mobile/outbound.html`, `apps/core/templatetags/tracon.py` |
+| 21 | Màu thanh SS/ROP theo tồn dự báo (≤ SS hoặc ≤ 0 đỏ, ≤ ROP cam, còn lại xanh); badge tình trạng giữ nguyên. | `apps/inventory/views.py` (`_bar`), `templates/inventory/stock.html` |
+| 22 | Check-in: lệch khung slot > `SLOT_CHECKIN_TOLERANCE_MIN` (60') bắt nhập lý do (lưu `UnloadingSlot.checkin_reason` + lịch sử chuyến); tới sớm chỉ cho check-in khi bến trống (không có xe đang hạ tải / lịch chồng giờ), ngược lại phải đợi. Chỉ áp cho thao tác trên màn Lịch hạ tải (`enforce_window=True`); seed/test gọi thẳng service không bị chặn. Migration `purchasing 0005`. | `apps/purchasing/services.py` (`checkin_state`, `check_in`), `apps/purchasing/views.py`, `templates/purchasing/slots.html` |
+
+Test: `apps/inventory/test_ga_fixes.py` (12 test). Tổng 66 test OK.
+
 ## 3b. Móc xích QT1–QT2 (đặc tả `test/logic.docx`)
 - Toàn bộ logic bổ sung tồn nằm ở **`apps/inventory/replenishment.py`**: `stock_metrics` (projected = on_hand + incoming − reserved − demand_unreserved; position = projected + pipeline), `effective_params`, `calc_order_qty`, `check_replenishment`, `fire_checks` (chạy sau commit bằng `transaction.on_commit`), `allocate_backorders`. Đầu file có bảng ánh xạ trạng thái đặc tả → code (G6).
 - Điểm kích hoạt: xác nhận / duyệt / hủy SO, duyệt phân bổ, xuất kho, kiểm kê duyệt, thêm tồn, trả hàng, gửi duyệt / duyệt / trả lại / hủy PO, nhập kho, lưu tham số SS/ROP, tick "Theo dõi SS/ROP", tác vụ đêm (`run_replenishment` giờ chỉ là lớp quét dự phòng).
