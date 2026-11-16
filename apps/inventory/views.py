@@ -1,3 +1,4 @@
+import math
 from datetime import timedelta
 from decimal import Decimal
 
@@ -15,7 +16,8 @@ from apps.masterdata.models import Location, Product, ProductCategory, Warehouse
 
 from .models import (InventoryCount, InventoryCountLine, ReplenishmentJobRun, ReplenishmentParam, StockAdjustment, StockAdjustmentLine,
                      StockMove, StockQuant)
-from .services import calc_param, demand_series, post_stock_move, run_replenishment, stock_summary, transfer
+from .services import calc_param, post_stock_move, rop_explain, run_replenishment, stock_summary, transfer
+from .simulation import SIM_CODE
 from apps.core.templatetags.tracon import qty as fmt_qty
 
 INTERNAL = ("DIRECTOR", "PURCHASER", "DISPATCHER", "WAREHOUSE", "ACCOUNTANT")
@@ -27,7 +29,7 @@ def _bar(s):
     top = max(float(s["projected"]), float(s["rop"]) * 1.5, float(s["ss"]) * 2, 1)
     s["bar"] = {"fill": max(0, min(100, float(s["projected"]) / top * 100)),
                 "ss": float(s["ss"]) / top * 100, "rop": float(s["rop"]) / top * 100}
-    # Màu thanh theo TỒN DỰ BÁO (chính là chỉ số được vẽ và so với vạch SS/ROP), không theo Khả dụng:
+    # Màu thanh theo TỒN DỰ KIẾN (chính là chỉ số được vẽ và so với vạch SS/ROP), không theo Khả dụng:
     # ≤ SS (hoặc ≤ 0) đỏ · ≤ ROP cam · trên ROP xanh
     proj, ss, rop = s["projected"], s["ss"], s["rop"]
     s["bar"]["tone"] = "danger" if proj <= 0 or (ss and proj <= ss) else ("warn" if rop and proj <= rop else "success")
@@ -55,7 +57,7 @@ def stock(request):
     rows.sort(key=lambda r: ({"STOCKOUT": 0, "BELOW_SS": 1, "BELOW_ROP": 2, "OK": 3}[r["level"]], r["product"].code))
 
     if request.GET.get("export") == "xlsx":
-        head = ["Mã", "Tên", "ĐVT", "Tồn thực", "Đã giữ", "Khả dụng", "Đang về", "Đã đề xuất", "Dự báo", "SS", "ROP",
+        head = ["Mã", "Tên", "ĐVT", "Tồn thực", "Đã giữ", "Khả dụng", "Đang về", "Đã đề xuất", "Tồn dự kiến", "SS", "ROP",
                 "Lượng PR gợi ý", "Số ngày đủ", "Tình trạng"]
         if request.user.can_see_cost:
             head.append("Giá trị tồn")
@@ -216,8 +218,13 @@ def stock_transfer(request):
 # ------------------------------------------------------------------ MH-12 SS/ROP
 @role_required("DIRECTOR", "PURCHASER")
 def replenishment(request):
+    from .models import SimulatedDemand
+
     products = list(Product.objects.filter(is_active=True, track_rop=True).select_related("base_uom"))
     summary = {pid: _bar(s) for pid, s in stock_summary(products).items()}
+    sim_ids = set(SimulatedDemand.objects.values_list("product_id", flat=True).distinct())
+    for pid, s in summary.items():
+        s["simulated"] = pid in sim_ids
     if request.GET.get("export") == "all":
         return _rop_report_all(summary)
     rows = list(summary.values())
@@ -226,33 +233,48 @@ def replenishment(request):
     rows.sort(key=lambda r: ({"STOCKOUT": 0, "BELOW_SS": 1, "BELOW_ROP": 2, "OK": 3}[r["level"]], r["product"].code))
     sel_id = int(request.GET.get("product") or (rows[0]["product"].pk if rows else 0))
     sel = summary.get(sel_id)
-    rp, chart, dropped = None, None, []
+    rp = fr = v = demand = chart = None
     if sel:
         rp, _ = ReplenishmentParam.objects.get_or_create(product_id=sel_id, defaults={"z": param("SERVICE_Z")})
+        if rp.calculated_at is None or timezone.localtime(rp.calculated_at).date() < timezone.localdate():
+            rp, _ = calc_param(rp.product)  # tham số cũ hơn hôm nay -> tính lại để màn hình khớp calc_param
         if request.GET.get("export") == "xlsx":
             return _rop_report(rp, sel)
-        days, raw, used, dropped, _ = demand_series(rp, timezone.localdate() + timedelta(days=1))  # gồm cả hôm nay
-        snaps = {s.date: s for s in sel["product"].rop_snapshots.filter(date__gte=days[0])} if days else {}
-        chart = {
-            "labels": [d.strftime("%d/%m") for d in days],
-            "demand": used, "dropped": [r - u for r, u in zip(raw, used)],
-            "projected": [float(snaps[d].projected) if d in snaps else None for d in days],
-            "rop": float(sel["rop"]), "ss": float(sel["ss"]), "davg": float(sel["d_avg"]),
-        }
+        demand, fr, v = rop_explain(rp)
+        chart = _forecast_chart(fr)
     calc = None
     if rp:
-        q, proj = rp.order_q, sel["position"]  # SL PR tính từ position = tồn dự báo + đã đề xuất (giống hàm lõi)
+        q, proj = rp.order_q, sel["position"]  # SL PR tính từ position = tồn dự kiến + đã đề xuất (giống hàm lõi)
         raw = max(q, sel["rop"] + q - proj, Decimal(0))
         calc = {"q": q, "raw": raw, "pr": rp.pr_qty(proj), "proj": proj, "rop": sel["rop"],
                 "trips": (rp.pr_qty(proj) / rp.truck_qty) if rp.truck_qty else None}
+    months = ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8", "T9", "T10", "T11", "T12"]
     return render(request, "inventory/replenishment.html", {
         "title": "Tham số mốc đặt hàng lại", "rows": rows, "sel": sel, "rp": rp, "chart": chart, "sel_id": sel_id,
-        "dropped": dropped, "calc": calc, "can_lock": request.user.role in LOCK_ROLES,
+        "fr": fr, "v": v, "demand": demand, "calc": calc, "can_lock": request.user.role in LOCK_ROLES,
+        "wape_pct": _pct(fr.wape) if fr else None, "wape_base_pct": _pct(fr.wape_baseline) if fr else None,
+        "can_sim": request.user.role in ("DIRECTOR", "ADMIN"), "sim_code": SIM_CODE,
+        "seasonal": list(zip(months, fr.seasonal)) if fr and fr.seasonal else None,
         "job_runs": ReplenishmentJobRun.objects.select_related("user")[:10]})
 
 
+def _forecast_chart(fr):
+    """Biểu đồ "Dự báo và thực tế" theo tuần: thực tế, dự báo 1 tuần trước trong cửa sổ backtest, dự báo 13 tuần tới."""
+    hist = fr.history[-104:]
+    bt = {w: f for w, _, f in fr.backtest}
+    fut_weeks = [fr.first_forecast_week + timedelta(days=7 * k) for k in range(len(fr.forecast_weeks))] \
+        if fr.first_forecast_week else []
+    labels = [w.strftime("%d/%m/%y") for w, _ in hist] + [w.strftime("%d/%m/%y") for w in fut_weeks]
+    n_h = len(hist)
+    return {"labels": labels,
+            "actual": [round(y, 2) for _, y in hist] + [None] * len(fut_weeks),
+            "backtest": [round(bt[w], 2) if w in bt else None for w, _ in hist] + [None] * len(fut_weeks),
+            "future": [None] * max(0, n_h - 1) + ([round(hist[-1][1], 2)] if hist else [])
+            + [round(x, 2) for x in fr.forecast_weeks]}
+
+
 LOCK_ROLES = ("DIRECTOR", "PURCHASER")
-AUDIT_FIELDS = ["method", "z", "review_days", "history_days", "lead_time_days", "demand_source", "exclude_outliers",
+AUDIT_FIELDS = ["method", "z", "review_days", "lead_time_days", "demand_source", "exclude_outliers",
                 "manual_lock", "manual_ss", "manual_rop", "lock_reason", "moq", "manual_q", "round_by_truck",
                 "truck_ton"]
 
@@ -274,20 +296,21 @@ def _num(request, name, cast=Decimal, default=None):
 @require_POST
 @business_action
 def replenishment_save(request, pk):
-    rp = get_object_or_404(ReplenishmentParam.objects.select_related("product"), product_id=pk)
     from .replenishment import Trigger, fire_checks
     op = request.POST.get("op")
+    if op in ("import_csv", "clear_sim", "create_sim"):
+        return _simulation_action(request, pk, op)
+    rp = get_object_or_404(ReplenishmentParam.objects.select_related("product"), product_id=pk)
     if op == "run_all":
         res = run_replenishment(trigger=Trigger("NIGHTLY_JOB", "", "Chạy tay", request.user))
-        messages.success(request, f"Đã kiểm tra {res['products']} sản phẩm (tính lại SS/ROP {res['recalculated']}, "
-                         f"giữ nguyên {res['locked_skipped']} vật tư Khóa thủ công)."
+        messages.success(request, f"Đã dự báo & tính lại SS/ROP cho {res['recalculated']} sản phẩm "
+                         f"({res['locked_skipped']} vật tư Khóa thủ công vẫn dùng số nhập tay)."
                          + (f" Sinh PR tự động {res['auto_pr']} ({res['lines']} dòng)." if res["auto_pr"] else ""))
         return redirect(f"/app/inventory/replenishment?product={pk}")
     old = {f: getattr(rp, f) for f in AUDIT_FIELDS}
     rp.method = request.POST.get("method", rp.method)
     rp.z = _num(request, "z", default=rp.z)
     rp.review_days = _num(request, "review_days", int, rp.review_days)
-    rp.history_days = max(7, _num(request, "history_days", int, rp.history_days))
     rp.lead_time_days = _num(request, "lead_time_days", default=rp.lead_time_days)
     rp.demand_source = request.POST.get("demand_source", rp.demand_source)
     rp.exclude_outliers = request.POST.get("exclude_outliers") == "on"
@@ -316,51 +339,53 @@ def replenishment_save(request, pk):
         rp.save()
         rp, _ = calc_param(rp.product)
         if rp.d_avg == 0 and rp.manual_q is None:
-            raise BusinessError("Vật tư chưa có lịch sử xuất (D̄ = 0): bắt buộc nhập Q tay.")
+            raise BusinessError("Vật tư chưa có nhu cầu (dự báo = 0): bắt buộc nhập Q tay.")
         rp.suggested_q = stock_summary([rp.product])[rp.product_id]["suggested_q"]
         rp.save(update_fields=["suggested_q"])
         changes = {f: [str(old[f]), str(getattr(rp, f))] for f in AUDIT_FIELDS if old[f] != getattr(rp, f)}
         if changes:
             audit("UPDATE", rp, changes)
         fire_checks([rp.product_id], Trigger("PARAM_SAVED", "", rp.product.code, request.user))
-    messages.success(request, f"Đã lưu & tính lại SS/ROP cho {rp.product.code}.")
+    messages.success(request, f"Đã lưu, dự báo & tính lại SS/ROP cho {rp.product.code}.")
     return redirect(f"/app/inventory/replenishment?product={pk}")
 
 
-def _rop_values(rp, used, projected):
-    """Tính sẵn mọi chỉ số SS/ROP bằng Python (khớp công thức Excel) để file mở ra là có số ngay.
+def _simulation_action(request, pk, op):
+    """Dữ liệu mô phỏng (đặc tả mục 8, 9): chỉ Giám đốc / admin. Nhập CSV week_start,qty; xóa; tạo mã demo SIM-PCB40."""
+    from .models import SimulatedDemand
+    from .simulation import create_sim_product, load_simulated, parse_csv
 
-    openpyxl không lưu được kết quả tính của công thức -> Excel ở chế độ Protected View / trình xem trên
-    điện thoại hiển thị ô công thức trống. Vì vậy báo cáo ghi cả GIÁ TRỊ lẫn CÔNG THỨC."""
-    import math
-    import statistics
-
-    z, lt, lt_std = float(rp.z), float(rp.lead_time_days), float(rp.lt_std_days)
-    d_avg = statistics.fmean(used) if used else 0.0
-    d_std = statistics.stdev(used) if len(used) > 1 else 0.0  # STDEV.S
-    if rp.method == "FULL":
-        ss = z * math.sqrt(lt * d_std ** 2 + d_avg ** 2 * lt_std ** 2)
-    elif rp.method == "DEMAND":
-        ss = z * d_std * math.sqrt(lt)
+    if request.user.role not in ("DIRECTOR", "ADMIN"):
+        raise BusinessError("Chỉ Giám đốc / admin nhập dữ liệu mô phỏng.")
+    if op == "create_sim":
+        p = create_sim_product()
+        calc_param(p)
+        audit("CREATE", p, {"Dữ liệu mô phỏng": "Tạo mã demo + nạp 104 tuần mô phỏng"})
+        messages.success(request, f"Đã tạo mã demo {p.code} và nạp 104 tuần nhu cầu mô phỏng. Dữ liệu này chỉ dùng để "
+                                  "kiểm chứng mô hình – xóa mã trước khi chạy thật.")
+        return redirect(f"/app/inventory/replenishment?product={p.pk}")
+    product = get_object_or_404(Product, pk=pk)
+    if op == "import_csv":
+        f = request.FILES.get("csv")
+        if not f:
+            raise BusinessError("Chọn file CSV (week_start,qty).")
+        if f.size > 1024 * 1024:
+            raise BusinessError("File CSV quá lớn (tối đa 1 MB).")
+        n = load_simulated(product, parse_csv(f.read()))
+        msg = f"Đã nhập {n} tuần nhu cầu mô phỏng cho {product.code}"
     else:
-        ss = float(rp.manual_ss or 0)
-    rop = d_avg * lt + ss
-    ss_eff = float(rp.manual_ss) if rp.manual_lock and rp.manual_ss is not None else ss
-    rop_eff = float(rp.manual_rop) if rp.manual_lock and rp.manual_rop is not None else rop
-    q = float(rp.manual_q) if rp.manual_q is not None else max(float(rp.moq), math.ceil(round(d_avg * rp.review_days, 9)))
-    pr = max(q, rop_eff + q - float(projected))
-    truck = float(rp.truck_qty) if rp.round_by_truck else None
-    pr_truck = math.ceil(pr / truck) * truck if truck else None
-    return {"z": z, "lt": lt, "lt_std": lt_std, "d_avg": d_avg, "d_std": d_std, "ss": ss, "rop": rop,
-            "ss_eff": ss_eff, "rop_eff": rop_eff, "q": q, "projected": float(projected), "pr": pr,
-            "truck": truck, "pr_truck": pr_truck}
+        n = SimulatedDemand.objects.filter(product=product).delete()[0]
+        msg = f"Đã xóa {n} tuần dữ liệu mô phỏng của {product.code} – dự báo quay lại dùng đơn thật"
+    audit("UPDATE", product, {"Dữ liệu mô phỏng": msg})
+    calc_param(product)
+    messages.success(request, msg + ".")
+    return redirect(f"/app/inventory/replenishment?product={pk}")
 
 
 def _xlsx_response(wb, filename):
     import io
 
     from django.http import HttpResponse
-    wb.calculation.fullCalcOnLoad = True  # Excel tính lại toàn bộ công thức khi mở file
     buf = io.BytesIO()
     wb.save(buf)
     resp = HttpResponse(buf.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -376,126 +401,131 @@ def _style_head(ws, row=1):
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
+def _pct(x):
+    return None if x is None or math.isinf(x) else round(x * 100, 2)
+
+
 def _rop_report(rp, sel):
-    """Báo cáo SS/ROP 1 sản phẩm: chuỗi nhu cầu theo ngày + mỗi chỉ số có giá trị tính sẵn và công thức Excel."""
+    """Báo cáo SS/ROP 1 sản phẩm – CHỈ XUẤT GIÁ TRỊ (đặc tả mục 8), cùng hàm với màn hình & calc_param:
+    sheet SS_ROP theo bảng mục 5, NhuCau theo tuần (thực tế, dự báo, sai số), MuaVu 12 chỉ số."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
-    days, raw, used, dropped, cut = demand_series(rp)
-    v = _rop_values(rp, used, sel["position"])
+    demand, fr, v = rop_explain(rp)
     wb = Workbook()
-    ws = wb.active
-    ws.title = "NhuCau"
-    ws.append(["Ngày", "Nhu cầu gốc", "Nhu cầu dùng tính (đã loại đột biến)"])
-    _style_head(ws)
-    for d, r, u in zip(days, raw, used):
-        ws.append([d, r, u])
-        ws.cell(ws.max_row, 1).number_format = "yyyy-mm-dd"
-    n = len(days) + 1
-    ws.column_dimensions["A"].width, ws.column_dimensions["B"].width, ws.column_dimensions["C"].width = 14, 16, 36
-
-    p = wb.create_sheet("SS_ROP", 0)
-    p.append(["Chỉ số", "Giá trị (hệ thống tính)", "Excel tự tính (công thức)", "Công thức"])
+    p = wb.active
+    p.title = "SS_ROP"
+    p.append(["Chỉ số", "Giá trị", "Cách tính"])
     _style_head(p)
-    ss_f = {"FULL": "=C4*SQRT(C5*C8^2+C7^2*C6^2)", "DEMAND": "=C4*C8*SQRT(C5)"}.get(rp.method, v["ss"])
+    base_note = " (DỮ LIỆU MÔ PHỎNG)" if demand.simulated else ""
+    pr = max(v["q"], v["rop_eff"] + v["q"] - float(sel["position"]))
+    truck = float(rp.truck_qty) if rp.round_by_truck and rp.truck_qty else None
     rows = [
-        ("Sản phẩm", f"{rp.product.code} – {rp.product.name}", "", ""),
-        ("Phương pháp", rp.get_method_display(), "", ""),
-        ("Z", v["z"], "=B4", "Hệ số mức phục vụ"),
-        ("Lead time LT (ngày)", v["lt"], "=B5", "TB lead time thực tế các GRN"),
-        ("σLT (ngày)", v["lt_std"], "=B6", "Độ lệch chuẩn lead time"),
-        ("D̄ – nhu cầu TB/ngày", v["d_avg"], f"=AVERAGE(NhuCau!C2:C{n})", "AVERAGE(nhu cầu/ngày)"),
-        ("σD – độ lệch chuẩn/ngày", v["d_std"], f"=STDEV.S(NhuCau!C2:C{n})", "STDEV.S(nhu cầu/ngày)"),
-        ("SS tự tính", v["ss"], ss_f, {"FULL": "Z × √(LT × σD² + D̄² × σLT²)", "DEMAND": "Z × σD × √LT"}
+        ("Sản phẩm", f"{rp.product.code} – {rp.product.name}{base_note}", ""),
+        ("Mô hình dự báo", fr.label, "MA < 8 tuần · Holt 8–103 tuần · Holt-Winters ≥ 104 tuần"),
+        ("Số tuần dữ liệu", fr.n_weeks, "Tuần đủ, không gồm tuần hiện tại"),
+        ("α", fr.alpha, "Chọn bằng backtest (WAPE nhỏ nhất)"),
+        ("β", fr.beta, ""),
+        ("WAPE (%)", _pct(fr.wape), "Σ|e| / Σy trong cửa sổ đánh giá"),
+        ("WAPE cách cũ (%)", _pct(fr.wape_baseline), "Dự báo = TB 13 tuần trước"),
+        ("Giảm sai số (%)", round(fr.improvement, 1) if fr.improvement is not None else None, "1 − WAPE / WAPE cách cũ"),
+        ("σe tuần", round(fr.sigma_e_week, 3), "√(Σe² / (H − 1))"),
+        ("σe ngày", round(v["sigma_e_day"], 3), "σe tuần / √7"),
+        ("Phương pháp SS", rp.get_method_display(), ""),
+        ("Z", v["z"], "Hệ số mức phục vụ"),
+        ("Lead time LT (ngày)", round(v["lt"], 2), "TB lead time thực tế (bỏ phiếu < LT_MIN_DAYS, chuyến test)"),
+        ("σLT (ngày)", round(v["lt_std"], 2), "Độ lệch chuẩn mẫu lead time"),
+        ("D_LT – nhu cầu dự báo trong LT", round(v["d_lt"], 3), "Tổng dự báo LT ngày tới (dự báo tuần / 7 mỗi ngày)"),
+        ("F_ngày", round(v["f_day"], 3), "D_LT / LT"),
+        ("SS tự tính", round(v["ss"], 3), {"FULL": "Z·√(LT·σe_ngày² + F_ngày²·σLT²)", "DEMAND": "Z·σe_ngày·√LT"}
          .get(rp.method, "Nhập tay")),
-        ("ROP tự tính", v["rop"], "=C7*C5+C9", "D̄ × LT + SS"),
-        ("Khóa thủ công", "Có" if rp.manual_lock else "Không", "", rp.lock_reason),
-        ("SS áp dụng", v["ss_eff"], float(rp.manual_ss) if rp.manual_lock and rp.manual_ss is not None else "=C9",
-         "Số khóa tay nếu bật khóa, ngược lại SS tự tính"),
-        ("ROP áp dụng", v["rop_eff"], float(rp.manual_rop) if rp.manual_lock and rp.manual_rop is not None else "=C10",
-         "Số khóa tay nếu bật khóa, ngược lại ROP tự tính"),
-        ("MOQ", float(rp.moq), "=B14", "Lượng đặt tối thiểu NCC"),
-        ("Chu kỳ đặt (ngày)", rp.review_days, "=B15", ""),
-        ("Q áp dụng", v["q"], float(rp.manual_q) if rp.manual_q is not None else "=MAX(C14,ROUNDUP(C7*C15,0))",
-         "Q nhập tay, hoặc max(MOQ; D̄ × chu kỳ)"),
-        ("Position (tồn dự báo + đã đề xuất)", v["projected"], "=B17", "Tồn thực + đang về − đã giữ − thiếu chưa giữ + PR/PO chưa duyệt"),
-        ("Lượng PR", v["pr"], "=MAX(C16,C13+C16-C17)", "max(Q; ROP + Q − position)"),
+        ("ROP tự tính", round(v["rop"], 3), "D_LT + SS"),
+        ("Khóa thủ công", "Có" if rp.manual_lock else "Không", rp.lock_reason),
+        ("SS áp dụng", round(v["ss_eff"], 3), "Số khóa tay nếu bật khóa, ngược lại SS tự tính"),
+        ("ROP áp dụng", round(v["rop_eff"], 3), "Số khóa tay nếu bật khóa, ngược lại ROP tự tính"),
+        ("MOQ", float(rp.moq), "Lượng đặt tối thiểu NCC"),
+        ("Chu kỳ đặt (ngày)", rp.review_days, ""),
+        ("Dự báo trong chu kỳ đặt", round(v["d_review"], 3), "Tổng dự báo review_days ngày tới"),
+        ("Q áp dụng", v["q"], "Q nhập tay, hoặc max(MOQ; dự báo chu kỳ đặt)"),
+        ("Position (tồn dự kiến + đã đề xuất)", float(sel["position"]),
+         "Tồn thực + đang về − đã giữ − thiếu chưa giữ + PR/PO chưa duyệt"),
+        ("Lượng PR", round(pr, 3), "max(Q; ROP + Q − position)"),
     ]
-    if rp.round_by_truck:
-        rows.append(("Tải 1 xe (đv gốc)", v["truck"], "=B19", f"{rp.truck_ton} tấn/xe"))
-        rows.append(("Lượng PR làm tròn theo xe", v["pr_truck"], "=CEILING(C18,C19)", "CEILING(PR; tải 1 xe)"))
+    if truck:
+        rows.append(("Tải 1 xe (đv gốc)", truck, f"{rp.truck_ton} tấn/xe"))
+        rows.append(("Lượng PR làm tròn theo xe", math.ceil(pr / truck) * truck, "Làm tròn lên theo chuyến xe"))
     for r in rows:
         p.append(list(r))
     for row in p.iter_rows(min_row=2):
         row[0].font = Font(bold=True)
-        for c in row[1:3]:
-            if isinstance(c.value, float) or (isinstance(c.value, str) and c.value.startswith("=")):
-                c.number_format = "#,##0.000"
-    p.column_dimensions["A"].width, p.column_dimensions["B"].width = 30, 34
-    p.column_dimensions["C"].width, p.column_dimensions["D"].width = 26, 44
-    if dropped:
+        if isinstance(row[1].value, float):
+            row[1].number_format = "#,##0.000"
+    p.column_dimensions["A"].width, p.column_dimensions["B"].width, p.column_dimensions["C"].width = 36, 40, 60
+
+    ws = wb.create_sheet("NhuCau")
+    ws.append(["Tuần (thứ Hai)", "Thực tế", "Dự báo 1 tuần trước (backtest)", "Sai số e = thực tế − dự báo",
+               "Dự báo 13 tuần tới"])
+    _style_head(ws)
+    bt = {w: f for w, _, f in fr.backtest}
+    for w, y in fr.history:
+        f = bt.get(w)
+        ws.append([w, y, round(f, 3) if f is not None else None, round(y - f, 3) if f is not None else None, None])
+        ws.cell(ws.max_row, 1).number_format = "yyyy-mm-dd"
+    if fr.first_forecast_week:
+        for k, f in enumerate(fr.forecast_weeks):
+            ws.append([fr.first_forecast_week + timedelta(days=7 * k), None, None, None, round(f, 3)])
+            ws.cell(ws.max_row, 1).number_format = "yyyy-mm-dd"
+    for col, wdt in zip("ABCDE", (16, 12, 28, 26, 20)):
+        ws.column_dimensions[col].width = wdt
+
+    ms = wb.create_sheet("MuaVu")
+    ms.append(["Tháng", "Chỉ số mùa"])
+    _style_head(ms)
+    for m in range(12):
+        ms.append([f"T{m + 1}", round(fr.seasonal[m], 4) if fr.seasonal else None])
+    if not fr.seasonal:
+        ms.append(["", "Chưa đủ 104 tuần dữ liệu – chưa tính mùa vụ"])
+    if demand.dropped:
         x = wb.create_sheet("LoaiDotBien")
-        x.append(["Ngày", "SL xuất", "Chứng từ", f"Ngưỡng loại = {cut:.1f}"])
+        x.append(["Ngày / tuần", "SL", "Chứng từ", f"Ngưỡng loại = {demand.cut:.1f}" if demand.cut else ""])
         _style_head(x)
-        for d, q, note in dropped:
+        for d, q, note in demand.dropped:
             x.append([d, q, note])
     return _xlsx_response(wb, f"ss_rop_{rp.product.code}")
 
 
 def _rop_report_all(summary):
-    """Báo cáo SS/ROP TẤT CẢ sản phẩm: 1 dòng / sản phẩm, có giá trị tính sẵn + công thức Excel theo từng cột."""
+    """Báo cáo SS/ROP TẤT CẢ sản phẩm – chỉ giá trị, 1 dòng / sản phẩm (cùng hàm với màn hình & calc_param)."""
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
 
     wb = Workbook()
     ws = wb.active
     ws.title = "TongHop"
-    nc = wb.create_sheet("NhuCau")
-    head = ["Mã SP", "Tên SP", "ĐVT", "Phương pháp", "Z", "LT (ngày)", "σLT (ngày)", "D̄/ngày", "σD/ngày",
-            "SS tự tính", "ROP tự tính", "Khóa tay", "SS áp dụng", "ROP áp dụng", "MOQ", "Chu kỳ (ngày)", "Q áp dụng",
-            "Khả dụng", "Đang về", "Position (dự báo + đề xuất)", "Lượng PR", "Tình trạng",
-            # cột công thức Excel tự tính lại (đối chiếu)
-            "D̄ (Excel)", "σD (Excel)", "SS (Excel)", "ROP (Excel)", "Q (Excel)", "Lượng PR (Excel)"]
+    head = ["Mã SP", "Tên SP", "ĐVT", "Dữ liệu", "Mô hình", "Số tuần", "α", "β", "WAPE %", "WAPE cách cũ %",
+            "σe tuần", "Phương pháp SS", "Z", "LT (ngày)", "σLT (ngày)", "D_LT", "SS tự tính", "ROP tự tính", "Khóa tay",
+            "SS áp dụng", "ROP áp dụng", "MOQ", "Chu kỳ (ngày)", "Q áp dụng", "Khả dụng", "Đang về",
+            "Position (dự kiến + đề xuất)", "Lượng PR", "Tình trạng"]
     ws.append(head)
     _style_head(ws)
     level_txt = {"OK": "Đủ hàng", "BELOW_ROP": "Dưới ROP", "BELOW_SS": "Dưới SS", "STOCKOUT": "Hết hàng"}
     params = {rp.product_id: rp for rp in ReplenishmentParam.objects.filter(product_id__in=summary)}
-    col = 0
     for pid, s in sorted(summary.items(), key=lambda kv: kv[1]["product"].code):
         rp = params.get(pid) or ReplenishmentParam.objects.create(product_id=pid, z=param("SERVICE_Z"))
-        days, _, used, _, _ = demand_series(rp)
-        v = _rop_values(rp, used, s["position"])
-        col += 1
-        L = get_column_letter(col)
-        nc.cell(1, col, rp.product.code)
-        nc.cell(2, col, f"{days[0]:%d/%m}–{days[-1]:%d/%m}" if days else "")
-        for i, u in enumerate(used, start=3):
-            nc.cell(i, col, u)
-        rng = f"NhuCau!{L}3:{L}{max(3, len(used) + 2)}"
-        r = ws.max_row + 1
-        locked = rp.manual_lock and rp.manual_ss is not None and rp.manual_rop is not None
-        ws.append([
-            rp.product.code, rp.product.name, rp.product.base_uom.code, rp.get_method_display(), v["z"], v["lt"],
-            v["lt_std"], v["d_avg"], v["d_std"], v["ss"], v["rop"], "Có" if locked else "Không", v["ss_eff"],
-            v["rop_eff"], float(rp.moq), rp.review_days, v["q"], float(s["available"]), float(s["incoming"]),
-            v["projected"], v["pr_truck"] if v["pr_truck"] is not None else v["pr"], level_txt[s["level"]],
-            f"=AVERAGE({rng})", f"=STDEV.S({rng})",
-            {"FULL": f"=E{r}*SQRT(F{r}*X{r}^2+W{r}^2*G{r}^2)", "DEMAND": f"=E{r}*X{r}*SQRT(F{r})"}.get(rp.method, v["ss"]),
-            f"=W{r}*F{r}+Y{r}",
-            float(rp.manual_q) if rp.manual_q is not None else f"=MAX(O{r},ROUNDUP(W{r}*P{r},0))",
-            (f"=CEILING(MAX(AA{r},Z{r}+AA{r}-T{r}),{v['truck']})" if v["truck"] else f"=MAX(AA{r},Z{r}+AA{r}-T{r})")
-            if not locked else (f"=CEILING(MAX(AA{r},{v['rop_eff']}+AA{r}-T{r}),{v['truck']})" if v["truck"]
-                                else f"=MAX(AA{r},{v['rop_eff']}+AA{r}-T{r})"),
-        ])
-    last = ws.max_row
-    for row in ws.iter_rows(min_row=2, max_row=last, min_col=5):
-        for c in row:
-            if c.column_letter != "V" and c.column_letter != "L":
-                c.number_format = "#,##0.000"
-    widths = {"A": 12, "B": 30, "D": 26, "V": 12}
+        demand, fr, v = rop_explain(rp)
+        pr = max(v["q"], v["rop_eff"] + v["q"] - float(s["position"]))
+        truck = float(rp.truck_qty) if rp.round_by_truck and rp.truck_qty else None
+        ws.append([rp.product.code, rp.product.name, rp.product.base_uom.code,
+                   "Mô phỏng" if demand.simulated else "Đơn thật", fr.model, fr.n_weeks, fr.alpha, fr.beta,
+                   _pct(fr.wape), _pct(fr.wape_baseline), round(fr.sigma_e_week, 3), rp.get_method_display(), v["z"],
+                   round(v["lt"], 2), round(v["lt_std"], 2), round(v["d_lt"], 3), round(v["ss"], 3), round(v["rop"], 3),
+                   "Có" if rp.manual_lock else "Không", round(v["ss_eff"], 3), round(v["rop_eff"], 3), float(rp.moq),
+                   rp.review_days, v["q"], float(s["available"]), float(s["incoming"]), float(s["position"]),
+                   math.ceil(pr / truck) * truck if truck else round(pr, 3), level_txt[s["level"]]])
+    widths = {"A": 12, "B": 30, "E": 8, "L": 24}
     for i in range(1, len(head) + 1):
         L = get_column_letter(i)
-        ws.column_dimensions[L].width = widths.get(L, 13)
+        ws.column_dimensions[L].width = widths.get(L, 12)
     ws.freeze_panes = "C2"
     return _xlsx_response(wb, f"ss_rop_tat_ca_{timezone.localdate():%Y%m%d}")
 

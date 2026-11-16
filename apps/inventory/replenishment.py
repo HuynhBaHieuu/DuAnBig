@@ -222,6 +222,11 @@ def check_replenishment(product_id, trigger):
         product = Product.objects.select_for_update().get(pk=product_id)  # khóa: 2 request không tạo 2 PR
         if not product.track_rop or not product.is_active:
             return None
+        from .models import SimulatedDemand
+        if SimulatedDemand.objects.filter(product=product).exists():
+            # mã demo chạy bằng dữ liệu mô phỏng (đặc tả dự báo mục 9): tách hẳn khỏi số liệu thật, không sinh PR / cảnh báo
+            _log(product, trigger, "MO_PHONG", note="Dữ liệu mô phỏng – chỉ để kiểm chứng dự báo, không tạo PR")
+            return None
         p = effective_params(product)
         m = stock_metrics([product])[product.pk]
         proj, pos = m["projected"], m["position"]

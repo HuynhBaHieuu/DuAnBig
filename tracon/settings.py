@@ -172,7 +172,8 @@ BUSINESS = {
     "SLOT_DAY_START": "06:00",                # Khung hạ tải: giờ bắt đầu sớm nhất (dùng cho tự xếp lịch & lưới lịch)
     "SLOT_DAY_END": "21:00",                  # Khung hạ tải: giờ kết thúc muộn nhất (bắt đầu + thời lượng ≤ giờ này)
     "SLOT_CHECKIN_TOLERANCE_MIN": 60,         # Check-in lệch khung slot quá 60' -> bắt buộc nhập lý do
-    "LEADTIME_MIN_DAYS": 0.1,                 # GRN có lead time < 0,1 ngày (~2,4 giờ) tự loại khỏi thống kê lead time
+    "LEADTIME_MIN_DAYS": 0.1,                 # GRN có lead time < 0,1 ngày (~2,4 giờ) tự đánh dấu loại khỏi thống kê
+    "LT_MIN_DAYS": 0.25,                      # Đặc tả dự báo mục 6: tính LT, σLT bỏ phiếu nhập có lead time < 0,25 ngày
     "STALE_UNLOADING_HOURS": 12,              # Chuyến Inbound "Đang hạ tải" quá 12 giờ -> cảnh báo
     "STALE_DELIVERY_HOURS": 48,               # Chuyến giao "Đang giao" quá 48 giờ -> cảnh báo
     "STALE_COUNT_DAYS": 3,                    # Phiếu kiểm kê "Đang đếm / Đếm lại" quá 3 ngày -> cảnh báo

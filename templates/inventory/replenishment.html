@@ -5,6 +5,8 @@
   {% if sel %}<div class="toolbar">
     <a href="?product={{ sel.product.pk }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất báo cáo {{ sel.product.code }}</a>
     <a href="?export=all" class="btn btn-outline"><i data-lucide="sheet"></i>Xuất báo cáo tất cả sản phẩm</a>
+    {% if can_sim %}<form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}">{% csrf_token %}<input type="hidden" name="op" value="create_sim">
+    <button class="btn btn-soft" title="Tạo mã {{ sim_code }} với 104 tuần nhu cầu mô phỏng (tách hẳn khỏi số liệu thật)" data-confirm="Tạo / nạp lại mã demo {{ sim_code }} với 2 năm nhu cầu mô phỏng? Dữ liệu chỉ dùng kiểm chứng mô hình, không tạo PR." data-confirm-ok="Tạo mã demo"><i data-lucide="flask-conical"></i>Mã demo {{ sim_code }}</button></form>{% endif %}
     <form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}">{% csrf_token %}<input type="hidden" name="op" value="run_all">
     <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Chạy tính toàn bộ ngay</button></form></div>{% endif %}
 </div>
@@ -16,7 +18,7 @@
       {% for r in rows %}
       <a href="?product={{ r.product.pk }}{% if request.GET.level %}&level={{ request.GET.level }}{% endif %}" class="nav-item {% if r.product.pk == sel_id %}active{% endif %}" style="align-items:flex-start">
         <span class="dot-i" style="margin-top:6px;background:{% if r.level == 'OK' %}var(--success){% elif r.level == 'BELOW_ROP' %}var(--warn){% else %}var(--danger){% endif %}"></span>
-        <div style="flex:1;min-width:0"><div style="color:var(--ink);font-weight:600">{{ r.product.code }}{% if r.locked %} <i data-lucide="lock" style="width:13px;height:13px;color:var(--warn-ink)" title="Đang khóa thủ công"></i>{% endif %}</div><div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.product.name }}</div></div>
+        <div style="flex:1;min-width:0"><div style="color:var(--ink);font-weight:600">{{ r.product.code }}{% if r.simulated %} <span class="badge badge-purple" style="font-size:10px">Dữ liệu mô phỏng</span>{% endif %}{% if r.locked %} <i data-lucide="lock" style="width:13px;height:13px;color:var(--warn-ink)" title="Đang khóa thủ công"></i>{% endif %}</div><div style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.product.name }}</div></div>
         <div class="num" style="font-size:12px">{{ r.projected|qty }}<div>/ {{ r.rop|qty }}</div></div>
       </a>
       {% empty %}<div class="empty">Không có sản phẩm theo dõi ROP.</div>{% endfor %}
@@ -27,7 +29,7 @@
   <div class="grid" style="align-content:start">
     <div class="card card-body">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
-        <div><div class="text-muted" style="font-size:12px">{{ sel.product.code }}</div><h2 style="margin:2px 0 0;font-size:20px">{{ sel.product.name }}</h2></div>
+        <div><div class="text-muted" style="font-size:12px">{{ sel.product.code }}{% if demand.simulated %} · <span class="badge badge-purple">Dữ liệu mô phỏng</span>{% endif %}</div><h2 style="margin:2px 0 0;font-size:20px">{{ sel.product.name }}</h2></div>
         <div class="toolbar">
           {% if rp.manual_lock %}<span class="badge badge-warn" style="font-size:13px"><i data-lucide="lock" style="width:13px"></i>Đang dùng số khóa thủ công</span>
           {% else %}<span class="badge badge-info" style="font-size:13px">Đang dùng số tự tính</span>{% endif %}
@@ -36,28 +38,59 @@
       <div class="grid g-5" style="margin-top:18px;gap:12px">
         <div><div class="lbl">Khả dụng</div><div style="font-size:20px;font-weight:700">{{ sel.available|qty }}</div></div>
         <div><div class="lbl">Đang về</div><div style="font-size:20px;font-weight:700" class="text-primary">{{ sel.incoming|qty }}</div></div>
-        <div><div class="lbl">Dự báo</div><div style="font-size:20px;font-weight:700">{{ sel.projected|qty }}</div></div>
+        <div><div class="lbl" title="Tồn thực + đang về − đã giữ − thiếu chưa giữ (không phải dự báo nhu cầu)">Tồn dự kiến</div><div style="font-size:20px;font-weight:700">{{ sel.projected|qty }}</div></div>
         <div><div class="lbl">SS / ROP</div><div style="font-size:20px;font-weight:700">{{ sel.ss|qty }} / {{ sel.rop|qty }}</div></div>
         <div><div class="lbl">Lượng PR gợi ý</div><div style="font-size:20px;font-weight:700;color:var(--warn-ink)">{{ sel.suggested_q|qty }}</div></div>
       </div>
     </div>
-    <div class="card">
-      <div class="card-head"><h3 class="card-title">Nhu cầu xuất theo ngày & tồn dự báo</h3><span class="text-muted" style="font-size:12px">D̄ = {{ rp.d_avg|qty }}/ngày · σD = {{ rp.d_std|qty }}</span></div>
-      <div class="card-body"><div style="height:280px"><canvas id="demand"></canvas></div></div>
+    <div class="card card-body">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+        <h3 class="card-title">Dự báo nhu cầu</h3>
+        <span class="badge {% if fr.model == 'MA' %}badge-gray{% else %}badge-info{% endif %}" style="font-size:13px">{{ fr.label }}</span>
+      </div>
+      {% if demand.simulated %}<div class="flash flash-info" style="margin:10px 0 0"><i data-lucide="flask-conical"></i><div><b>Dữ liệu mô phỏng</b> – dùng để kiểm chứng mô hình do hệ thống vận hành chưa đủ 1 năm. Không tạo PR, không vào báo cáo doanh thu / OTIF / NXT. Xóa trước khi chạy thật.</div></div>{% endif %}
+      <div class="grid g-5" style="margin-top:14px;gap:12px">
+        <div><div class="lbl">Số tuần dữ liệu</div><div style="font-size:18px;font-weight:700">{{ fr.n_weeks }}</div></div>
+        <div><div class="lbl">α / β</div><div style="font-size:18px;font-weight:700">{% if fr.alpha is not None %}{{ fr.alpha }} / {{ fr.beta }}{% else %}—{% endif %}</div></div>
+        <div><div class="lbl">WAPE (sai số)</div><div style="font-size:18px;font-weight:700">{% if wape_pct is not None %}{{ wape_pct|floatformat:1 }}%{% else %}—{% endif %}</div>
+          {% if wape_base_pct is not None %}<div class="text-muted" style="font-size:12px">cách cũ {{ wape_base_pct|floatformat:1 }}%{% if fr.improvement is not None %} · <b style="color:{% if fr.improvement >= 0 %}var(--success-ink){% else %}var(--danger-ink){% endif %}">{% if fr.improvement >= 0 %}giảm{% else %}tăng{% endif %} sai số {{ fr.improvement|floatformat:0|cut:"-" }}%</b>{% endif %}</div>{% endif %}</div>
+        <div><div class="lbl">D_LT (nhu cầu trong {{ v.lt|floatformat:1 }} ngày)</div><div style="font-size:18px;font-weight:700">{{ v.d_lt|floatformat:1 }}</div></div>
+        <div><div class="lbl">SS / ROP tự tính</div><div style="font-size:18px;font-weight:700">{{ v.ss|floatformat:1 }} / {{ v.rop|floatformat:1 }}</div></div>
+      </div>
+      {% if fr.model == "MA" %}<div class="text-muted" style="font-size:12px;margin-top:8px">Chưa đủ dữ liệu để dự báo (dưới 8 tuần): dùng trung bình các tuần đang có, σe = độ lệch chuẩn nhu cầu tuần.</div>{% endif %}
+      <div class="text-muted" style="font-size:12px;margin-top:10px;line-height:1.7">
+        σe tuần = {{ fr.sigma_e_week|floatformat:2 }} → σe ngày = {{ v.sigma_e_day|floatformat:2 }} · F_ngày = D_LT / LT = {{ v.f_day|floatformat:2 }} · LT = {{ v.lt|floatformat:2 }} ± {{ v.lt_std|floatformat:2 }} ngày ·
+        {% if rp.method == "FULL" %}SS = Z·√(LT·σe_ngày² + F_ngày²·σLT²){% elif rp.method == "DEMAND" %}SS = Z·σe_ngày·√LT{% else %}SS nhập tay{% endif %} · ROP = D_LT + SS
+      </div>
     </div>
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">Dự báo và thực tế (theo tuần)</h3><span class="text-muted" style="font-size:12px">Đường thực tế · dự báo 1 tuần trước trong cửa sổ đánh giá · dự báo 13 tuần tới</span></div>
+      <div class="card-body"><div style="height:300px"><canvas id="demand"></canvas></div></div>
+    </div>
+    {% if seasonal %}<div class="card card-body">
+      <h3 class="card-title" style="margin-bottom:10px">Chỉ số mùa vụ (12 tháng)</h3>
+      <div class="table-wrap"><table class="tbl"><thead><tr>{% for m, s in seasonal %}<th class="num">{{ m }}</th>{% endfor %}</tr></thead>
+        <tbody><tr>{% for m, s in seasonal %}<td class="num" style="{% if s >= 1.1 %}color:var(--success-ink);font-weight:700{% elif s <= 0.9 %}color:var(--danger-ink);font-weight:700{% endif %}">{{ s|floatformat:2 }}</td>{% endfor %}</tr></tbody></table></div>
+      <div class="text-muted" style="font-size:12px;margin-top:6px">1,00 = mức bình thường; vd. 0,80 = tháng đó bán bằng 80% mức bình thường. SS và ROP thay đổi theo mùa vì D_LT lấy theo dự báo của các tuần sắp tới.</div>
+    </div>{% endif %}
+    {% if can_sim %}<form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}" enctype="multipart/form-data" class="card card-body" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">{% csrf_token %}
+      <b>Nhập lịch sử nhu cầu (CSV)</b><span class="text-muted" style="font-size:12px">cột <code>week_start,qty</code> – thứ Hai đầu tuần, số lượng theo {{ sel.product.base_uom.code }} · <a class="text-primary" href="/static/demo/SIM-PCB40.csv" download>file mẫu 2 năm</a></span>
+      <input type="file" name="csv" accept=".csv,text/csv" required style="font-size:12px">
+      <button name="op" value="import_csv" class="btn btn-outline btn-sm" data-confirm="Nhập file CSV làm dữ liệu MÔ PHỎNG cho {{ sel.product.code }}? Dự báo của mã này sẽ chỉ dùng dữ liệu mô phỏng (không dùng đơn thật) và không tạo PR." data-confirm-ok="Nhập"><i data-lucide="upload"></i>Nhập CSV</button>
+      {% if demand.simulated %}<button name="op" value="clear_sim" formnovalidate class="btn btn-danger btn-sm" data-confirm="Xóa toàn bộ dữ liệu mô phỏng của {{ sel.product.code }}?" data-confirm-ok="Xóa" data-confirm-danger><i data-lucide="trash-2"></i>Xóa dữ liệu mô phỏng</button>{% endif %}
+    </form>{% endif %}
     <form method="post" action="/app/inventory/replenishment/{{ sel.product.pk }}" class="card card-body">{% csrf_token %}
       <h3 class="card-title" style="margin-bottom:14px">Thiết lập tham số</h3>
       <div class="grid g-4" style="gap:14px">
         <div class="field"><label>Phương pháp</label><select name="method">{% for v, l in rp.METHODS %}<option value="{{ v }}" {% if rp.method == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
         <div class="field"><label>Hệ số Z (mức phục vụ)</label><input name="z" type="number" step="0.01" value="{{ rp.z }}"></div>
-        <div class="field"><label>Lịch sử tính (ngày)</label><input name="history_days" type="number" min="7" value="{{ rp.history_days }}"></div>
         <div class="field"><label>Lead time mặc định (ngày)</label><input name="lead_time_days" type="number" step="0.01" min="0" value="{{ rp.lead_time_days }}"></div>
-        <div class="field"><label>Loại giao dịch tính nhu cầu</label><select name="demand_source">{% for v, l in rp.DEMAND_SOURCES %}<option value="{{ v }}" {% if rp.demand_source == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
-        <div class="field"><label style="display:flex;gap:8px;align-items:center;margin-top:26px"><input type="checkbox" name="exclude_outliers" {% if rp.exclude_outliers %}checked{% endif %}> Tự loại phiếu xuất đột biến</label></div>
+        <div class="field"><label>Nguồn nhu cầu</label><select name="demand_source">{% for v, l in rp.DEMAND_SOURCES %}<option value="{{ v }}" {% if rp.demand_source == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="field"><label style="display:flex;gap:8px;align-items:center;margin-top:26px"><input type="checkbox" name="exclude_outliers" {% if rp.exclude_outliers %}checked{% endif %}> Tự loại dòng đơn đột biến (MAD)</label></div>
         <div class="field"><label>Lead time thực tế</label><div style="padding:9px 0;font-weight:600">{{ rp.lead_time_days }} ± {{ rp.lt_std_days }} ngày</div></div>
       </div>
-      {% if dropped %}<div class="flash flash-info" style="margin-top:12px"><i data-lucide="filter"></i><div>Đã loại {{ dropped|length }} phiếu xuất đột biến khỏi D̄/σD:
-        {% for d, q, note in dropped %}<b>{{ note|default:"—" }}</b> ({{ d|vn_d }}: {{ q|qty }}){% if not forloop.last %}, {% endif %}{% endfor %}</div></div>{% endif %}
+      {% if demand.dropped %}<div class="flash flash-info" style="margin-top:12px"><i data-lucide="filter"></i><div>Đã loại {{ demand.dropped|length }} dòng đơn / tuần đột biến khỏi dữ liệu dự báo (đơn lớn vẫn nằm trong position khi được xác nhận):
+        {% for d, q, note in demand.dropped %}<b>{{ note|default:"—" }}</b> ({{ d|vn_d }}: {{ q|qty }}){% if not forloop.last %}, {% endif %}{% endfor %}</div></div>{% endif %}
 
       <div class="divider"></div>
       <div x-data="{lock: {{ rp.manual_lock|yesno:'true,false' }} }">
@@ -80,10 +113,10 @@
         <div class="field"><label style="display:flex;gap:8px;align-items:center;margin-top:26px"><input type="checkbox" name="round_by_truck" {% if rp.round_by_truck %}checked{% endif %}> Làm tròn theo xe</label></div>
         <div class="field"><label>Tải trọng xe chuẩn (tấn)</label><input name="truck_ton" type="number" step="0.01" min="0" value="{{ rp.truck_ton }}"></div>
       </div>
-      {% if not rp.d_avg and rp.manual_q is None %}<div class="flash flash-warning" style="margin-top:12px"><i data-lucide="alert-triangle"></i>Vật tư chưa có lịch sử xuất (D̄ = 0) nên Q tự tính có thể bằng 0 – bắt buộc nhập Q tay.</div>{% endif %}
+      {% if not rp.d_avg and rp.manual_q is None %}<div class="flash flash-warning" style="margin-top:12px"><i data-lucide="alert-triangle"></i>Vật tư chưa có nhu cầu (dự báo = 0) nên Q tự tính có thể bằng 0 – bắt buộc nhập Q tay.</div>{% endif %}
       <div class="card-body" style="background:var(--input);border-radius:12px;margin-top:12px;font-size:13px;line-height:1.9">
-        <div><b>Q đang áp dụng = {{ calc.q|qty }}</b> {% if rp.manual_q is not None %}(nhập tay){% else %}= max(MOQ; D̄ × chu kỳ) = max({{ rp.moq|qty }}; {{ rp.d_avg|qty }} × {{ rp.review_days }}){% endif %}</div>
-        <div>Position = tồn dự báo {{ sel.projected|qty }} + đã đề xuất {{ sel.pipeline|qty }} = <b>{{ calc.proj|qty }}</b></div>
+        <div><b>Q đang áp dụng = {{ calc.q|qty }}</b> {% if rp.manual_q is not None %}(nhập tay){% else %}= max(MOQ; dự báo {{ rp.review_days }} ngày tới) = max({{ rp.moq|qty }}; {{ v.d_review|floatformat:1 }}){% endif %}</div>
+        <div>Position = tồn dự kiến {{ sel.projected|qty }} + đã đề xuất {{ sel.pipeline|qty }} = <b>{{ calc.proj|qty }}</b></div>
         <div>Lượng PR = max(Q; ROP + Q − position) = max({{ calc.q|qty }}; {{ calc.rop|qty }} + {{ calc.q|qty }} − {{ calc.proj|qty }}) = <b>{{ calc.raw|qty }}</b></div>
         {% if rp.round_by_truck %}<div>Làm tròn theo xe {{ rp.truck_ton|qty }} tấn (= {{ rp.truck_qty|qty }} {{ sel.product.base_uom.code }}/xe): <b>{{ calc.pr|qty }}</b> ≈ {{ calc.trips|floatformat:0 }} chuyến</div>{% endif %}
       </div>
@@ -113,19 +146,16 @@
 <script>
   const c = JSON.parse(document.getElementById("chart-data").textContent);
   if (c) {
-    const n = c.labels.length, line = v => Array(n).fill(v);
     new Chart(document.getElementById("demand"), {
+      type: "line",
       data: { labels: c.labels, datasets: [
-        { type: "bar", label: "Nhu cầu xuất", data: c.demand, backgroundColor: TONE.primary + "99", borderRadius: 4, yAxisID: "y", stack: "d" },
-        { type: "bar", label: "Đột biến (đã loại)", data: c.dropped, backgroundColor: TONE.muted + "55", borderRadius: 4, yAxisID: "y", stack: "d", hidden: !c.dropped.some(v => v) },
-        { type: "line", label: "Tồn dự báo", data: c.projected, borderColor: TONE.info, pointRadius: 0, tension: .3, spanGaps: true, yAxisID: "y1" },
-        { type: "line", label: "ROP", data: line(c.rop), borderColor: TONE.warn, borderDash: [6, 4], pointRadius: 0, yAxisID: "y1" },
-        { type: "line", label: "SS", data: line(c.ss), borderColor: TONE.danger, borderDash: [6, 4], pointRadius: 0, yAxisID: "y1" },
+        { label: "Thực tế", data: c.actual, borderColor: TONE.ink, backgroundColor: TONE.ink, pointRadius: 0, borderWidth: 1.5, tension: .2 },
+        { label: "Dự báo 1 tuần trước (backtest)", data: c.backtest, borderColor: TONE.info, pointRadius: 0, borderWidth: 2, tension: .2, spanGaps: false },
+        { label: "Dự báo 13 tuần tới", data: c.future, borderColor: TONE.primary, borderDash: [6, 4], pointRadius: 0, borderWidth: 2, tension: .2 },
       ]},
       options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
         plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } } },
-        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } }, y: { beginAtZero: true, grid: { color: TONE.line }, title: { display: true, text: "Xuất/ngày" } },
-                  y1: { position: "right", beginAtZero: true, grid: { display: false }, title: { display: true, text: "Tồn" } } } }
+        scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 14 } }, y: { beginAtZero: true, grid: { color: TONE.line }, title: { display: true, text: "Nhu cầu / tuần" } } } }
     });
   }
 </script>

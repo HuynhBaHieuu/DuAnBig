@@ -58,19 +58,22 @@ class Stt3NightlyJob(Base):
         res = run_replenishment()
         self.assertEqual(res["lines"], 0)                  # tác vụ đêm tạo 0 PR
         run = ReplenishmentJobRun.objects.get()
+        # đặc tả dự báo mục 7: vật tư Khóa thủ công vẫn được dự báo (tham khảo), ngưỡng áp dụng vẫn là số nhập tay
         self.assertEqual((run.source, run.products, run.pr_created, run.locked_skipped, run.recalculated),
-                         ("CRON", 1, 0, 1, 0))             # vật tư Khóa thủ công: không tính lại
+                         ("CRON", 1, 0, 1, 1))
         self.assertIsNotNone(run.finished_at)
 
-    def test_nightly_skips_locked_recalc(self):
+    def test_nightly_locked_still_forecast_but_threshold_manual(self):
         rp = ReplenishmentParam.objects.get(product=self.product)
         rp.rop = D(999)
         rp.save()
         with mock.patch("apps.inventory.services.calc_param") as calc:
             run_replenishment()
-        calc.assert_not_called()
+        calc.assert_called_once()
+        run_replenishment()
         rp.refresh_from_db()
-        self.assertEqual(rp.eff_rop, D(60))
+        self.assertEqual((rp.eff_ss, rp.eff_rop), (D(20), D(60)))
+        self.assertTrue(rp.forecast_model)                 # có kết quả dự báo để tham khảo
 
     def test_nightly_catches_missed_case(self):
         self.adjust(-50)  # tồn 50 ≤ ROP 60 nhưng kiểm tra bị "lọt" (gọi trực tiếp, không qua sự kiện)

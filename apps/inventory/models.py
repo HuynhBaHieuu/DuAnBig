@@ -46,12 +46,28 @@ class StockMove(models.Model):
 
 class ReplenishmentParam(models.Model):
     METHODS = [("FULL", "FULL – biến động cầu & lead time"), ("DEMAND", "Chỉ biến động cầu"), ("MANUAL", "Nhập tay")]
-    DEMAND_SOURCES = [("ALL", "Xuất bán + xuất công trình"), ("SALE", "Chỉ xuất bán")]
+    DEMAND_SOURCES = [("ORDER", "Đơn đã xác nhận (theo ngày đặt)"), ("ALL", "Xuất bán + xuất công trình"),
+                      ("SALE", "Chỉ xuất bán")]
+    MODELS = [("MA", "Trung bình (chưa đủ dữ liệu)"), ("HOLT", "Holt"), ("HW", "Holt-Winters mùa theo tháng")]
     product = models.OneToOneField("masterdata.Product", on_delete=models.CASCADE, related_name="rop_param")
     method = models.CharField(max_length=10, choices=METHODS, default="FULL")
     z = models.DecimalField(max_digits=4, decimal_places=2, default=1.65)
     review_days = models.PositiveSmallIntegerField(default=7, help_text="Chu kỳ đặt hàng (ngày)")
-    demand_source = models.CharField(max_length=5, choices=DEMAND_SOURCES, default="ALL")
+    demand_source = models.CharField(max_length=5, choices=DEMAND_SOURCES, default="ORDER")
+    # --- Kết quả dự báo lần tính gần nhất (apps/inventory/forecast.py) ---
+    forecast_model = models.CharField(max_length=4, choices=MODELS, blank=True)
+    alpha = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    beta = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    wape = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True, help_text="Sai số dự báo (tỷ lệ)")
+    wape_baseline = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True,
+                                        help_text="WAPE của cách cũ (TB 13 tuần)")
+    sigma_e_week = models.DecimalField(**QTY, help_text="σe – độ lệch chuẩn sai số dự báo / tuần")
+    d_lt = models.DecimalField(**QTY, help_text="Tổng dự báo nhu cầu trong lead time")
+    d_review = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True,
+                                   help_text="Tổng dự báo nhu cầu trong chu kỳ đặt (để tính Q)")
+    n_weeks = models.PositiveIntegerField(default=0)
+    forecast_data = models.JSONField(default=dict, blank=True,
+                                     help_text="13 tuần dự báo, 12 chỉ số mùa, cờ dữ liệu mô phỏng")
     exclude_outliers = models.BooleanField(default=True, help_text="Loại phiếu xuất đột biến khi tính D̄, σD")
     history_days = models.PositiveSmallIntegerField(default=90)
     d_avg = models.DecimalField(**QTY, help_text="Nhu cầu TB / ngày")
@@ -88,10 +104,16 @@ class ReplenishmentParam(models.Model):
 
     @property
     def order_q(self):
-        """Q = Q nhập tay, hoặc max(MOQ; D̄ × chu kỳ đặt)."""
+        """Q = Q nhập tay, hoặc max(MOQ; tổng dự báo của chu kỳ đặt tới) (đặc tả dự báo mục 5).
+        Chưa chạy dự báo lần nào (d_review rỗng) thì dùng D̄ × chu kỳ như trước."""
         if self.manual_q is not None:
             return self.manual_q
-        return max(Decimal(self.moq), (Decimal(self.d_avg) * self.review_days).quantize(Decimal("1"), rounding=ROUND_CEILING))
+        demand = Decimal(self.d_review) if self.d_review is not None else Decimal(self.d_avg) * self.review_days
+        return max(Decimal(self.moq), demand.quantize(Decimal("1"), rounding=ROUND_CEILING))
+
+    @property
+    def is_simulated(self):
+        return bool((self.forecast_data or {}).get("simulated"))
 
     @property
     def truck_qty(self):
@@ -107,6 +129,20 @@ class ReplenishmentParam(models.Model):
         Chỉ là lối tắt tới replenishment.calc_order_qty – công thức nằm ở một chỗ duy nhất."""
         from .replenishment import calc_order_qty, effective_params
         return calc_order_qty(effective_params(self.product, self), position)[1]
+
+
+class SimulatedDemand(models.Model):
+    """Nhu cầu tuần MÔ PHỎNG để demo / kiểm chứng mô hình dự báo (đặc tả mục 3.3, 9). Chỉ nhập từ nút CSV.
+    Mã có dữ liệu ở đây thì dự báo CHỈ dùng dữ liệu này (không trộn với đơn thật); báo cáo doanh thu, OTIF, NXT
+    không bao giờ đọc bảng này."""
+    product = models.ForeignKey("masterdata.Product", on_delete=models.CASCADE, related_name="simulated_demand")
+    week_start = models.DateField(help_text="Thứ Hai đầu tuần")
+    qty = models.DecimalField(**QTY)
+
+    class Meta:
+        db_table = "simulated_demand"
+        ordering = ["product", "week_start"]
+        constraints = [models.UniqueConstraint(fields=["product", "week_start"], name="uniq_sim_demand_week")]
 
 
 class ReplenishmentSnapshot(models.Model):
@@ -243,7 +279,8 @@ class ReplenishmentAlert(models.Model):
 class ReplenishmentCheckLog(models.Model):
     """Giải thích vì sao có / không có PR sau mỗi lần gọi check_replenishment."""
     RESULTS = [("CHUA_CHAM", "Chưa chạm ROP"), ("DA_DU_DE_XUAT", "Đã đủ đề xuất"), ("TAO_PR", "Tạo PR"),
-               ("DA_TU_CHOI_GAN_DAY", "Đã từ chối gần đây"), ("KHONG_CAN", "SL đặt = 0"), ("LOI", "Lỗi")]
+               ("DA_TU_CHOI_GAN_DAY", "Đã từ chối gần đây"), ("KHONG_CAN", "SL đặt = 0"), ("LOI", "Lỗi"),
+               ("MO_PHONG", "Dữ liệu mô phỏng – không tạo PR")]
     product = models.ForeignKey("masterdata.Product", on_delete=models.CASCADE, related_name="rop_checks")
     at = models.DateTimeField(auto_now_add=True, db_index=True)
     event = models.CharField(max_length=30)

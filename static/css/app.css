@@ -367,3 +367,4 @@ table.tbl { width: 100%; border-collapse: collapse; }
   .shell.drawer-open .drawer-backdrop { display: block; position: fixed; inset: 0; background: rgba(6,6,6,.45); z-index: 79; }
   .topbar .search { flex: 1; min-width: 0; }
 }
+.badge-purple { background: rgba(211, 152, 231, .2); color: #8a3fa8; }
