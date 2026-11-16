@@ -14,7 +14,7 @@ from apps.sales.services import check_image
 from apps.masterdata.models import CarrierRate, Dock, Location, SupplierPrice
 
 from .models import (Claim, GoodsReceipt, GoodsReceiptLine, InboundTrip, InboundTripLine, PurchaseOrder, PurchaseRequisition,
-                     PurchaseOrderLine, TripEtaLog, TripIncident, TripMilestone, UnloadingSlot)
+                     PurchaseRequisitionLine, PurchaseOrderLine, TripEtaLog, TripIncident, TripMilestone, UnloadingSlot)
 
 D0 = Decimal(0)
 SLOT_STEP = 15  # phút
@@ -23,8 +23,9 @@ SLOT_STEP = 15  # phút
 # ------------------------------------------------------------------ PR -> PO
 def latest_price(supplier, product):
     today = timezone.localdate()
-    sp = SupplierPrice.objects.filter(supplier=supplier, product=product, valid_from__lte=today) \
-        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today)).order_by("-valid_from").first()
+    # chỉ giá đã được Giám đốc duyệt mới dùng cho PO (giá Thu mua vừa nhập ở trạng thái Chờ duyệt)
+    sp = SupplierPrice.objects.filter(supplier=supplier, product=product, valid_from__lte=today, status="APPROVED") \
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today)).order_by("-valid_from", "-id").first()
     return sp.price if sp else product.standard_cost
 
 
@@ -62,6 +63,9 @@ def convert_prs_to_po(prs, warehouse, user):
                                                    unit_price=latest_price(supplier, product))
             pr_lines[0].po_line = pol  # quan hệ 1-1: dòng PR đầu tiên được gắn với dòng PO đã gộp
             pr_lines[0].save(update_fields=["po_line"])
+            for l in pr_lines:  # mọi dòng PR đã gộp đều ghi lại PO nhận -> hủy PO trả được đúng các PR (STT 47)
+                l.merged_into = pol
+                l.save(update_fields=["merged_into"])
         po.recalc_total()
         po.save()
         pos.append(po)
@@ -112,10 +116,10 @@ def submit_po(po, user):
                     ref_type="po", ref_id=po.pk, url=f"/app/purchase/orders/{po.pk}", target_role="DIRECTOR")
         audit("SUBMIT", po)
         return
-    po.status = "APPROVED"
-    po.approved_at = timezone.now()
+    po.status, po.approved_at, po.auto_approved = "APPROVED", timezone.now(), True
+    po.approved_by = None
     po.save()
-    audit("APPROVE", po, {"auto": "dưới ngưỡng duyệt"})
+    audit("APPROVE", po, {"auto": f"Tự động – dưới ngưỡng duyệt {param('PO_APPROVAL_THRESHOLD'):,.0f} ₫"})
     _po_trigger(po, "PO_APPROVED", user)
 
 
@@ -144,7 +148,34 @@ def cancel_po(po, reason, user=None):
     if po.status in ("PARTIAL", "RECEIVED", "CLOSED", "CANCELLED") or po.trips.exclude(status="CANCELLED").exists():
         raise BusinessError("PO đã có chuyến / đã nhận hàng – không hủy được.")
     cancel_doc(po, reason)
+    released = release_prs_of_po(po)
+    if released:
+        audit("UPDATE", po, {"PR trả về kế hoạch": ", ".join(pr.code for pr in released)})
     _po_trigger(po, "PO_CANCELLED", user)
+    return released
+
+
+def release_prs_of_po(po):
+    """STT 47: hủy PO -> các PR đã gộp vào PO trả về "Đã gửi" (chờ lập PO), lượng cần mua quay lại kế hoạch bổ sung
+    (pipeline) và gộp được vào PO khác. PR còn dòng nằm ở PO khác đang hiệu lực thì giữ "Đã lập PO"."""
+    pol_ids = list(po.lines.values_list("pk", flat=True))
+    lines = list(PurchaseRequisitionLine.objects.filter(Q(po_line_id__in=pol_ids) | Q(merged_into_id__in=pol_ids))
+                 .select_related("pr"))
+    prs = {l.pr_id: l.pr for l in lines}
+    for l in lines:
+        l.po_line, l.merged_into = None, None
+        l.save(update_fields=["po_line", "merged_into"])
+    released = []
+    for pr in prs.values():
+        still = pr.lines.filter(Q(po_line__isnull=False) | Q(merged_into__isnull=False)) \
+            .exclude(merged_into__po__status="CANCELLED").exists()
+        if pr.status == "CONVERTED" and not still:
+            pr.status = "SUBMITTED"
+            pr.note = (f"PO {po.code} đã hủy – PR trả về chờ lập PO. " + (pr.note or ""))[:255]
+            pr.save(update_fields=["status", "note", "updated_at"])
+            audit("UPDATE", pr, {"Trạng thái": "Đã gửi (PO bị hủy)", "PO": po.code})
+            released.append(pr)
+    return released
 
 
 def send_po(po, pickup_date):
@@ -200,15 +231,26 @@ def create_inbound_trip(po, route, vehicle, driver, planned_departure, qty_by_li
         InboundTripLine.objects.create(trip=trip, po_line=pol, qty_planned=q)
         pol.qty_on_trips += q
         pol.save(update_fields=["qty_on_trips"])
-    for rm in route.milestones.all():
-        TripMilestone.objects.create(trip=trip, seq=rm.seq, code=rm.code, name=rm.name,
-                                     photo_required=rm.photo_required,
-                                     planned_at=planned_departure + timedelta(minutes=rm.planned_offset_min))
+    for seq, code, name, photo, offset in standard_milestones(route):
+        TripMilestone.objects.create(trip=trip, seq=seq, code=code, name=name, photo_required=photo,
+                                     planned_at=planned_departure + timedelta(minutes=offset))
     TripEtaLog.objects.create(trip=trip, new_eta=trip.eta, reason="Lập chuyến")
     return trip
 
 
-MILESTONE_STATUS = {"FACTORY": "AT_FACTORY", "LOADED": "LOADED", "CHECKPOINT": "IN_TRANSIT", "GATE": "ARRIVED"}
+def standard_milestones(route):
+    """STT 73 (nhóm đã chốt): mọi chuyến chỉ còn 2 mốc tài xế bấm + sự cố (báo khi có):
+      (1) Rời nhà máy – bắt buộc ảnh phiếu cân / niêm phong, nhập SL thực bốc;
+      (2) Còn khoảng 2 giờ tới kho – kho xếp bến khi nhận mốc này (STT 74).
+    ETA tính từ mốc (1) và (2), cộng trễ của sự cố đang mở. Mốc tuyến cũ trong danh mục không còn dùng."""
+    total = int(float(route.std_hours) * 60)
+    return [(1, "DEPART", "Rời nhà máy (ảnh phiếu cân / niêm phong)", True, 0),
+            (2, "NEAR", "Còn khoảng 2 giờ tới kho", False, max(0, total - NEAR_MINUTES))]
+
+
+NEAR_MINUTES = 120
+MILESTONE_STATUS = {"FACTORY": "AT_FACTORY", "LOADED": "LOADED", "CHECKPOINT": "IN_TRANSIT", "GATE": "ARRIVED",
+                    "DEPART": "IN_TRANSIT", "NEAR": "IN_TRANSIT"}
 
 
 AUTO_ETA_REASON = "Trễ mốc – ước tính lại"
@@ -226,11 +268,7 @@ def set_eta(trip, new_eta, reason, min_change_min=1):
         TripEtaLog.objects.create(trip=trip, old_eta=trip.eta, new_eta=new_eta, reason=reason)
     trip.eta = new_eta
     trip.save(update_fields=["eta", "updated_at"])
-    if trip.status not in ("ARRIVED", "UNLOADING", "RECEIVED", "CANCELLED"):
-        if new_eta - timezone.now() <= timedelta(hours=param("SLOT_PROPOSE_HOURS")) and not hasattr_slot(trip):
-            propose_slot(trip)
-        elif hasattr_slot(trip) and trip.slot.status == "PROPOSED":
-            propose_slot(trip)  # ETA đổi -> đề xuất lại lịch chưa xác nhận
+    # STT 74: không còn tự đề xuất trước 4 giờ / tự dời lịch theo ETA – bến chỉ xếp khi xe báo "còn 2 giờ"
 
 
 def hasattr_slot(trip):
@@ -238,7 +276,10 @@ def hasattr_slot(trip):
 
 
 def recalc_eta(trip, reason="Cập nhật mốc"):
-    """ETA = thời điểm mốc thực tế gần nhất + phần thời gian chuẩn còn lại + trễ do sự cố chưa xử lý."""
+    """ETA = thời điểm mốc thực tế gần nhất + phần thời gian chuẩn còn lại + trễ do sự cố chưa xử lý.
+
+    STT 48: thời gian trễ của sự cố chỉ cộng cho đến mốc KẾ TIẾP – sự cố ghi trước mốc thực tế gần nhất đã nằm sẵn
+    trong giờ thực tế của mốc đó, nên không cộng thêm lần nữa (trước đây ETA bị +90' hai lần)."""
     last = trip.milestones.exclude(actual_at=None).order_by("-seq").first()
     total_min = float(trip.route.std_hours) * 60
     if last:
@@ -246,43 +287,113 @@ def recalc_eta(trip, reason="Cập nhật mốc"):
         base = last.actual_at + timedelta(minutes=max(0, total_min - offset))
     else:
         base = max(trip.planned_departure, timezone.now()) + timedelta(minutes=total_min)
-    extra = sum(i.delay_minutes for i in trip.incidents.filter(is_resolved=False))
+    pending = trip.incidents.filter(is_resolved=False)
+    if last:
+        pending = pending.filter(reported_at__gt=last.actual_at)
+    extra = sum(i.delay_minutes for i in pending)
     set_eta(trip, base + timedelta(minutes=extra), reason)
 
 
-@transaction.atomic
+def _after_milestone(trip_id, milestone_id):
+    """Tính ETA / đề xuất lịch hạ tải SAU khi mốc đã lưu (STT 32). Lỗi ở đây không được làm hỏng request: mốc đã lưu,
+    lần quét Inbound kế tiếp (maybe_scan_inbound / tác vụ đêm) sẽ tính lại."""
+    import logging
+    try:
+        trip = InboundTrip.objects.select_related("route").get(pk=trip_id)
+        milestone = TripMilestone.objects.get(pk=milestone_id)
+        if milestone.code != "GATE":
+            recalc_eta(trip, f"Mốc {milestone.name}")
+        else:
+            set_eta(trip, milestone.actual_at, "Xe tới cổng")
+        if milestone.code in ("NEAR", "GATE") and not hasattr_slot(trip):
+            propose_slot(trip)  # STT 74: xếp bến khi xe báo "còn 2 giờ" (bến trống sớm nhất từ ETA)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("Tính ETA sau mốc lỗi: trip=%s milestone=%s", trip_id, milestone_id)
+
+
 def record_milestone(trip, milestone, user, photo=None, note="", loaded_qty=None):
-    if trip.status in ("RECEIVED", "CANCELLED"):
-        raise BusinessError("Chuyến đã kết thúc.")
-    nxt = trip.next_milestone
-    if not nxt or nxt.pk != milestone.pk:
-        raise BusinessError("Phải cập nhật mốc theo đúng thứ tự.")
-    if milestone.photo_required and not photo:
+    """Ghi mốc hành trình. Bấm gửi 2 lần / gửi lại sau lỗi mạng không tạo mốc trùng: mốc đã có thực tế thì trả về
+    luôn (không báo lỗi). Ảnh được upload TRƯỚC giao dịch DB; ETA / lịch hạ tải tính sau commit."""
+    if milestone.photo_required and not photo and not milestone.actual_at:
         raise BusinessError(f"Mốc '{milestone.name}' bắt buộc chụp ảnh xác thực.")
     check_image(photo, "Ảnh xác thực")
-    if milestone.code == "LOADED":
-        for line in trip.lines.all():
-            q = (loaded_qty or {}).get(line.pk)
-            line.qty_loaded = Decimal(q) if q not in (None, "") else line.qty_planned
-            line.save(update_fields=["qty_loaded"])
+    stored = None
+    if photo and not milestone.actual_at:
+        from django.core.files.storage import default_storage
+        stored = default_storage.save(milestone.photo.field.generate_filename(milestone, photo.name), photo)
+    with transaction.atomic():
+        trip = InboundTrip.objects.select_for_update().get(pk=trip.pk)
+        milestone = TripMilestone.objects.select_for_update().get(pk=milestone.pk)
+        if milestone.actual_at:  # đã lưu ở lần gửi trước (vd. máy chủ trả 503 sau khi lưu) -> không ghi lại
+            if stored:
+                transaction.on_commit(lambda: _drop_file(stored))
+            return milestone, False
+        if trip.status in ("RECEIVED", "CANCELLED"):
+            raise BusinessError("Chuyến đã kết thúc.")
+        nxt = trip.next_milestone
+        if not nxt or nxt.pk != milestone.pk:
+            raise BusinessError("Phải cập nhật mốc theo đúng thứ tự.")
+        if milestone.code in ("LOADED", "DEPART"):  # SL thực bốc nhập ở mốc Rời nhà máy
+            for line in trip.lines.all():
+                q = (loaded_qty or {}).get(line.pk)
+                line.qty_loaded = Decimal(q) if q not in (None, "") else line.qty_planned
+                line.save(update_fields=["qty_loaded"])
+        now = timezone.now()
+        milestone.actual_at, milestone.by_user, milestone.note = now, user, note
+        if stored:
+            milestone.photo.name = stored
+        milestone.save()
+        replan_after_early(trip, milestone)
+        trip.status = MILESTONE_STATUS.get(milestone.code, trip.status)
+        if milestone.code == "GATE":
+            trip.arrived_at = now
+        trip.is_late = False
+        trip.save()
+        resolve_alerts("MILESTONE_LATE", "inbound_trip", trip.pk)
+        tid, mid = trip.pk, milestone.pk
+        transaction.on_commit(lambda: _after_milestone(tid, mid))
+    return milestone, True
+
+
+def _drop_file(name):
+    from django.core.files.storage import default_storage
+    try:
+        default_storage.delete(name)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@transaction.atomic
+def force_close_trip(trip, user, reason):
+    """STT 51: Giám đốc đóng chuyến kẹt (vd. "Đang hạ tải" từ tháng trước): giải phóng tài xế / bến.
+    Đã có phiếu nhập ghi sổ -> "Đã nhập kho"; chưa có -> "Đã hủy" (hủy phiếu nhập nháp, trả SL chưa nhận về PO)."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise BusinessError("Nhập lý do đóng chuyến.")
+    trip = InboundTrip.objects.select_for_update().get(pk=trip.pk)
+    if trip.status in ("RECEIVED", "CANCELLED", "PLANNED", "AT_FACTORY"):
+        raise BusinessError("Chuyến không ở trạng thái cần đóng thủ công.")
     now = timezone.now()
-    milestone.actual_at, milestone.by_user, milestone.note = now, user, note
-    if photo:
-        milestone.photo = photo
-    milestone.save()
-    replan_after_early(trip, milestone)
-    trip.status = MILESTONE_STATUS.get(milestone.code, trip.status)
-    if milestone.code == "GATE":
-        trip.arrived_at = now
+    posted = trip.receipts.filter(status="POSTED").exists()
+    for gr in trip.receipts.filter(status__in=["DRAFT", "PENDING_APPROVAL"]):
+        gr.status, gr.cancel_reason = "CANCELLED", f"Đóng chuyến thủ công: {reason}"[:255]
+        gr.save(update_fields=["status", "cancel_reason", "updated_at"])
+        resolve_alerts("GRN_VARIANCE", "grn", gr.pk)
+    if not posted:
+        for l in trip.lines.select_related("po_line"):
+            l.po_line.qty_on_trips = max(D0, l.po_line.qty_on_trips - l.qty_planned)
+            l.po_line.save(update_fields=["qty_on_trips"])
+    UnloadingSlot.objects.filter(trip=trip).exclude(status__in=["DONE", "CANCELLED"]) \
+        .update(status="DONE" if posted else "CANCELLED", done_at=now)
+    old = trip.get_status_display()
+    trip.status = "RECEIVED" if posted else "CANCELLED"
+    trip.cancel_reason = f"Đóng thủ công ({old}): {reason}"[:255]
     trip.is_late = False
     trip.save()
-    resolve_alerts("MILESTONE_LATE", "inbound_trip", trip.pk)
-    if milestone.code != "GATE":
-        recalc_eta(trip, f"Mốc {milestone.name}")
-    else:
-        set_eta(trip, now, "Xe tới cổng")
-        if not hasattr_slot(trip):
-            propose_slot(trip)
+    for t in ("MILESTONE_LATE", "STALE_INBOUND"):
+        resolve_alerts(t, "inbound_trip", trip.pk)
+    audit("CANCEL" if not posted else "UPDATE", trip, {"Đóng chuyến thủ công": reason, "Trạng thái cũ": old})
+    return trip
 
 
 def replan_after_early(trip, milestone):
@@ -340,9 +451,7 @@ def scan_inbound():
             # chỉ cập nhật khi ETA lệch đáng kể (mặc định ≥ 15') – tránh ghi log mỗi lần quét 5'
             set_eta(trip, now + timedelta(minutes=max(0, offset_left)), AUTO_ETA_REASON, param("ETA_LOG_MIN"))
             n += 1
-        elif trip.eta and trip.eta - now <= timedelta(hours=param("SLOT_PROPOSE_HOURS")) and not hasattr_slot(trip):
-            propose_slot(trip)
-    normalize_slots()
+    # STT 74: bỏ tự đề xuất lịch trước 4 giờ và tự dời lịch (normalize_slots) – xếp bến theo mốc "còn 2 giờ"
     return n
 
 
@@ -494,35 +603,81 @@ def _dur(minutes):
     return dur(minutes)
 
 
-def checkin_state(slot, now=None):
-    """Tình trạng check-in so với khung slot (dùng cho cả màn Lịch hạ tải lẫn kiểm tra phía máy chủ).
+def _busy_now(dock, start, end, exclude_pk=None):
+    """Bến có lịch chiếm khoảng [start, end) không – bỏ qua lịch đã hủy / đã hạ xong (DONE)."""
+    qs = UnloadingSlot.objects.filter(dock=dock, start_at__lt=end, end_at__gt=start) \
+        .exclude(status__in=["CANCELLED", "DONE"])
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    return qs.exists()
 
-    early_min: số phút tới SỚM hơn giờ bắt đầu slot · late_min: số phút tới MUỘN hơn giờ kết thúc slot.
-    need_reason: lệch khung slot quá SLOT_CHECKIN_TOLERANCE_MIN (mặc định 60') -> bắt buộc nhập lý do.
-    blocker: khi tới sớm, lịch khác đang chiếm bến (đang hạ tải, hoặc đã đặt giờ chồng lên khoảng từ bây giờ
-    tới hết thời lượng hạ tải của xe này) -> xe phải đợi; None = bến trống, cho check-in sớm."""
+
+def gate_dock(trip, slot=None, now=None):
+    """STT 74: xe tới cổng -> bến trống ĐẦU TIÊN ngay bây giờ (ưu tiên bến đang xếp cho xe). Trả về
+    (bến trống ngay | None, (bến, giờ) trống sớm nhất nếu đang bận hết, thời lượng hạ tải)."""
+    now = (now or timezone.now()).replace(second=0, microsecond=0)
+    dur = (slot.end_at - slot.start_at) if slot else slot_duration(trip)
+    docks = list(Dock.objects.filter(warehouse=trip.po.warehouse, is_active=True).order_by("code"))
+    if slot:
+        docks.sort(key=lambda d: d.pk != slot.dock_id)
+    for d in docks:
+        if not _busy_now(d, now, now + dur, slot.pk if slot else None):
+            return d, None, dur
+    return None, find_free_slot(docks, now, dur, slot.pk if slot else None, days=2), dur
+
+
+def checkin_state(slot, now=None):
+    """Tình trạng check-in (màn Lịch hạ tải): late_min = muộn hơn giờ kết thúc slot; need_reason khi muộn quá
+    SLOT_CHECKIN_TOLERANCE_MIN; free_now = bến trống đầu tiên ngay lúc này (xe vào luôn, không chờ tới giờ slot);
+    next_free = (bến, giờ) trống sớm nhất khi mọi bến đang bận."""
     now = now or timezone.now()
     tol = int(param("SLOT_CHECKIN_TOLERANCE_MIN") or 60)
     early = max(0, int((slot.start_at - now).total_seconds() // 60))
     late = max(0, int((now - slot.end_at).total_seconds() // 60))
-    blocker = None
-    if early > 0:
-        dur = slot.end_at - slot.start_at
-        others = UnloadingSlot.objects.filter(dock_id=slot.dock_id).exclude(pk=slot.pk).select_related("trip")
-        blocker = (others.filter(status="CHECKED_IN").first()
-                   or others.filter(status__in=["PROPOSED", "CONFIRMED"], start_at__lt=now + dur, end_at__gt=now)
-                   .order_by("start_at").first())
-    return {"early_min": early, "late_min": late, "need_reason": max(early, late) > tol, "tolerance": tol,
-            "blocker": blocker}
+    free, nxt, _ = gate_dock(slot.trip, slot, now)
+    return {"early_min": early, "late_min": late, "need_reason": late > tol, "tolerance": tol,
+            "free_now": free, "next_free": nxt}
 
 
 @transaction.atomic
-def check_in(slot, user, reason="", enforce_window=False):
-    """Thủ kho check-in xe -> mở phiếu nhập GRN nháp từ hàng đã bốc.
+def gate_checkin(trip, user, reason=""):
+    """STT 74 / 49: xe tới cổng -> vào bến trống đầu tiên và check-in ngay (dời lịch đã xếp nếu cần, tạo lịch nếu
+    chưa có). Mọi bến đang bận -> báo giờ bến trống sớm nhất, xe chờ. Tới muộn quá ngưỡng -> bắt nhập lý do."""
+    trip = InboundTrip.objects.select_for_update().select_related("po__warehouse").get(pk=trip.pk)
+    if trip.status not in ("ARRIVED", "IN_TRANSIT", "LOADED"):
+        raise BusinessError("Xe chưa xuất phát / đã nhập kho – không check-in được.")
+    slot = UnloadingSlot.objects.filter(trip=trip).exclude(status="CANCELLED").first()
+    if slot and slot.status not in ("PROPOSED", "CONFIRMED"):
+        raise BusinessError("Xe đã check-in.")
+    now = timezone.now().replace(second=0, microsecond=0)
+    reason = (reason or "").strip()
+    tol = int(param("SLOT_CHECKIN_TOLERANCE_MIN") or 60)
+    if slot and (now - slot.end_at) > timedelta(minutes=tol) and not reason:
+        raise BusinessError(f"Xe tới muộn {_dur(int((now - slot.end_at).total_seconds() // 60))} so với lịch "
+                            f"{timezone.localtime(slot.start_at):%H:%M}–{timezone.localtime(slot.end_at):%H:%M}. "
+                            "Vui lòng nhập lý do.")
+    dock, nxt, dur = gate_dock(trip, slot, now)
+    if dock is None:
+        when = f" – bến trống sớm nhất {nxt[0].code} lúc {timezone.localtime(nxt[1]):%H:%M}" if nxt and nxt[0] else ""
+        raise BusinessError(f"Tất cả bến đang bận{when}. Xe chờ ngoài cổng.")
+    note = ""
+    if slot is None:
+        slot = UnloadingSlot.objects.create(trip=trip, dock=dock, start_at=now, end_at=now + dur, status="CONFIRMED")
+        note = f"Xe tới cổng chưa có lịch – vào {dock.code} {timezone.localtime(now):%H:%M}"
+    elif slot.dock_id != dock.pk or slot.start_at != now:
+        old = f"{slot.dock.code} {timezone.localtime(slot.start_at):%H:%M}"
+        slot.dock, slot.start_at, slot.end_at = dock, now, now + dur
+        slot.save(update_fields=["dock", "start_at", "end_at"])
+        note = f"Xe tới cổng – vào bến trống {dock.code} {timezone.localtime(now):%H:%M} (lịch cũ {old})"
+    if note:
+        audit("UPDATE", trip, {"Lịch hạ tải": note})
+    return check_in(slot, user, reason=reason)
 
-    enforce_window=True (thao tác của Thủ kho trên màn Lịch hạ tải):
-      - tới sớm hơn giờ slot: chỉ cho check-in khi bến đang trống, ngược lại xe phải đợi;
-      - lệch khung slot quá SLOT_CHECKIN_TOLERANCE_MIN phút: bắt buộc nhập lý do (lưu ở slot + lịch sử chuyến)."""
+
+@transaction.atomic
+def check_in(slot, user, reason=""):
+    """Check-in xe vào bến của lịch -> mở phiếu nhập GRN nháp từ hàng đã bốc.
+    Thao tác của Thủ kho đi qua gate_checkin (chọn bến trống đầu tiên, lý do khi tới muộn)."""
     if slot.status not in ("PROPOSED", "CONFIRMED"):
         raise BusinessError("Lịch đã check-in hoặc bị hủy.")
     trip = slot.trip
@@ -530,19 +685,6 @@ def check_in(slot, user, reason="", enforce_window=False):
         raise BusinessError("Xe chưa tới cổng.")
     now = timezone.now()
     reason = (reason or "").strip()
-    if enforce_window:
-        st = checkin_state(slot, now)
-        start_s = f"{timezone.localtime(slot.start_at):%H:%M}–{timezone.localtime(slot.end_at):%H:%M}"
-        if st["blocker"] is not None:
-            b = st["blocker"]
-            what = "đang hạ tải" if b.status == "CHECKED_IN" else \
-                f"đã có lịch {timezone.localtime(b.start_at):%H:%M}–{timezone.localtime(b.end_at):%H:%M}"
-            raise BusinessError(f"Xe tới sớm hơn slot {start_s} nhưng bến {slot.dock.code} không trống "
-                                f"({b.trip.code} {what}). Xe phải đợi tới khi bến trống hoặc tới giờ slot.")
-        if st["need_reason"] and not reason:
-            dev = (f"sớm {_dur(st['early_min'])}" if st["early_min"] else f"muộn {_dur(st['late_min'])}")
-            raise BusinessError(f"Check-in lệch slot {start_s} quá {st['tolerance']} phút ({dev}). "
-                                f"Vui lòng nhập lý do check-in lệch giờ.")
     if not trip.arrived_at:
         trip.arrived_at = now
     slot.status, slot.checked_in_at = "CHECKED_IN", now
@@ -568,48 +710,53 @@ def check_in(slot, user, reason="", enforce_window=False):
 # ------------------------------------------------------------------ GRN
 @transaction.atomic
 def submit_grn(gr, user):
-    """Lệch > 2% -> chờ Director duyệt; ngược lại ghi sổ ngay."""
+    """STT 75: xác nhận phiếu nhập là GHI SỔ NGAY theo số thực nhận (hàng hỏng vào cách ly) – hàng đã nằm trong kho,
+    không treo chờ Giám đốc. Phần thiếu / hỏng tự lập khiếu nại; Giám đốc duyệt khiếu nại (đòi ai, bao nhiêu)."""
     # bấm 2 lần / 2 request song song: khóa dòng, đọc trạng thái thật -> chỉ ghi sổ 1 lần
     gr.status = GoodsReceipt.objects.select_for_update().values_list("status", flat=True).get(pk=gr.pk)
     if gr.status != "DRAFT":
         raise BusinessError("Phiếu nhập không ở trạng thái nháp.")
-    limit = param("GRN_VARIANCE_PCT")
-    if gr.max_variance_pct > limit:
-        gr.status = "PENDING_APPROVAL"
-        gr.save()
-        raise_alert("GRN_VARIANCE", f"GRN {gr.code} lệch > {limit:g}%", ref_type="grn", ref_id=gr.pk,
-                    url=f"/app/warehouse/receipts/{gr.pk}", target_role="DIRECTOR")
-        return False
-    post_grn(gr, user)
+    post_grn(gr, user, "CLOSE")
     return True
 
 
+SHORTAGE_ACTIONS = {"CLOSE": "Khiếu nại & đóng phần thiếu trên PO", "BACKFILL": "NCC giao bù (giữ PO mở)"}
+
+
 @transaction.atomic
-def approve_grn(gr, user):
+def approve_grn(gr, user, shortage_action="CLOSE"):
+    """Giám đốc duyệt chênh lệch: chọn NCC giao bù (PO còn "đang về" phần thiếu, không khiếu nại) hay khiếu nại và
+    đóng phần thiếu trên dòng PO (STT 61)."""
     gr.status = GoodsReceipt.objects.select_for_update().values_list("status", flat=True).get(pk=gr.pk)
     if gr.status != "PENDING_APPROVAL":
         raise BusinessError("Phiếu không chờ duyệt.")
+    if shortage_action not in SHORTAGE_ACTIONS:
+        raise BusinessError("Chọn cách xử lý phần thiếu.")
     gr.approved_by = user
-    post_grn(gr, user)
+    post_grn(gr, user, shortage_action)
     resolve_alerts("GRN_VARIANCE", "grn", gr.pk)
-    audit("APPROVE", gr)
+    audit("APPROVE", gr, {"Xử lý phần thiếu": SHORTAGE_ACTIONS[shortage_action]})
 
 
-def post_grn(gr, user):
+def post_grn(gr, user, shortage_action="CLOSE"):
     """Nhập kho POSTED: cộng tồn thực, tăng SL đã nhận của PO (incoming giảm đúng bằng lượng nhập), giữ hàng cho
     backorder theo thứ tự ưu tiên, rồi sau commit gọi check_replenishment(GRN_POSTED). Hàng vào vị trí cách ly không
-    tính vào tồn thực nhưng vẫn tính là đã nhận của PO (T15)."""
+    tính vào tồn thực nhưng vẫn tính là đã nhận của PO (T15).
+
+    Khiếu nại (STT 58): thiếu = dự kiến − thực nhận (đòi nhà xe); hỏng = SL hỏng (đòi NCC) – không cộng hỏng vào thiếu.
+    shortage_action="CLOSE": phần thiếu + hỏng đã khiếu nại được ĐÓNG trên dòng PO (không còn "Đang về");
+    "BACKFILL": NCC giao bù -> không lập khiếu nại, PO vẫn chờ nhận phần còn lại."""
     from apps.inventory.replenishment import Trigger, fire_checks
     from apps.sales.services import retry_backorders
 
     quarantine = Location.objects.filter(warehouse=gr.warehouse, loc_type="QUARANTINE", is_active=True).first()
     now = timezone.now()
-    shortage_amt = damage_amt = D0
+    claims = []  # (loại, đối tượng, sản phẩm, SL, đơn giá)
     for line in gr.lines.select_related("po_line"):  # G4: chặn nhập vượt SL còn lại của PO
         pol = PurchaseOrderLine.objects.select_for_update().get(pk=line.po_line_id)
-        if line.qty_good > pol.qty - pol.qty_received:
+        if line.qty_good > pol.qty_open:
             raise BusinessError(f"{line.product.code}: nhập {line.qty_good:g} vượt SL còn lại của PO "
-                                f"({pol.qty - pol.qty_received:g}). Thu mua cần sửa PO trước.")
+                                f"({pol.qty_open:g}). Thu mua cần sửa PO trước.")
     for line in gr.lines.select_related("po_line", "product", "location"):
         if line.qty_good > 0:
             post_stock_move(line.product, line.location, line.qty_good, "IN_PURCHASE", "GRN", gr.pk,
@@ -617,19 +764,29 @@ def post_grn(gr, user):
         if line.qty_damaged > 0 and quarantine:
             post_stock_move(line.product, quarantine, line.qty_damaged, "IN_PURCHASE", "GRN", gr.pk,
                             unit_cost=line.unit_cost, note=f"{gr.code} – hàng lỗi cách ly", at=now)
-            damage_amt += line.qty_damaged * line.unit_cost
-        if line.variance < 0:
-            shortage_amt += -line.variance * line.unit_cost
-        pol = line.po_line
+        short = max(D0, line.qty_expected - line.qty_received)  # thực nhận đã gồm cả hàng hỏng
+        pol = PurchaseOrderLine.objects.get(pk=line.po_line_id)
         pol.qty_received += line.qty_good
-        pol.save(update_fields=["qty_received"])
+        if shortage_action == "CLOSE":
+            if short > 0:
+                claims.append(("SHORTAGE", "CARRIER", line.product, short, line.unit_cost))
+            if line.qty_damaged > 0:
+                claims.append(("DAMAGE", "SUPPLIER", line.product, line.qty_damaged, line.unit_cost))
+            close = min(short + line.qty_damaged, max(D0, pol.qty - pol.qty_received - pol.qty_closed))
+            pol.qty_closed += close
+        pol.save(update_fields=["qty_received", "qty_closed"])
 
     po = gr.po
-    po.status = "RECEIVED" if all(l.qty_received >= l.qty for l in po.lines.all()) else "PARTIAL"
+    po.status = "RECEIVED" if all(l.qty_received + l.qty_closed >= l.qty for l in po.lines.all()) else "PARTIAL"
     po.save(update_fields=["status", "updated_at"])
 
     start = po.sent_at or po.approved_at or po.created_at
     gr.lead_time_days = Decimal(f"{(now - start).total_seconds() / 86400:.2f}")
+    # lead time ngắn bất thường (vd. chuyến test bấm liền các mốc: 0,01 ngày) -> tự loại khỏi thống kê SS/ROP
+    lt_min = Decimal(str(param("LEADTIME_MIN_DAYS") or 0))
+    if gr.lead_time_days < lt_min and not gr.exclude_from_stats:
+        gr.exclude_from_stats = True
+        gr.exclude_reason = f"Tự động: lead time {gr.lead_time_days:g} ngày < tối thiểu {lt_min:g} ngày"
     gr.status, gr.posted_at = "POSTED", now
     gr.save()
 
@@ -638,15 +795,96 @@ def post_grn(gr, user):
         trip.status = "RECEIVED"
         trip.save(update_fields=["status", "updated_at"])
         UnloadingSlot.objects.filter(trip=trip).update(status="DONE", done_at=now)
-    if shortage_amt > 0:
-        Claim.objects.create(code=next_doc_no("CL"), gr=gr, claim_type="SHORTAGE", against="CARRIER",
-                             amount=shortage_amt, description="Thiếu hàng khi kiểm nhận")
-    if damage_amt > 0:
-        Claim.objects.create(code=next_doc_no("CL"), gr=gr, claim_type="DAMAGE", against="SUPPLIER",
-                             amount=damage_amt, description="Hàng hư hỏng – đưa vào khu cách ly")
+    for ctype, against, prod, q, cost in claims:
+        Claim.objects.create(code=next_doc_no("CL"), gr=gr, claim_type=ctype, against=against, product=prod, qty=q,
+                             amount=(q * cost).quantize(Decimal(1)),
+                             description=(f"Thiếu {q:g} {prod.base_uom.code} {prod.code} khi kiểm nhận (dự kiến − thực nhận)"
+                                          if ctype == "SHORTAGE" else
+                                          f"Hư hỏng {q:g} {prod.base_uom.code} {prod.code} – đưa vào khu cách ly"))
+    if claims:
+        raise_alert("CLAIM_OPEN", f"{gr.code}: {len(claims)} khiếu nại chờ Giám đốc duyệt", ref_type="grn", ref_id=gr.pk,
+                    url="/app/warehouse/claims?status=OPEN", target_role="DIRECTOR")
     audit("POST", gr)
     trig = Trigger("GRN_POSTED", "GRN", gr.code, user)
     pids = set(gr.lines.values_list("product_id", flat=True))
     for pid in sorted(pids):
         retry_backorders(pid, trig)
     fire_checks(pids, trig)
+
+
+# ------------------------------------------------------------------ Khiếu nại (STT 59)
+CLAIM_FLOW = {"approve": ("OPEN",), "backfill": ("OPEN",), "send": ("APPROVED",),
+              "compensate": ("APPROVED", "SENT"), "close": ("APPROVED", "SENT", "COMPENSATED"),
+              "cancel": ("OPEN", "APPROVED", "SENT")}
+DIRECTOR_OPS = ("approve", "backfill")
+
+
+@transaction.atomic
+def claim_action(claim, user, op, amount=None, note="", against=None):
+    """Chờ duyệt -> (Giám đốc) Đã duyệt -> Đã gửi -> Đã bồi thường -> Đóng.
+    Giám đốc duyệt: chốt đòi ai (NCC / nhà xe) và bao nhiêu; hoặc "NCC giao bù": hủy khiếu nại, mở lại phần thiếu
+    trên PO (lại thành "Đang về"). Bồi thường: lập chứng từ giảm trừ công nợ phải trả của NCC / nhà xe."""
+    from apps.accounting.models import Bill
+
+    claim = Claim.objects.select_for_update().select_related("gr__po__supplier", "gr__trip__carrier").get(pk=claim.pk)
+    if op not in CLAIM_FLOW:
+        raise BusinessError("Thao tác không hợp lệ.")
+    if op in DIRECTOR_OPS and user.role not in ("DIRECTOR", "ADMIN"):
+        raise BusinessError("Giám đốc duyệt khiếu nại.")
+    if claim.status not in CLAIM_FLOW[op]:
+        raise BusinessError(f"Khiếu nại đang ở trạng thái {claim.get_status_display()} – không thực hiện được.")
+    now = timezone.now()
+    note = (note or "").strip()
+    if note:
+        claim.note = (claim.note + "\n" if claim.note else "") + f"{timezone.localtime(now):%d/%m %H:%M} {user}: {note}"
+    if op == "approve":
+        if against in ("SUPPLIER", "CARRIER"):
+            claim.against = against
+        if amount not in (None, ""):
+            amt = Decimal(amount)
+            if amt <= 0:
+                raise BusinessError("Số tiền khiếu nại phải lớn hơn 0.")
+            claim.amount = amt
+        claim.status = "APPROVED"
+    elif op == "backfill":  # NCC giao bù: không khiếu nại, PO lại chờ nhận phần này
+        gl = claim.gr.lines.filter(product=claim.product).select_related("po_line").first() if claim.product_id else None
+        if gl and claim.qty:
+            pol = PurchaseOrderLine.objects.select_for_update().get(pk=gl.po_line_id)
+            pol.qty_closed = max(D0, pol.qty_closed - claim.qty)
+            pol.save(update_fields=["qty_closed"])
+            po = pol.po
+            if po.status == "RECEIVED" and any(l.qty_received + l.qty_closed < l.qty for l in po.lines.all()):
+                po.status = "PARTIAL"
+                po.save(update_fields=["status", "updated_at"])
+            from apps.inventory.replenishment import Trigger, fire_checks
+            fire_checks([pol.product_id], Trigger("PO_APPROVED", "PO", po.code, user))
+        claim.status, claim.closed_at = "CANCELLED", now
+        claim.note = (claim.note + "\n" if claim.note else "") + "NCC giao bù – mở lại phần thiếu trên PO."
+    elif op == "send":
+        claim.status, claim.sent_at = "SENT", now
+    elif op == "compensate":
+        amt = Decimal(amount if amount not in (None, "") else claim.amount)
+        if amt <= 0:
+            raise BusinessError("Số tiền bồi thường phải lớn hơn 0.")
+        partner = claim.partner
+        if partner is None:
+            raise BusinessError("Chuyến dùng xe nội bộ – không có nhà xe để trừ công nợ. Đóng khiếu nại kèm ghi chú.")
+        today = timezone.localdate()
+        kind = partner._meta.model_name
+        bill = Bill.objects.create(code=next_doc_no("BILL"), bill_type="CLAIM_CREDIT", **{kind: partner},
+                                   vendor_invoice_no=claim.code, bill_date=today, due_date=today, status="POSTED",
+                                   subtotal=-amt, vat_amount=0, total=-amt)
+        claim.status, claim.compensated_amount, claim.compensated_at, claim.credit_bill = "COMPENSATED", amt, now, bill
+        audit("CREATE", bill, {"Giảm trừ công nợ theo khiếu nại": claim.code, "amount": str(amt)})
+    elif op == "close":
+        claim.status, claim.closed_at = "CLOSED", now
+    elif op == "cancel":
+        if not note:
+            raise BusinessError("Nhập lý do hủy khiếu nại.")
+        claim.status, claim.closed_at = "CANCELLED", now
+    claim.save()
+    audit("APPROVE" if op == "approve" else "UPDATE", claim, {"Thao tác": op, "Trạng thái": claim.get_status_display(),
+                                                             "Đòi": claim.get_against_display(), "Số tiền": str(claim.amount)})
+    if not Claim.objects.filter(gr=claim.gr, status="OPEN").exists():
+        resolve_alerts("CLAIM_OPEN", "grn", claim.gr_id)
+    return claim

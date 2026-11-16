@@ -72,6 +72,28 @@ Kèm theo: ẩn link không có quyền (sidebar "Mở bảng điều phối", K
 
 Test: `apps/inventory/test_ga_fixes.py` (12 test). Tổng 66 test OK.
 
+## 3e. Sửa theo sheet "Gà" đợt 2 – STT 23 → 77 (16/11/2026)
+Test: `apps/inventory/test_ga_fixes.py` (26 test). Tổng 78 test OK.
+
+**Quy trình đã đổi (nhóm đã chốt, STT 73–77):**
+- Inbound chỉ còn 2 mốc chuẩn cho mọi tuyến (`standard_milestones`): (1) Rời nhà máy – bắt buộc ảnh phiếu cân / niêm phong, nhập SL thực bốc; (2) Còn ~2 giờ tới kho. Sự cố báo riêng. Mốc tuyến trong danh mục không còn dùng. ETA từ mốc gần nhất + trễ của sự cố ghi SAU mốc đó (không cộng trùng). Bỏ KPI-5.
+- Lịch hạ tải: bỏ tự đề xuất trước 4 giờ và tự dời lịch (`normalize_slots` không còn được gọi tự động). Bến được xếp khi xe báo mốc "còn 2 giờ"; xe tới cổng bấm "Xe tới cổng" -> vào bến trống đầu tiên ngay (`gate_checkin`), mọi bến bận thì báo giờ trống sớm nhất; tới muộn quá `SLOT_CHECKIN_TOLERANCE_MIN` bắt nhập lý do.
+- Phiếu nhập: xác nhận là ghi sổ ngay theo số thực nhận (không còn Giám đốc duyệt chênh lệch). Thiếu = dự kiến − thực nhận (đòi nhà xe), hỏng = SL hỏng (đòi NCC); phần thiếu + hỏng được đóng trên dòng PO (`PurchaseOrderLine.qty_closed`, không còn "Đang về"). Khiếu nại: Chờ GĐ duyệt -> Đã duyệt (GĐ chốt đòi ai / bao nhiêu, hoặc "NCC giao bù" = hủy khiếu nại, mở lại phần PO) -> Đã gửi -> Đã bồi thường (lập Bill `CLAIM_CREDIT` số âm trừ công nợ) -> Đóng. Trang `/app/warehouse/claims`.
+- Kiểm kê: tổng giá trị điều chỉnh < `ADJ_APPROVAL_THRESHOLD` thì tự ghi sổ khi đếm xong.
+- Cổng KH: gửi đơn là kiểm tra ngay (`auto_submit_portal`): hợp lệ + đủ hàng -> tự xác nhận & giữ hàng; thiếu hàng -> Nháp chờ điều phối; dưới giá sàn / nợ quá hạn / vượt hạn mức -> chờ Giám đốc. Điều phối có nút "Mở lại để sửa" (`reopen_so`). Khách chỉ thấy 4 trạng thái (`SalesOrder.customer_status`), sửa / hủy được khi chưa xác nhận, không còn Kế hoạch tuần (mỗi dòng chọn ngày giao, nhiều ngày -> nhiều đơn), chặn ngày trong quá khứ.
+
+**Các mục khác (STT 23–72), vị trí chính:**
+| Nhóm | Nội dung |
+|---|---|
+| Tồn kho | ADJ vượt ngưỡng chờ Giám đốc duyệt, lý do ≥ 10 ký tự (`apps/inventory/adjustments.py`, trang `/app/inventory/adjustments`); tồn < đã giữ -> tự bỏ giữ đơn ưu tiên thấp + lập AL (`release_excess_reservations`); vị trí mặc định là kho lưu trữ; chuyển vị trí chặn SL ≤ 0; không cho ngừng KD khi còn tồn, SP ngừng KD còn tồn vẫn hiện; GRN lead time < `LEADTIME_MIN_DAYS` hoặc đánh dấu "chuyến test" bị loại khỏi thống kê. |
+| Bán hàng | AL khi đơn ưu tiên cao xác nhận sau đơn ưu tiên thấp đang giữ hàng (cột "Đang giữ", duyệt thì chuyển hàng); đơn hủy không hiện "Thiếu"; POD thất bại / giao thiếu báo ngay cho Điều phối (bắt lý do); dòng tổng AL "phân bổ / khả dụng". |
+| Mua hàng | PO tự duyệt hiện "Tự động (dưới ngưỡng)"; hủy / xóa PO trả PR về "Đã gửi" (`release_prs_of_po`, trường `merged_into`); giá mua do Thu mua nhập phải Giám đốc duyệt (`SupplierPrice.status`). |
+| Kế toán | VAT chốt vào PO (`PurchaseOrder.vat_rate`), hóa đơn mua theo PO, lệch thuế suất = "VAT_DIFF"; form hóa đơn chọn PO trước, SL mặc định 0, nút trên trang PO; chấp nhận lệch bắt lý do; chỉ Kế toán ghi sổ; bản in hóa đơn có số tiền bằng chữ, mẫu số / ký hiệu (`INVOICE_FORM_NO`, `INVOICE_SERIAL`), ghi rõ bản in nội bộ. |
+| Phân quyền | Trường nhạy cảm khóa ở server (`FIELD_ROLES`): hạn mức tín dụng (GĐ/KT), giá sàn (GĐ), bằng lái (Admin). Vai trò mới `SUPPLIER` – nhà máy: `/factory/` (chỉ PO của NCC mình, nút "Đã nhận đơn"); cảnh báo PO chưa xác nhận sau `PO_ACK_HOURS`. |
+| Cảnh báo | `apps/core/stale.py`: chuyến hạ tải / giao kẹt, kiểm kê đang đếm lâu, AL chờ lâu, PO chưa được nhà máy nhận. Giám đốc "Đóng chuyến thủ công" ở trang chuyến Inbound. |
+| Hạ tầng | Bỏ Tailwind CDN (không dùng), script CDN ghim bản + SRI; `SecurityHeadersMiddleware` (Cache-Control private/no-store khi đăng nhập, CSP); ảnh qua `/files/<path>` có kiểm tra quyền + signed URL (`apps/core/files.py`), lệnh `setup_storage` chuyển bucket sang private; menu ☰ trên điện thoại; `confirm()/alert()` thay bằng hộp thoại trong trang (`data-confirm`, `uiAlert`). |
+| Báo cáo | OTIF: giao thất bại không tính đúng hạn; trang KPI-2 chi tiết; ghi chú giờ tác vụ đêm 01:00–02:00. |
+
 ## 3b. Móc xích QT1–QT2 (đặc tả `test/logic.docx`)
 - Toàn bộ logic bổ sung tồn nằm ở **`apps/inventory/replenishment.py`**: `stock_metrics` (projected = on_hand + incoming − reserved − demand_unreserved; position = projected + pipeline), `effective_params`, `calc_order_qty`, `check_replenishment`, `fire_checks` (chạy sau commit bằng `transaction.on_commit`), `allocate_backorders`. Đầu file có bảng ánh xạ trạng thái đặc tả → code (G6).
 - Điểm kích hoạt: xác nhận / duyệt / hủy SO, duyệt phân bổ, xuất kho, kiểm kê duyệt, thêm tồn, trả hàng, gửi duyệt / duyệt / trả lại / hủy PO, nhập kho, lưu tham số SS/ROP, tick "Theo dõi SS/ROP", tác vụ đêm (`run_replenishment` giờ chỉ là lớp quét dự phòng).

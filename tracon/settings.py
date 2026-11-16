@@ -50,6 +50,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.core.middleware.CurrentUserMiddleware",
     "apps.core.middleware.AreaGuardMiddleware",
+    "apps.core.middleware.SecurityHeadersMiddleware",
 ]
 
 ROOT_URLCONF = "tracon.urls"
@@ -137,9 +138,11 @@ if SUPABASE_URL:  # chỉ giữ https://<ref>.supabase.co (bỏ /rest/v1 nếu c
     SUPABASE_URL = "{0.scheme}://{0.netloc}".format(_us(SUPABASE_URL))
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "media")
+SIGNED_URL_SECONDS = int(os.getenv("SIGNED_URL_SECONDS", "300"))  # link ảnh có hạn 5 phút
 STORAGES = {
+    # cả hai đều phục vụ ảnh qua /files/<path> (đăng nhập + kiểm tra quyền) – không có link ảnh công khai
     "default": {"BACKEND": "apps.core.storage.SupabaseStorage" if SUPABASE_URL and SUPABASE_SERVICE_KEY
-                else "django.core.files.storage.FileSystemStorage"},
+                else "apps.core.storage.PrivateFileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 CRON_SECRET = os.getenv("CRON_SECRET", "")
@@ -157,7 +160,9 @@ CELERY_TIMEZONE = TIME_ZONE
 # ---------- Tham số nghiệp vụ (có thể ghi đè trong bảng system_param) ----------
 BUSINESS = {
     "PO_APPROVAL_THRESHOLD": 50_000_000,      # PO >= 50 triệu cần Director duyệt
-    "ADJ_APPROVAL_THRESHOLD": 5_000_000,      # Điều chỉnh giảm >= 5 triệu cần Director duyệt
+    "ADJ_APPROVAL_THRESHOLD": 5_000_000,      # Điều chỉnh tồn (thêm / sửa / xoá) có giá trị >= 5 triệu cần Director duyệt
+    "ADJ_REASON_MIN_LEN": 10,                 # Lý do điều chỉnh tồn tối thiểu 10 ký tự
+    "ALLOC_PENDING_DAYS": 2,                  # Phiếu phân bổ thiếu hàng (AL) chờ duyệt quá 2 ngày -> cảnh báo
     "GRN_VARIANCE_PCT": 2,                    # Lệch GRN > 2% cần duyệt
     "COUNT_VARIANCE_PCT": 1,                  # Lệch kiểm kê > 1% đếm lại
     "OVERDUE_DAYS_BLOCK": 30,                 # Nợ quá hạn > 30 ngày -> chờ duyệt SO
@@ -167,10 +172,17 @@ BUSINESS = {
     "SLOT_DAY_START": "06:00",                # Khung hạ tải: giờ bắt đầu sớm nhất (dùng cho tự xếp lịch & lưới lịch)
     "SLOT_DAY_END": "21:00",                  # Khung hạ tải: giờ kết thúc muộn nhất (bắt đầu + thời lượng ≤ giờ này)
     "SLOT_CHECKIN_TOLERANCE_MIN": 60,         # Check-in lệch khung slot quá 60' -> bắt buộc nhập lý do
+    "LEADTIME_MIN_DAYS": 0.1,                 # GRN có lead time < 0,1 ngày (~2,4 giờ) tự loại khỏi thống kê lead time
+    "STALE_UNLOADING_HOURS": 12,              # Chuyến Inbound "Đang hạ tải" quá 12 giờ -> cảnh báo
+    "STALE_DELIVERY_HOURS": 48,               # Chuyến giao "Đang giao" quá 48 giờ -> cảnh báo
+    "STALE_COUNT_DAYS": 3,                    # Phiếu kiểm kê "Đang đếm / Đếm lại" quá 3 ngày -> cảnh báo
+    "PO_ACK_HOURS": 4,                        # PO đã gửi NCC quá 4 giờ mà nhà máy chưa bấm "Đã nhận đơn" -> cảnh báo
     "MILESTONE_ONTIME_MIN": 30,               # Mốc lệch trong ±30' = "Đúng giờ"; < -30' "Sớm"; > +30' "Trễ"
     "SERVICE_Z": 1.65,                        # Hệ số Z mặc định (95%)
-    "VAT_RATE": 8,
-    "PO_VAT_RATE": 10,                        # VAT đơn mua (giá mua lưu chưa VAT) – test/logic.docx, giả định G3
+    "VAT_RATE": 8,                            # VAT hóa đơn bán & hóa đơn cước vận chuyển
+    "PO_VAT_RATE": 10,                        # VAT mua vật tư: chốt vào PO lúc lập, hóa đơn mua đối chiếu theo PO (STT 36)
+    "INVOICE_FORM_NO": "1",                   # Mẫu số hóa đơn in trên bản in nội bộ (HĐ GTGT = 1)
+    "INVOICE_SERIAL": "C26TAA",               # Ký hiệu hóa đơn (theo đăng ký hóa đơn điện tử của công ty)
     "LOGIN_MAX_FAIL": 5,
     "LOGIN_LOCK_MIN": 15,
 }

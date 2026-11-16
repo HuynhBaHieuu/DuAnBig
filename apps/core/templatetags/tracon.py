@@ -25,6 +25,70 @@ def vnd(value):
     return f"{_fmt(value)} ₫"
 
 
+_DIGITS = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"]
+
+
+def _read3(n, full):
+    """Đọc 1 nhóm 3 chữ số (0..999). full=True: đọc cả "không trăm" (nhóm không đứng đầu)."""
+    h, t, u = n // 100, n // 10 % 10, n % 10
+    out = []
+    if h or full:
+        out += [_DIGITS[h], "trăm"]
+    if t == 0:
+        if u and (h or full):
+            out.append("lẻ")
+    elif t == 1:
+        out.append("mười")
+    else:
+        out += [_DIGITS[t], "mươi"]
+    if u:
+        if u == 1 and t > 1:
+            out.append("mốt")
+        elif u == 5 and t > 0:
+            out.append("lăm")
+        elif u == 4 and t > 1:
+            out.append("tư")
+        else:
+            out.append(_DIGITS[u])
+    return out
+
+
+@register.simple_tag
+def sysparam(key, default=""):
+    """Giá trị tham số hệ thống (bảng system_param, mặc định settings.BUSINESS)."""
+    from apps.core.services import param
+    v = param(key, str)
+    return default if v in (None, "") else v
+
+
+@register.filter
+def vnd_words(value):
+    """Số tiền bằng chữ cho hóa đơn: 1250000 -> 'Một triệu hai trăm năm mươi nghìn đồng'."""
+    try:
+        n = int(Decimal(value or 0).quantize(Decimal(1)))
+    except Exception:
+        return ""
+    neg, n = n < 0, abs(n)
+    if n == 0:
+        return "Không đồng"
+    units = ["", "nghìn", "triệu", "tỷ", "nghìn tỷ", "triệu tỷ"]
+    groups = []
+    while n:
+        groups.append(n % 1000)
+        n //= 1000
+    words = []
+    for i in range(len(groups) - 1, -1, -1):
+        g = groups[i]
+        if g == 0:
+            continue
+        words += _read3(g, full=i != len(groups) - 1)
+        if units[i]:
+            words.append(units[i])
+    s = " ".join(words + ["đồng"])
+    s = ("Âm " + s) if neg else s
+    return s[0].upper() + s[1:]
+
+
 @register.filter
 def money_short(value):
     """Rút gọn: 1,2 tỷ / 350 tr."""

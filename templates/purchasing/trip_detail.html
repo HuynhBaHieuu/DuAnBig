@@ -7,6 +7,7 @@
   <div class="toolbar">
     {% if trip.status == "PLANNED" or trip.status == "AT_FACTORY" %}{% if user.role != "WAREHOUSE" %}{% include "partials/cancel_form.html" with label="Hủy chuyến" %}{% endif %}{% endif %}
     {% if not slot and trip.status != "RECEIVED" and trip.status != "CANCELLED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="propose_slot"><button class="btn btn-outline"><i data-lucide="calendar-plus"></i>Đề xuất lịch hạ tải</button></form>{% endif %}
+    {% if trip.status in "ARRIVED UNLOADING LOADED IN_TRANSIT" and user.role in "DIRECTOR ADMIN" %}{% include "partials/cancel_form.html" with label="Đóng chuyến thủ công" op="force_close" %}{% endif %}
   </div>
 </div>
 <div x-data="{tab: location.hash === '#lich-su' ? 'h' : 'd'}">
@@ -85,7 +86,8 @@
       <h3 class="card-title" style="margin-bottom:12px">Sự cố</h3>
       {% for i in incidents %}
       <div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
-        <div style="display:flex;justify-content:space-between"><b>{{ i.get_incident_type_display }}</b>{% if i.is_resolved %}<span class="badge badge-success">Đã xử lý</span>{% else %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="resolve"><input type="hidden" name="incident" value="{{ i.pk }}"><button class="btn btn-soft btn-sm">Đã xử lý</button></form>{% endif %}</div>
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><span><b>{{ i.get_incident_type_display }}</b> {% if i.is_resolved %}<span class="badge badge-success">Đã xử lý</span>{% else %}<span class="badge badge-warn">Đang xử lý</span>{% endif %}</span>
+          {% if not i.is_resolved and user.role != "WAREHOUSE" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="resolve"><input type="hidden" name="incident" value="{{ i.pk }}"><button class="btn btn-soft btn-sm" data-confirm="Đóng sự cố {{ i.get_incident_type_display|lower }}? ETA sẽ được tính lại không còn thời gian trễ của sự cố này." data-confirm-ok="Đóng sự cố"><i data-lucide="check"></i>Đóng sự cố</button></form>{% endif %}</div>
         <div class="text-muted" style="font-size:12px">{{ i.reported_at|vn_dt }} · +{{ i.delay_minutes|dur }} · {{ i.reported_by|default:"" }}</div>
         <div style="font-size:13px">{{ i.description }}</div>
       </div>

@@ -1,0 +1,53 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/warehouse/claims">Khiếu nại</a> /</div><h1 class="page-title">{{ c.code }} {% status_badge c %}</h1>
+    <div class="page-sub">{{ c.get_claim_type_display }} · {{ c.get_against_display }}: {{ c.partner|default:"xe nội bộ" }} · phiếu nhập <a class="text-primary" href="/app/warehouse/receipts/{{ c.gr_id }}">{{ c.gr.code }}</a> · PO {{ c.gr.po.code }}</div></div>
+  {% if user.role != "WAREHOUSE" %}<div class="toolbar">
+    {% if c.status == "APPROVED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="send"><button class="btn btn-primary"><i data-lucide="send"></i>Đã gửi khiếu nại</button></form>{% endif %}
+    {% if c.status in "APPROVED SENT COMPENSATED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="close"><button class="btn btn-outline" data-confirm="Đóng khiếu nại {{ c.code }}?" data-confirm-ok="Đóng">Đóng khiếu nại</button></form>{% endif %}
+    {% if c.status in "OPEN APPROVED SENT" %}{% include "partials/cancel_form.html" with label="Hủy khiếu nại" %}{% endif %}
+  </div>{% endif %}
+</div>
+{% if c.status == "OPEN" %}{% if user.role in "DIRECTOR ADMIN" %}
+<form method="post" class="card card-body" style="margin-bottom:16px">{% csrf_token %}
+  <h3 class="card-title" style="margin-bottom:10px">Giám đốc duyệt khiếu nại</h3>
+  <div class="grid g-3">
+    <div class="field"><label>Đòi ai</label><select name="against"><option value="CARRIER" {% if c.against == "CARRIER" %}selected{% endif %}>Nhà xe{% if c.gr.trip.carrier %} – {{ c.gr.trip.carrier.name }}{% endif %}</option><option value="SUPPLIER" {% if c.against == "SUPPLIER" %}selected{% endif %}>Nhà cung cấp – {{ c.gr.po.supplier.name }}</option></select></div>
+    <div class="field"><label>Số tiền đòi (₫)</label><input name="amount" type="number" min="1" step="1" value="{{ c.amount|floatformat:0 }}"></div>
+    <div class="field"><label>Ghi chú</label><input name="note" placeholder="Vd: trừ vào cước chuyến kế tiếp"></div>
+  </div>
+  <div class="toolbar" style="margin-top:12px">
+    <button name="op" value="approve" class="btn btn-primary"><i data-lucide="check"></i>Duyệt khiếu nại</button>
+    {% if c.claim_type == "SHORTAGE" or c.claim_type == "DAMAGE" %}<button name="op" value="backfill" class="btn btn-outline" data-confirm="NCC sẽ giao bù {{ c.qty|qty }} {{ c.product.base_uom.code }}? Khiếu nại bị hủy, phần này trên PO quay lại &quot;Đang về&quot;." data-confirm-ok="NCC giao bù">NCC giao bù (không khiếu nại)</button>{% endif %}
+  </div>
+</form>{% else %}<div class="flash flash-warning" style="margin-bottom:16px">Khiếu nại chờ Giám đốc duyệt (đòi ai, bao nhiêu) trước khi gửi.</div>{% endif %}{% endif %}
+<div class="grid g-stack" style="grid-template-columns:1fr 360px">
+  <div class="card card-body">
+    <dl class="dl">
+      <dt>Sản phẩm</dt><dd>{% if c.product %}{{ c.product.code }} – {{ c.product.name }}{% else %}—{% endif %}</dd>
+      <dt>Số lượng</dt><dd>{{ c.qty|qty }} {{ c.product.base_uom.code }}</dd>
+      {% if user.can_see_price %}<dt>Số tiền khiếu nại</dt><dd><b>{{ c.amount|vnd }}</b></dd>{% endif %}
+      <dt>Mô tả</dt><dd>{{ c.description|default:"—" }}</dd>
+      <dt>Ngày lập</dt><dd>{{ c.created_at|vn_dt }}</dd>
+      <dt>Đã gửi</dt><dd>{{ c.sent_at|vn_dt }}</dd>
+      {% if user.can_see_price %}<dt>Bồi thường</dt><dd>{% if c.compensated_amount %}{{ c.compensated_amount|vnd }} · {{ c.compensated_at|vn_dt }}{% if c.credit_bill and user|can_open:"/app/accounting/bills" %} · <a class="text-primary" href="/app/accounting/bills/{{ c.credit_bill.pk }}">{{ c.credit_bill.code }}</a> (trừ công nợ){% endif %}{% else %}—{% endif %}</dd>{% endif %}
+      <dt>Đóng</dt><dd>{{ c.closed_at|vn_dt }}</dd>
+    </dl>
+    {% if c.note %}<div style="margin-top:14px"><div class="lbl" style="margin-bottom:4px">Nhật ký xử lý</div><div style="white-space:pre-line;font-size:13px">{{ c.note }}</div></div>{% endif %}
+  </div>
+  {% if user.role != "WAREHOUSE" and c.status in "APPROVED SENT" %}<div class="grid" style="align-content:start">
+    {% if user.role in "DIRECTOR ACCOUNTANT ADMIN" %}<form method="post" class="card card-body">{% csrf_token %}<input type="hidden" name="op" value="compensate">
+      <h3 class="card-title" style="margin-bottom:10px">Ghi nhận bồi thường</h3>
+      <div class="field" style="margin-bottom:8px"><label>Số tiền được bồi thường (₫)</label><input name="amount" type="number" min="1" step="1" value="{{ c.amount|floatformat:0 }}" required></div>
+      <div class="field" style="margin-bottom:10px"><label>Ghi chú</label><input name="note" placeholder="Vd: NCC đồng ý trừ vào hóa đơn kỳ tới"></div>
+      <button class="btn btn-primary btn-sm" data-confirm="Ghi nhận bồi thường và trừ vào công nợ phải trả của {{ c.partner|default:'đối tác' }}?" data-confirm-ok="Ghi nhận"><i data-lucide="badge-dollar-sign"></i>Ghi nhận & trừ công nợ</button>
+      <div class="text-muted" style="font-size:12px;margin-top:6px">Lập chứng từ giảm trừ (số âm) vào công nợ phải trả của {{ c.get_against_display|lower }}.</div>
+    </form>{% endif %}
+    <form method="post" class="card card-body">{% csrf_token %}<input type="hidden" name="op" value="{% if c.status == 'APPROVED' %}send{% else %}close{% endif %}">
+      <div class="field" style="margin-bottom:8px"><label>Ghi chú xử lý</label><textarea name="note" rows="2" placeholder="Vd: đã gửi email cho nhà xe Phú Thành"></textarea></div>
+      <button class="btn btn-soft btn-sm">{% if c.status == "APPROVED" %}Lưu ghi chú & đánh dấu đã gửi{% else %}Lưu ghi chú & đóng{% endif %}</button>
+    </form>
+  </div>{% endif %}
+</div>
+{% endblock %}

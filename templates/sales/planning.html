@@ -74,11 +74,11 @@ function planner() {
     async drop(trip, el) {
       el.classList.remove("over");
       try { await postJSON(location.pathname, { op: "add", trip, so: this.so }); location.reload(); }
-      catch (err) { alert(err.message); }
+      catch (err) { uiAlert(err.message, { title: "Không thực hiện được" }); }
     },
     async remove(stop) {
       try { await postJSON(location.pathname, { op: "remove", stop }); location.reload(); }
-      catch (err) { alert(err.message); }
+      catch (err) { uiAlert(err.message, { title: "Không thực hiện được" }); }
     },
   };
 }

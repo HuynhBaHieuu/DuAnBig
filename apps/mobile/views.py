@@ -46,9 +46,10 @@ def inbound(request, pk):
         if op == "milestone":
             ms = get_object_or_404(trip.milestones, pk=request.POST["milestone"])
             loaded = {l.pk: request.POST.get(f"l_{l.pk}") for l in trip.lines.all()}
-            psvc.record_milestone(trip, ms, request.user, photo=request.FILES.get("photo"),
-                                  note=request.POST.get("note", ""), loaded_qty=loaded)
-            messages.success(request, f"Đã cập nhật: {ms.name}")
+            ms, created = psvc.record_milestone(trip, ms, request.user, photo=request.FILES.get("photo"),
+                                                note=request.POST.get("note", ""), loaded_qty=loaded)
+            messages.success(request, f"Đã cập nhật: {ms.name}" if created else
+                             f"Mốc {ms.name} đã được ghi nhận lúc {timezone.localtime(ms.actual_at):%H:%M} – không cần gửi lại.")
         elif op == "incident":
             psvc.report_incident(trip, request.user, request.POST["incident_type"], request.POST.get("description", ""),
                                  int(request.POST.get("delay_minutes") or 0), request.FILES.get("photo"))

@@ -46,6 +46,9 @@ class PurchaseRequisitionLine(models.Model):
     suggested_supplier = models.ForeignKey("masterdata.Supplier", null=True, blank=True, on_delete=models.SET_NULL)
     po_line = models.OneToOneField("PurchaseOrderLine", null=True, blank=True, on_delete=models.SET_NULL,
                                    related_name="pr_line")
+    # dòng PO mà dòng PR này đã được GỘP vào (mọi dòng gộp, không chỉ dòng đầu) – để hủy PO trả lại đúng PR
+    merged_into = models.ForeignKey("PurchaseOrderLine", null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="merged_pr_lines")
 
     class Meta:
         db_table = "purchase_requisition_line"
@@ -62,11 +65,18 @@ class PurchaseOrder(TimeStamped):
     route = models.ForeignKey("masterdata.Route", null=True, blank=True, on_delete=models.PROTECT)
     warehouse = models.ForeignKey("masterdata.Warehouse", on_delete=models.PROTECT)
     total_amount = models.DecimalField(**MONEY)
+    # thuế suất VAT của PO – chốt lúc lập PO theo tham số PO_VAT_RATE; hóa đơn mua lấy theo đây (STT 36)
+    vat_rate = models.DecimalField(max_digits=4, decimal_places=1, default=10)
     note = models.CharField(max_length=255, blank=True)
     created_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     approved_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     approved_at = models.DateTimeField(null=True, blank=True)
+    auto_approved = models.BooleanField(default=False)  # tự duyệt vì dưới ngưỡng PO_APPROVAL_THRESHOLD (STT 29)
     sent_at = models.DateTimeField(null=True, blank=True)
+    # Nhà máy (tài khoản NCC) xác nhận đã nhận đơn (STT 64–68)
+    supplier_ack_at = models.DateTimeField(null=True, blank=True)
+    supplier_ack_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    supplier_ack_note = models.CharField(max_length=255, blank=True)
     cancel_reason = models.CharField(max_length=255, blank=True)
 
     class Meta:
@@ -80,11 +90,16 @@ class PurchaseOrder(TimeStamped):
         self.total_amount = sum((l.qty * l.unit_price for l in self.lines.all()), Decimal(0))
         return self.total_amount
 
+    def save(self, *args, **kwargs):
+        if self._state.adding and not kwargs.get("update_fields"):
+            from apps.core.services import param
+            self.vat_rate = Decimal(str(param("PO_VAT_RATE") or 10))
+        super().save(*args, **kwargs)
+
     @property
     def vat_amount(self):
-        """VAT đơn mua: giá mua lưu chưa VAT, thuế suất = tham số PO_VAT_RATE (mặc định 10%) – giả định G3."""
-        from apps.core.services import param
-        return (self.total_amount * Decimal(str(param("PO_VAT_RATE"))) / 100).quantize(Decimal(1))
+        """VAT đơn mua: giá mua lưu chưa VAT, thuế suất = vat_rate của PO (chốt theo PO_VAT_RATE lúc lập) – G3."""
+        return (self.total_amount * Decimal(str(self.vat_rate)) / 100).quantize(Decimal(1))
 
     @property
     def total_with_vat(self):
@@ -105,6 +120,8 @@ class PurchaseOrderLine(models.Model):
     qty_on_trips = models.DecimalField(**QTY)
     qty_received = models.DecimalField(**QTY)
     qty_billed = models.DecimalField(**QTY)
+    # phần thiếu / hỏng đã chuyển khiếu nại và ĐÓNG (NCC không giao bù) – không còn tính là "Đang về" (STT 61)
+    qty_closed = models.DecimalField(**QTY)
 
     class Meta:
         db_table = "purchase_order_line"
@@ -115,7 +132,7 @@ class PurchaseOrderLine(models.Model):
 
     @property
     def qty_open(self):
-        return max(self.qty - self.qty_received, Decimal(0))
+        return max(self.qty - self.qty_received - self.qty_closed, Decimal(0))
 
 
 class InboundTrip(TimeStamped):
@@ -285,6 +302,9 @@ class GoodsReceipt(TimeStamped):
     received_at = models.DateTimeField()
     posted_at = models.DateTimeField(null=True, blank=True)
     lead_time_days = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    # Loại khỏi thống kê lead time (chuyến test / dữ liệu bất thường) – không dùng cho SS/ROP và báo cáo lead time
+    exclude_from_stats = models.BooleanField(default=False)
+    exclude_reason = models.CharField(max_length=255, blank=True)
     note = models.CharField(max_length=255, blank=True)
     created_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     approved_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
@@ -332,15 +352,36 @@ class GoodsReceiptLine(models.Model):
 
 class Claim(TimeStamped):
     TYPES = [("SHORTAGE", "Thiếu hàng"), ("DAMAGE", "Hư hỏng"), ("QUALITY", "Chất lượng")]
-    STATUS = [("OPEN", "Đang xử lý"), ("SETTLED", "Đã giải quyết"), ("CANCELLED", "Đã hủy")]
+    STATUS = [("OPEN", "Chờ GĐ duyệt"), ("APPROVED", "Đã duyệt"), ("SENT", "Đã gửi"), ("COMPENSATED", "Đã bồi thường"),
+              ("CLOSED", "Đóng"), ("CANCELLED", "Đã hủy")]
     code = models.CharField(max_length=20, unique=True)
     gr = models.ForeignKey(GoodsReceipt, on_delete=models.PROTECT, related_name="claims")
     claim_type = models.CharField(max_length=10, choices=TYPES)
     against = models.CharField(max_length=10, choices=[("SUPPLIER", "Nhà cung cấp"), ("CARRIER", "Nhà xe")])
+    product = models.ForeignKey("masterdata.Product", null=True, blank=True, on_delete=models.PROTECT)
+    qty = models.DecimalField(**QTY)
     amount = models.DecimalField(**MONEY)
-    status = models.CharField(max_length=10, choices=STATUS, default="OPEN")
+    status = models.CharField(max_length=12, choices=STATUS, default="OPEN")
     description = models.TextField(blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    compensated_amount = models.DecimalField(**MONEY)
+    compensated_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True)
+    # chứng từ giảm trừ công nợ phải trả NCC / nhà xe khi được bồi thường
+    credit_bill = models.OneToOneField("accounting.Bill", null=True, blank=True, on_delete=models.SET_NULL,
+                                       related_name="claim")
 
     class Meta:
         db_table = "claim"
         ordering = ["-id"]
+
+    def __str__(self):
+        return self.code
+
+    @property
+    def partner(self):
+        """Đối tượng bị khiếu nại: NCC của PO, hoặc nhà xe 3PL của chuyến (None nếu xe nội bộ)."""
+        if self.against == "SUPPLIER":
+            return self.gr.po.supplier
+        return self.gr.trip.carrier if self.gr.trip_id else None

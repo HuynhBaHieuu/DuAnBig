@@ -5,8 +5,15 @@
     <div class="page-sub">{{ bill.get_bill_type_display }} · {{ bill.partner.name }} · số HĐ {{ bill.vendor_invoice_no }} · {{ bill.bill_date|vn_d }}</div></div>
   <div class="toolbar">
     {% if bill.status in "DRAFT MATCHED MISMATCH ACCEPTED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="rematch"><button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Đối chiếu lại</button></form>{% endif %}
-    {% if bill.status == "MISMATCH" and user.role in "DIRECTOR ADMIN" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="accept"><button class="btn btn-primary" style="background:var(--warn)"><i data-lucide="shield-check"></i>Chấp nhận chênh lệch</button></form>{% endif %}
-    {% if bill.status == "MATCHED" or bill.status == "ACCEPTED" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="post"><button class="btn btn-primary"><i data-lucide="book-check"></i>Ghi sổ</button></form>{% endif %}
+    {% if bill.status == "MISMATCH" and user.role in "DIRECTOR ADMIN" %}<form method="post" x-data="{o:false}" style="display:inline">{% csrf_token %}<input type="hidden" name="op" value="accept">
+      <button type="button" class="btn btn-primary" style="background:var(--warn)" @click="o=true"><i data-lucide="shield-check"></i>Chấp nhận chênh lệch</button>
+      <div x-show="o" x-cloak style="position:fixed;inset:0;background:rgba(13,6,45,.35);display:grid;place-items:center;z-index:60">
+        <div class="card card-body" style="width:440px;max-width:calc(100vw - 32px)" @click.outside="o=false">
+          <h3 class="card-title" style="margin-bottom:12px">Chấp nhận chênh lệch {{ bill.code }}</h3>
+          <div class="field"><label>Lý do chấp nhận (bắt buộc)</label><textarea name="reason" rows="3" minlength="5" required placeholder="Vd: NCC tăng giá theo phụ lục HĐ số 03, đã thống nhất qua email"></textarea></div>
+          <div class="toolbar" style="justify-content:flex-end;margin-top:16px"><button type="button" class="btn btn-outline" @click="o=false">Đóng</button><button class="btn btn-primary">Chấp nhận</button></div>
+        </div></div></form>{% endif %}
+    {% if bill.status == "MATCHED" or bill.status == "ACCEPTED" %}{% if can_post %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="post"><button class="btn btn-primary"><i data-lucide="book-check"></i>Ghi sổ</button></form>{% else %}<span class="badge badge-gray" title="Ghi sổ công nợ phải trả do Kế toán thực hiện">Chờ Kế toán ghi sổ</span>{% endif %}{% endif %}
     {% if bill.status in "DRAFT MATCHED MISMATCH ACCEPTED" %}{% include "partials/cancel_form.html" %}{% endif %}
   </div>
 </div>
@@ -14,7 +21,7 @@
 <div class="tabs"><a class="tab" :class="tab === 'd' && 'active'" href="#" @click.prevent="tab = 'd'; history.replaceState(null, '', location.pathname + location.search)">Chi tiết</a><a class="tab" :class="tab === 'h' && 'active'" href="#lich-su" @click.prevent="tab = 'h'; history.replaceState(null, '', '#lich-su')"><i data-lucide="history" style="width:14px"></i> Lịch sử</a></div>
 <div x-show="tab === 'd'">
 {% if bill.status == "MISMATCH" %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i>Hóa đơn lệch đối chiếu 3 bên – bị chặn ghi sổ cho tới khi Director chấp nhận.</div>{% endif %}
-{% if bill.status == "ACCEPTED" %}<div class="flash flash-warning"><i data-lucide="shield-check"></i>Chênh lệch đã được {{ bill.accepted_by }} chấp nhận.</div>{% endif %}
+{% if bill.accepted_by %}<div class="flash flash-warning"><i data-lucide="shield-check"></i>Chênh lệch đã được {{ bill.accepted_by }} chấp nhận{% if bill.accept_reason %} – lý do: {{ bill.accept_reason }}{% endif %}.</div>{% endif %}
 <div class="card">
   <div class="card-head"><h3 class="card-title">Đối chiếu 3 bên: PO – GRN – Bill</h3></div>
   <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
@@ -25,7 +32,7 @@
       <td class="num">{{ r.po_qty|qty }}</td><td class="num">{{ r.po_price|vnd }}</td><td class="num">{% if r.open_qty is not None %}{{ r.open_qty|qty }}{% else %}{% if r.grn_qty %}✓ đã nhận{% else %}✗ chưa nhận{% endif %}{% endif %}</td>
       <td class="num">{{ r.bl.qty|qty }}</td><td class="num" {% if r.bl.match_status == "PRICE_DIFF" %}style="color:var(--danger-ink);font-weight:700"{% endif %}>{{ r.bl.unit_price|vnd }}</td><td class="num">{{ r.bl.amount|vnd }}</td>
       <td>{% if r.bl.match_status == "MATCH" %}<span class="badge badge-success">Khớp</span>{% elif r.bl.match_status %}<span class="badge badge-danger">{{ r.bl.get_match_status_display }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ bill.subtotal|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">VAT</td><td class="num">{{ bill.vat_amount|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">Tổng</td><td class="num">{{ bill.total|vnd }}</td><td></td></tr></tfoot>
+    <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ bill.subtotal|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">VAT {{ bill.vat_rate|floatformat:'-1' }}%{% if po_rates %} <span class="text-muted">(PO: {{ po_rates|join:", " }}%)</span>{% endif %}</td><td class="num">{{ bill.vat_amount|vnd }}</td><td>{% if bill.bill_type == "GOODS" and po_rates and bill.vat_rate|stringformat:"s" not in po_rates %}<span class="badge badge-danger">Lệch thuế suất</span>{% endif %}</td></tr><tr><td colspan="6" class="num">Tổng</td><td class="num">{{ bill.total|vnd }}</td><td></td></tr></tfoot>
   </table></div></div>
 </div>
 <div class="card card-body" style="margin-top:20px;max-width:520px"><dl class="dl"><dt>Đã trả</dt><dd>{{ bill.paid_amount|vnd }}</dd><dt>Còn phải trả</dt><dd><b>{{ bill.balance|vnd }}</b></dd><dt>Hạn thanh toán</dt><dd>{{ bill.due_date|vn_d }}</dd></dl>

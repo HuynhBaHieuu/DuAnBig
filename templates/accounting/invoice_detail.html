@@ -6,7 +6,7 @@
   <div class="toolbar">
     <a href="?pdf=1" target="_blank" class="btn btn-outline"><i data-lucide="printer"></i>In / PDF</a>
     {% if inv.status == "DRAFT" %}
-      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" onclick="return confirm('Xóa hóa đơn nháp?')">Xóa</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" data-confirm="Xóa hóa đơn nháp?" data-confirm-ok="Xóa" data-confirm-danger>Xóa</button></form>
       <form method="post">{% csrf_token %}<input type="hidden" name="op" value="post"><button class="btn btn-primary"><i data-lucide="book-check"></i>Ghi sổ</button></form>
     {% elif inv.status == "POSTED" %}{% include "partials/cancel_form.html" %}{% endif %}
   </div>

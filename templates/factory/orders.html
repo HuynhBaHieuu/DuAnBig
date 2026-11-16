@@ -1,0 +1,22 @@
+{% extends "factory/base.html" %}
+{% block content %}
+<h1 class="page-title" style="margin-bottom:4px">Đơn mua hàng</h1>
+<div class="page-sub" style="margin-bottom:14px">{{ sup.name }} · bấm vào đơn để xem chi tiết, in PDF và xác nhận đã nhận đơn</div>
+{% if pending %}<div class="flash flash-warning" style="margin-bottom:12px">Có <b>{{ pending }}</b> đơn chưa xác nhận đã nhận.</div>{% endif %}
+<div class="tabs">
+  <a class="tab {% if tab == 'open' %}active{% endif %}" href="?tab=open">Đang thực hiện</a>
+  <a class="tab {% if tab == 'pending' %}active{% endif %}" href="?tab=pending">Chưa xác nhận <span class="n">{{ pending }}</span></a>
+  <a class="tab {% if tab == 'all' %}active{% endif %}" href="?tab=all">Tất cả</a>
+</div>
+<div class="factory-list">
+{% for po in orders %}
+  <a class="card card-body factory-po" href="/factory/orders/{{ po.pk }}">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap">
+      <div><b class="code" style="font-size:16px">{{ po.code }}</b><div class="text-muted" style="font-size:12px">Ngày đặt {{ po.order_date|vn_d }}{% if po.pickup_date %} · cần giao / bốc {{ po.pickup_date|vn_d }}{% endif %}</div></div>
+      <div>{% if po.status == "CANCELLED" %}<span class="badge badge-danger">Đã hủy</span>{% elif po.supplier_ack_at %}<span class="badge badge-success">NCC đã nhận</span>{% else %}<span class="badge badge-warn">Chưa xác nhận</span>{% endif %}</div>
+    </div>
+    <div style="margin-top:8px;font-size:13px">{% for l in po.lines.all %}<div>{{ l.product.code }} – {{ l.product.name }}: <b>{{ l.qty|qty }} {{ l.product.base_uom.code }}</b></div>{% endfor %}</div>
+  </a>
+{% empty %}<div class="card card-body empty">Không có đơn.</div>{% endfor %}
+</div>
+{% endblock %}

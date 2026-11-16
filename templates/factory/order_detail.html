@@ -1,0 +1,28 @@
+{% extends "factory/base.html" %}
+{% block content %}
+<div class="crumbs"><a href="/factory/">Đơn mua</a> /</div>
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+  <h1 class="page-title">{{ po.code }}
+    {% if po.status == "CANCELLED" %}<span class="badge badge-danger">Đã hủy</span>{% elif po.supplier_ack_at %}<span class="badge badge-success">NCC đã nhận</span>{% else %}<span class="badge badge-warn">Chưa xác nhận</span>{% endif %}</h1>
+  <a href="?pdf=1" target="_blank" class="btn btn-outline"><i data-lucide="printer"></i>In / PDF</a>
+</div>
+{% if po.status == "CANCELLED" %}<div class="flash flash-error" style="margin-bottom:12px">Đơn đã bị hủy{% if po.cancel_reason %}: {{ po.cancel_reason }}{% endif %}. Vui lòng KHÔNG giao hàng theo đơn này.</div>{% endif %}
+<div class="card card-body" style="margin-bottom:14px"><dl class="dl">
+  <dt>Ngày đặt</dt><dd>{{ po.order_date|vn_d }}</dd>
+  <dt>Ngày cần giao / bốc</dt><dd>{{ po.pickup_date|vn_d }}</dd>
+  <dt>Kho nhận</dt><dd>{{ po.warehouse.name }}{% if po.warehouse.address %} – {{ po.warehouse.address }}{% endif %}</dd>
+  {% if po.note %}<dt>Ghi chú</dt><dd>{{ po.note }}</dd>{% endif %}
+</dl></div>
+<div class="card" style="margin-bottom:14px"><div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Sản phẩm</th><th class="num">Số lượng</th><th class="num">Đã nhận</th></tr></thead>
+  <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.product.name }}</div></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.qty_received|qty }}</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% if po.supplier_ack_at %}
+<div class="card card-body"><b>Đã xác nhận nhận đơn</b> · {{ po.supplier_ack_by }} · {{ po.supplier_ack_at|vn_dt }}{% if po.supplier_ack_note %}<div class="text-muted" style="margin-top:4px">Ghi chú: {{ po.supplier_ack_note }}</div>{% endif %}</div>
+{% elif po.status in "APPROVED SENT PARTIAL" %}
+<form method="post" class="card card-body">{% csrf_token %}
+  <div class="field" style="margin-bottom:12px"><label>Ghi chú (không bắt buộc)</label><input name="note" maxlength="255" placeholder="Vd: giao trễ 1 ngày"></div>
+  <button class="btn btn-primary big-btn"><i data-lucide="check-circle-2"></i>Đã nhận đơn</button>
+</form>
+{% endif %}
+{% endblock %}

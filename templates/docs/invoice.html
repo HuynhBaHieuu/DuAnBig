@@ -1,8 +1,9 @@
 {% extends "docs/_base.html" %}
 {% block title %}{{ inv.code }}{% endblock %}
-{% block code %}Số: <b>{{ inv.code }}</b><br>Ngày: {{ inv.invoice_date|vn_d }}<br>Hạn TT: {{ inv.due_date|vn_d }}{% endblock %}
+{% block code %}Mẫu số: <b>{% sysparam "INVOICE_FORM_NO" "1" %}</b><br>Ký hiệu: <b>{% sysparam "INVOICE_SERIAL" "—" %}</b><br>Số: <b>{{ inv.code }}</b><br>Ngày: {{ inv.invoice_date|vn_d }}<br>Hạn TT: {{ inv.due_date|vn_d }}{% endblock %}
 {% block content %}
 <h1>{% if inv.invoice_type == "CREDIT_NOTE" %}HÓA ĐƠN GIẢM TRỪ{% else %}HÓA ĐƠN BÁN HÀNG{% endif %}</h1><div class="meta">{{ inv.get_status_display }}</div>
+<div style="border:1px dashed #b4434f;color:#b4434f;padding:6px 10px;margin:8px 0;font-size:12px;text-align:center">BẢN IN NỘI BỘ – dùng để đối chiếu công nợ. Đây KHÔNG phải hóa đơn điện tử, không có chữ ký số; hóa đơn GTGT hợp lệ do hệ thống hóa đơn điện tử phát hành.</div>
 <div class="info">
   <div><b>Khách hàng:</b> {{ inv.customer.name }}</div><div><b>Mã số thuế:</b> {{ inv.customer.tax_code }}</div>
   <div><b>Địa chỉ:</b> {{ inv.customer.address }}</div><div><b>Điện thoại:</b> {{ inv.customer.phone }}</div>
@@ -12,5 +13,6 @@
 <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ inv.subtotal|vnd }}</td></tr>
 <tr><td colspan="6" class="num">Thuế GTGT {{ inv.vat_rate|floatformat:0 }}%</td><td class="num">{{ inv.vat_amount|vnd }}</td></tr>
 <tr><td colspan="6" class="num">Tổng thanh toán</td><td class="num">{{ inv.total|vnd }}</td></tr></tfoot></table>
+<div style="margin:10px 0"><b>Số tiền viết bằng chữ:</b> <i>{{ inv.total|vnd_words }}.</i></div>
 <div class="sign"><div><b>Người mua hàng</b></div><div></div><div><b>Người bán hàng</b><br>TRACON 80</div></div>
 {% endblock %}

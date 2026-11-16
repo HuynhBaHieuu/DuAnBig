@@ -5,11 +5,12 @@
 </div>
 <div class="tabs">
   {% with p=request.path %}
-  <a class="tab {% if p == '/app/reports/' %}active{% endif %}" href="/app/reports/">7 KPI dự án</a>
+  <a class="tab {% if p == '/app/reports/' %}active{% endif %}" href="/app/reports/">6 KPI dự án</a>
   <a class="tab {% if p == '/app/reports/rop' %}active{% endif %}" href="/app/reports/rop">Dashboard ROP</a>
   <a class="tab {% if p == '/app/reports/nxt' %}active{% endif %}" href="/app/reports/nxt">Nhập – Xuất – Tồn</a>
   <a class="tab {% if p == '/app/reports/otif' %}active{% endif %}" href="/app/reports/otif">OTIF</a>
   <a class="tab {% if p == '/app/reports/leadtime' %}active{% endif %}" href="/app/reports/leadtime">Lead time</a>
   <a class="tab {% if p == '/app/reports/unloading' %}active{% endif %}" href="/app/reports/unloading">Chờ hạ tải</a>
+  <a class="tab {% if p == '/app/reports/count-accuracy' %}active{% endif %}" href="/app/reports/count-accuracy">Chính xác tồn</a>
   {% endwith %}
 </div>

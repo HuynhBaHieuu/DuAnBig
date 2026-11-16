@@ -2,7 +2,7 @@
 {% block content %}
 <div class="page-head">
   <div><div class="crumbs">MH-10 · Kho hàng</div><h1 class="page-title">Tồn kho</h1>
-    <div class="page-sub">Tồn thực · Đã giữ · Khả dụng = Tồn thực − Đã giữ · Đang về · Dự báo = Khả dụng + Đang về</div></div>
+    <div class="page-sub">Tồn thực · Đã giữ · Khả dụng = Tồn thực − Đã giữ · Đang về · Dự báo = Khả dụng + Đang về − Nhu cầu chưa giữ</div></div>
   <div class="toolbar">
     <a href="?{{ request.GET.urlencode }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất Excel</a>
   </div>
@@ -37,7 +37,7 @@
     {% for r in rows %}
       <tr style="cursor:pointer" hx-get="/app/inventory/stock/{{ r.product.pk }}/locations" hx-target="#loc-{{ r.product.pk }}" hx-swap="innerHTML"
           @click="open = open === {{ r.product.pk }} ? null : {{ r.product.pk }}">
-        <td><div class="code">{{ r.product.code }}</div><div class="text-muted" style="font-size:12px">{{ r.product.name }}</div></td>
+        <td><div class="code">{{ r.product.code }}{% if not r.product.is_active %} <span class="badge badge-danger" title="Sản phẩm đã ngừng kinh doanh nhưng vẫn còn tồn – cần xuất / điều chỉnh">Ngừng KD · còn tồn</span>{% endif %}</div><div class="text-muted" style="font-size:12px">{{ r.product.name }}</div></td>
         <td>{{ r.product.base_uom.code }}</td>
         <td class="num">{{ r.on_hand|qty }}{% if r.quarantine %}<div class="text-muted" style="font-size:11px">+{{ r.quarantine|qty }} cách ly</div>{% endif %}</td>
         <td class="num">{{ r.reserved|qty }}</td>

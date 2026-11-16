@@ -124,7 +124,9 @@ def dashboard(request):
     from apps.sales.services import orders_waiting_delivery
 
     from apps.purchasing.services import maybe_scan_inbound
+    from .stale import maybe_scan_stale
     maybe_scan_inbound()
+    maybe_scan_stale()
     u = request.user
     role = u.role
     today = timezone.localdate()
@@ -332,6 +334,8 @@ def dashboard(request):
 # ------------------------------------------------------------------ Cảnh báo / tìm kiếm
 @login_required
 def alerts(request):
+    from .stale import maybe_scan_stale
+    maybe_scan_stale()
     qs = alerts_for(request.user) if request.GET.get("all") != "1" else Alert.objects.all()
     page, qs_str = paginate(request, qs, 30)
     return render(request, "core/alerts.html", {"title": "Cảnh báo", "page_obj": page, "qs": qs_str})
@@ -347,7 +351,8 @@ def alert_resolve(request, pk):
 @login_required
 def search(request):
     from apps.masterdata.models import Customer, Product, Supplier
-    from apps.purchasing.models import GoodsReceipt, InboundTrip, PurchaseOrder
+    from apps.inventory.models import StockAdjustment
+    from apps.purchasing.models import Claim, GoodsReceipt, InboundTrip, PurchaseOrder
     from apps.sales.models import SalesOrder
 
     q = request.GET.get("q", "").strip()
@@ -359,7 +364,9 @@ def search(request):
         for model, url, label in [(PurchaseOrder, "/app/purchase/orders/{}", "Đơn mua"),
                                   (SalesOrder, "/app/sales/orders/{}", "Đơn bán"),
                                   (InboundTrip, "/app/inbound/trips/{}", "Chuyến Inbound"),
-                                  (GoodsReceipt, "/app/warehouse/receipts/{}", "Phiếu nhập")]:
+                                  (GoodsReceipt, "/app/warehouse/receipts/{}", "Phiếu nhập"),
+                                  (Claim, "/app/warehouse/claims/{}", "Khiếu nại"),
+                                  (StockAdjustment, "/app/inventory/adjustments/{}", "Điều chỉnh tồn")]:
             for o in model.objects.filter(code__icontains=q)[:10]:
                 results.append({"type": label, "code": o.code, "url": url.format(o.pk), "obj": o})
         for o in Product.objects.filter(Q(code__icontains=q) | Q(name__icontains=q))[:10]:
@@ -383,9 +390,10 @@ class UserForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ["username", "full_name", "email", "phone", "role", "driver", "customer", "is_active"]
+        fields = ["username", "full_name", "email", "phone", "role", "driver", "customer", "supplier", "is_active"]
         labels = {"username": "Tên đăng nhập", "full_name": "Họ tên", "phone": "Điện thoại", "role": "Vai trò",
-                  "driver": "Gắn tài xế (DRIVER)", "customer": "Gắn khách hàng (CUSTOMER)", "is_active": "Đang hoạt động"}
+                  "driver": "Gắn tài xế (DRIVER)", "customer": "Gắn khách hàng (CUSTOMER)",
+                  "supplier": "Gắn nhà cung cấp (SUPPLIER – tài khoản nhà máy)", "is_active": "Đang hoạt động"}
 
     def clean(self):
         c = super().clean()
@@ -393,6 +401,10 @@ class UserForm(forms.ModelForm):
             self.add_error("driver", "Tài khoản DRIVER phải gắn với 1 tài xế.")
         if c.get("role") == Role.CUSTOMER and not c.get("customer"):
             self.add_error("customer", "Tài khoản CUSTOMER phải gắn với 1 khách hàng.")
+        if c.get("role") == Role.SUPPLIER and not c.get("supplier"):
+            self.add_error("supplier", "Tài khoản nhà máy phải gắn với 1 nhà cung cấp trong Danh mục.")
+        if c.get("role") != Role.SUPPLIER:
+            c["supplier"] = None  # chỉ tài khoản nhà máy được gắn NCC (dữ liệu PO lọc theo trường này)
         return c
 
 
@@ -483,4 +495,5 @@ def cron_nightly(request):
         return HttpResponseForbidden("forbidden")
     from apps.inventory.services import run_replenishment
     from apps.purchasing.services import scan_inbound
-    return JsonResponse({"replenishment": run_replenishment(), "late_trips": scan_inbound()})
+    from .stale import scan_stale
+    return JsonResponse({"replenishment": run_replenishment(), "late_trips": scan_inbound(), "stale": scan_stale()})

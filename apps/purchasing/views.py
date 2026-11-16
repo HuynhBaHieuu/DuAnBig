@@ -133,7 +133,10 @@ def po_list(request):
 def _supplier_prices():
     from apps.masterdata.models import SupplierPrice
     data = {}
-    for sp in SupplierPrice.objects.order_by("valid_from"):
+    today = timezone.localdate()
+    # chỉ giá đã duyệt, đang hiệu lực (giống latest_price) -> form PO không điền giá Chờ duyệt / hết hạn
+    for sp in SupplierPrice.objects.filter(status="APPROVED", valid_from__lte=today) \
+            .filter(Q(valid_to__isnull=True) | Q(valid_to__gte=today)).order_by("valid_from", "id"):
         data.setdefault(str(sp.supplier_id), {})[str(sp.product_id)] = float(sp.price)
     return data
 
@@ -197,10 +200,15 @@ def po_detail(request, pk):
             svc.send_po(po, request.POST.get("pickup_date") or po.pickup_date)
             messages.success(request, "Đã ghi nhận gửi NCC.")
         elif op == "cancel":
-            svc.cancel_po(po, request.POST.get("reason"), request.user)
+            released = svc.cancel_po(po, request.POST.get("reason"), request.user)
+            messages.success(request, f"Đã hủy {po.code}." + (f" PR trả về chờ lập PO: {', '.join(p.code for p in released)}."
+                                                             if released else ""))
         elif op == "delete" and po.status == "DRAFT":
-            po.delete()
-            messages.success(request, "Đã xóa PO nháp.")
+            with transaction.atomic():
+                released = svc.release_prs_of_po(po)  # xóa PO nháp gộp từ PR -> PR quay lại kế hoạch
+                po.delete()
+            messages.success(request, "Đã xóa PO nháp." + (f" PR trả về chờ lập PO: {', '.join(p.code for p in released)}."
+                                                         if released else ""))
             return redirect("/app/purchase/orders")
         return redirect(request.path)
     if request.GET.get("pdf"):
@@ -210,6 +218,45 @@ def po_detail(request, pk):
         "trips": po.trips.select_related("vehicle", "driver"), "receipts": po.receipts.all(),
         "est": svc.estimate_trips(po.lines.select_related("product")),
         "threshold": svc.param("PO_APPROVAL_THRESHOLD")})
+
+
+# ------------------------------------------------------------------ Khiếu nại (STT 59)
+CLAIM_ROLES = ("DIRECTOR", "PURCHASER", "WAREHOUSE", "ACCOUNTANT")
+
+
+@role_required(*CLAIM_ROLES)
+def claims(request):
+    from .models import Claim
+    qs = Claim.objects.select_related("gr__po__supplier", "gr__trip__carrier", "product__base_uom")
+    if request.GET.get("status"):
+        qs = qs.filter(status=request.GET["status"])
+    q = request.GET.get("q", "").strip()
+    if q:
+        qs = qs.filter(Q(code__icontains=q) | Q(gr__code__icontains=q) | Q(gr__po__code__icontains=q)
+                       | Q(gr__po__supplier__name__icontains=q) | Q(product__code__icontains=q))
+    counts = dict(Claim.objects.values_list("status").annotate(n=Count("id")))
+    page, qs_str = paginate(request, qs)
+    return render(request, "purchasing/claims.html", {"title": "Khiếu nại (Claim)", "page_obj": page, "qs": qs_str,
+                                                      "statuses": Claim.STATUS, "counts": counts})
+
+
+@role_required(*CLAIM_ROLES)
+@business_action
+def claim_detail(request, pk):
+    from .models import Claim
+    claim = get_object_or_404(Claim.objects.select_related("gr__po__supplier", "gr__trip__carrier", "product__base_uom",
+                                                           "credit_bill"), pk=pk)
+    if request.method == "POST":
+        if request.user.role not in ("DIRECTOR", "PURCHASER", "ACCOUNTANT", "ADMIN"):
+            raise BusinessError("Thủ kho chỉ xem khiếu nại.")
+        op = request.POST.get("op")
+        if op == "compensate" and request.user.role not in ("DIRECTOR", "ACCOUNTANT", "ADMIN"):
+            raise BusinessError("Ghi nhận bồi thường (trừ công nợ) do Kế toán / Giám đốc thực hiện.")
+        svc.claim_action(claim, request.user, op, _dec(request.POST.get("amount"), "0") or None,
+                         request.POST.get("note") or request.POST.get("reason", ""), request.POST.get("against"))
+        messages.success(request, f"Đã cập nhật khiếu nại {claim.code}.")
+        return redirect(request.path)
+    return render(request, "purchasing/claim_detail.html", {"title": claim.code, "c": claim, "flow": svc.CLAIM_FLOW})
 
 
 # ------------------------------------------------------------------ Inbound (MH-24)
@@ -282,16 +329,25 @@ def trip_detail(request, pk):
         op = request.POST.get("op")
         if op == "milestone":  # điều phối viên cập nhật thay tài xế (ví dụ tài xế gọi điện báo)
             ms = get_object_or_404(trip.milestones, pk=request.POST["milestone"])
-            svc.record_milestone(trip, ms, request.user, photo=request.FILES.get("photo"),
-                                 note=request.POST.get("note", "") or "Cập nhật bởi điều phối")
-            messages.success(request, f"Đã cập nhật mốc {ms.name}.")
+            ms, created = svc.record_milestone(trip, ms, request.user, photo=request.FILES.get("photo"),
+                                               note=request.POST.get("note", "") or "Cập nhật bởi điều phối")
+            messages.success(request, f"Đã cập nhật mốc {ms.name}." if created else
+                             f"Mốc {ms.name} đã được ghi nhận lúc {timezone.localtime(ms.actual_at):%H:%M} – không ghi trùng.")
         elif op == "incident":
             svc.report_incident(trip, request.user, request.POST["incident_type"], request.POST.get("description", ""),
                                 int(request.POST.get("delay_minutes") or 0), request.FILES.get("photo"))
             messages.success(request, "Đã ghi nhận sự cố, ETA được tính lại.")
         elif op == "resolve":
+            if request.user.role == "WAREHOUSE":
+                raise BusinessError("Điều phối / Thu mua đóng sự cố.")
             TripIncident.objects.filter(pk=request.POST["incident"], trip=trip).update(is_resolved=True)
             svc.recalc_eta(trip, "Sự cố đã xử lý")
+            messages.success(request, "Đã đóng sự cố, ETA được tính lại.")
+        elif op == "force_close":
+            if request.user.role not in ("DIRECTOR", "ADMIN"):
+                raise BusinessError("Chỉ Giám đốc đóng chuyến thủ công.")
+            t = svc.force_close_trip(trip, request.user, request.POST.get("reason"))
+            messages.success(request, f"Đã đóng chuyến {t.code} ({t.get_status_display()}). Tài xế và bến đã được giải phóng.")
         elif op == "propose_slot":
             if not svc.propose_slot(trip):
                 raise BusinessError("Không tìm được bến trống trong 24h tới.")
@@ -373,8 +429,7 @@ def slots(request):
     day = datetime.strptime(day, "%Y-%m-%d").date() if day else timezone.localdate()
     wh = Warehouse.objects.filter(pk=request.GET.get("wh")).first() or Warehouse.objects.filter(is_active=True).first()
     docks = list(Dock.objects.filter(warehouse=wh, is_active=True)) if wh else []
-    svc.normalize_slots()  # lịch cũ nằm ngoài khung giờ hạ tải -> dời về khung hợp lệ
-    h0, h1 = svc.slot_hours()  # khung giờ hạ tải (tham số SLOT_DAY_START / SLOT_DAY_END, mặc định 06:00–21:00)
+    h0, h1 = svc.slot_hours()  # STT 74: không còn tự dời lịch khi mở trang  # khung giờ hạ tải (tham số SLOT_DAY_START / SLOT_DAY_END, mặc định 06:00–21:00)
     day_start, day_end = svc.slot_window(day)
     qs = UnloadingSlot.objects.filter(dock__in=docks, start_at__lt=day_end, end_at__gt=day_start) \
         .exclude(status="CANCELLED").select_related("trip__vehicle", "trip__po__supplier", "dock")
@@ -402,6 +457,21 @@ def slots(request):
         "slot_list": _with_checkin_state(sorted(qs, key=lambda s: s.start_at))})
 
 
+def _gate(request, trip):
+    gr = svc.gate_checkin(trip, request.user, reason=request.POST.get("reason", ""))
+    slot = UnloadingSlot.objects.get(trip=trip, status="CHECKED_IN")
+    messages.success(request, f"Xe {trip.vehicle.plate} vào bến {slot.dock.code}. Mở phiếu nhập {gr.code}.")
+    return redirect(f"/app/warehouse/receipts/{gr.pk}")
+
+
+@role_required("DIRECTOR", "PURCHASER", "WAREHOUSE")
+@require_POST
+@business_action
+def gate_checkin(request, pk):
+    """Xe tới cổng (kể cả chưa có lịch hạ tải) -> vào bến trống đầu tiên & check-in (STT 74)."""
+    return _gate(request, get_object_or_404(InboundTrip, pk=pk))
+
+
 def _with_checkin_state(slots):
     """Gắn tình trạng check-in (sớm/muộn so với slot, bến có trống không) cho các lịch còn chờ check-in."""
     now = timezone.now()
@@ -426,9 +496,7 @@ def slot_action(request, pk):
         svc.confirm_slot(slot)
         messages.success(request, f"Đã xác nhận lịch hạ tải {slot.trip.code}.")
     elif op == "checkin":
-        gr = svc.check_in(slot, request.user, reason=request.POST.get("reason", ""), enforce_window=True)
-        messages.success(request, f"Đã check-in xe {slot.trip.vehicle.plate}. Mở phiếu nhập {gr.code}.")
-        return redirect(f"/app/warehouse/receipts/{gr.pk}")
+        return _gate(request, slot.trip)
     return redirect(request.META.get("HTTP_REFERER") or "/app/warehouse/slots")
 
 
@@ -463,17 +531,32 @@ def receipt_detail(request, pk):
                 gr.note = request.POST.get("note", gr.note)
                 gr.save()
             if op == "submit":
-                if svc.submit_grn(gr, request.user):
-                    messages.success(request, f"Đã nhập kho {gr.code}. Tồn kho, giá vốn & lead time đã cập nhật.")
-                else:
-                    messages.warning(request, f"Lệch > {svc.param('GRN_VARIANCE_PCT'):g}% – phiếu chuyển Director duyệt.")
+                svc.submit_grn(gr, request.user)
+                n = gr.claims.count()
+                messages.success(request, f"Đã nhập kho {gr.code} theo số thực nhận. Tồn kho, giá vốn & lead time đã cập nhật."
+                                 + (f" Đã lập {n} khiếu nại thiếu / hỏng – chờ Giám đốc duyệt." if n else ""))
             else:
                 messages.success(request, "Đã lưu nháp.")
         elif op == "approve":
             if request.user.role not in ("DIRECTOR", "ADMIN"):
                 raise BusinessError("Chỉ Director duyệt chênh lệch GRN.")
-            svc.approve_grn(gr, request.user)
-            messages.success(request, "Đã duyệt chênh lệch và nhập kho.")
+            action = request.POST.get("shortage_action", "CLOSE")
+            svc.approve_grn(gr, request.user, action)
+            messages.success(request, f"Đã duyệt chênh lệch và nhập kho – {svc.SHORTAGE_ACTIONS[action].lower()}.")
+        elif op == "exclude_stats":  # STT 23: chuyến test / dữ liệu bất thường -> loại khỏi thống kê lead time
+            if request.user.role not in ("DIRECTOR", "PURCHASER", "ADMIN"):
+                raise BusinessError("Chỉ Giám đốc / Thu mua đánh dấu phiếu nhập.")
+            gr.exclude_from_stats = not gr.exclude_from_stats
+            reason = request.POST.get("reason", "").strip()
+            if gr.exclude_from_stats and not reason:
+                raise BusinessError("Nhập lý do loại khỏi thống kê (vd: chuyến test).")
+            gr.exclude_reason = reason[:255] if gr.exclude_from_stats else ""
+            gr.save(update_fields=["exclude_from_stats", "exclude_reason", "updated_at"])
+            from apps.core.services import audit
+            audit("UPDATE", gr, {"Loại khỏi thống kê lead time": "Có" if gr.exclude_from_stats else "Không",
+                                 "Lý do": reason})
+            messages.success(request, "Đã loại phiếu khỏi thống kê lead time (SS/ROP sẽ tính lại ở lần chạy tới)."
+                             if gr.exclude_from_stats else "Đã đưa phiếu trở lại thống kê lead time.")
         elif op == "cancel":
             if gr.status == "POSTED":
                 raise BusinessError("Phiếu đã nhập kho – không hủy được (lập phiếu điều chỉnh).")
@@ -484,4 +567,4 @@ def receipt_detail(request, pk):
     return render(request, "purchasing/receipt_detail.html", {
         "title": gr.code, "gr": gr, "lines": lines, "limit": svc.param("GRN_VARIANCE_PCT"),
         "locations": Location.objects.filter(warehouse=gr.warehouse, is_active=True).exclude(loc_type="STAGING_OUT"),
-        "claims": gr.claims.all()})
+        "claims": gr.claims.all(), "shortage_actions": svc.SHORTAGE_ACTIONS})

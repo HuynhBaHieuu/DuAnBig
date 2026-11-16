@@ -61,9 +61,10 @@ def post_invoice(inv):
 
 # ------------------------------------------------------------------ Hóa đơn mua & đối chiếu 3 bên
 def three_way_match(bill):
-    """PO (đơn giá) – GRN (SL thực nhận chưa lập bill) – Bill. Cước: so với cước chuyến đã nhận hàng."""
+    """PO (đơn giá, thuế suất) – GRN (SL thực nhận chưa lập bill) – Bill. Cước: so với cước chuyến đã nhận hàng.
+    Hóa đơn vật tư: thuế suất trên hóa đơn phải bằng thuế suất của PO, ngược lại "Lệch thuế suất" (STT 36)."""
     all_ok = True
-    for bl in bill.lines.select_related("po_line", "inbound_trip"):
+    for bl in bill.lines.select_related("po_line__po", "inbound_trip"):
         status = "MATCH"
         if bl.po_line_id:
             pol = bl.po_line
@@ -74,6 +75,8 @@ def three_way_match(bill):
                 status = "QTY_DIFF"
             elif bl.unit_price != pol.unit_price:
                 status = "PRICE_DIFF"
+            elif bill.vat_rate is not None and Decimal(bill.vat_rate) != Decimal(pol.po.vat_rate):
+                status = "VAT_DIFF"
         elif bl.inbound_trip_id:
             trip = bl.inbound_trip
             if trip.status != "RECEIVED":
@@ -91,18 +94,32 @@ def three_way_match(bill):
     return all_ok
 
 
+def default_vat_rate(bill_type, po_lines=()):
+    """Thuế suất mặc định: hóa đơn vật tư lấy theo PO (vat_rate chốt lúc lập PO = PO_VAT_RATE);
+    cước vận chuyển và hóa đơn bán dùng VAT_RATE."""
+    rates = {Decimal(pol.po.vat_rate) for pol in po_lines}
+    if bill_type == "GOODS":
+        return rates.pop() if len(rates) == 1 else Decimal(str(param("PO_VAT_RATE")))
+    return Decimal(str(param("VAT_RATE")))
+
+
 def recalc_bill(bill):
     bill.subtotal = sum((l.amount for l in bill.lines.all()), D0)
-    bill.vat_amount = _r(bill.subtotal * Decimal(param("VAT_RATE")) / 100)
+    if bill.vat_rate is None:
+        bill.vat_rate = default_vat_rate(bill.bill_type, [l.po_line for l in bill.lines.select_related("po_line__po")
+                                                          if l.po_line_id])
+    bill.vat_amount = _r(bill.subtotal * Decimal(bill.vat_rate) / 100)
     bill.total = bill.subtotal + bill.vat_amount
     bill.save()
 
 
 @transaction.atomic
-def create_goods_bill(supplier, vendor_invoice_no, bill_date, lines):
-    """lines: [(po_line, qty, unit_price)]"""
+def create_goods_bill(supplier, vendor_invoice_no, bill_date, lines, vat_rate=None):
+    """lines: [(po_line, qty, unit_price)]; vat_rate: thuế suất ghi trên hóa đơn NCC (None = theo PO)."""
+    if vat_rate in ("", None):
+        vat_rate = default_vat_rate("GOODS", [pol for pol, _, _ in lines])
     bill = Bill.objects.create(code=next_doc_no("BILL"), bill_type="GOODS", supplier=supplier,
-                               vendor_invoice_no=vendor_invoice_no, bill_date=bill_date,
+                               vendor_invoice_no=vendor_invoice_no, bill_date=bill_date, vat_rate=Decimal(vat_rate),
                                due_date=bill_date + timedelta(days=supplier.payment_terms_days))
     for pol, q, price in lines:
         BillLine.objects.create(bill=bill, po_line=pol, description=pol.product.name, qty=q, unit_price=price,
@@ -125,17 +142,24 @@ def create_freight_bill(carrier, vendor_invoice_no, bill_date, trips_amounts):
     return bill
 
 
-def accept_mismatch(bill, user):
+def accept_mismatch(bill, user, reason=""):
+    """Giám đốc chấp nhận chênh lệch – bắt buộc ghi lý do (STT 38)."""
     if bill.status != "MISMATCH":
         raise BusinessError("Hóa đơn không ở trạng thái lệch.")
-    bill.status, bill.accepted_by = "ACCEPTED", user
+    reason = (reason or "").strip()
+    if len(reason) < 5:
+        raise BusinessError("Phải nhập lý do chấp nhận chênh lệch.")
+    bill.status, bill.accepted_by, bill.accept_reason = "ACCEPTED", user, reason[:255]
     bill.save()
     resolve_alerts("BILL_MISMATCH", "bill", bill.pk)
-    audit("APPROVE", bill, {"note": "Chấp nhận lệch đối chiếu 3 bên"})
+    audit("APPROVE", bill, {"note": "Chấp nhận lệch đối chiếu 3 bên", "Lý do": reason})
 
 
 @transaction.atomic
-def post_bill(bill):
+def post_bill(bill, user=None):
+    """Ghi sổ công nợ phải trả – chỉ Kế toán (tách bạch với Giám đốc chấp nhận lệch, STT 38)."""
+    if user is not None and user.role not in ("ACCOUNTANT", "ADMIN"):
+        raise BusinessError("Chỉ Kế toán được ghi sổ hóa đơn mua.")
     if bill.status == "MISMATCH":
         raise BusinessError("Hóa đơn lệch đối chiếu 3 bên – cần Director chấp nhận trước khi ghi sổ.")
     if bill.status not in ("MATCHED", "ACCEPTED"):
@@ -144,7 +168,7 @@ def post_bill(bill):
         if bl.po_line_id:
             bl.po_line.qty_billed += bl.qty
             bl.po_line.save(update_fields=["qty_billed"])
-    bill.status = "POSTED"
+    bill.status, bill.posted_by = "POSTED", user
     bill.save()
     audit("POST", bill)
 
@@ -164,8 +188,9 @@ def record_payment(direction, partner, amount, paid_at, method="BANK", note="", 
         docs = Invoice.objects.select_for_update().filter(customer=partner, invoice_type="SALE",
                                                           status__in=["POSTED", "PARTIAL"]).order_by("due_date", "id")
     else:
+        # chứng từ giảm trừ khiếu nại (số âm) đã trừ thẳng vào công nợ – không phân bổ tiền chi vào đó
         docs = Bill.objects.select_for_update().filter(**{kind: partner}, status__in=["POSTED", "PARTIAL"]) \
-            .order_by("due_date", "id")
+            .exclude(bill_type="CLAIM_CREDIT").order_by("due_date", "id")
     for doc in docs:
         if remain <= 0:
             break

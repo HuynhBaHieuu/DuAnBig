@@ -1,4 +1,4 @@
-"""MH-70 → 76: 7 KPI dự án, Dashboard ROP, Nhập–Xuất–Tồn, OTIF, Lead time, Thời gian chờ hạ tải."""
+"""MH-70 → 76: 6 KPI dự án (KPI-5 đã bỏ), Dashboard ROP, Nhập–Xuất–Tồn, OTIF, Lead time, Thời gian chờ hạ tải."""
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -14,7 +14,7 @@ from apps.core.utils import excel_response
 from apps.inventory.models import InventoryCount, InventoryCountLine, StockMove, StockQuant
 from apps.inventory.services import stock_summary
 from apps.masterdata.models import Product
-from apps.purchasing.models import GoodsReceipt, InboundTrip, TripMilestone, UnloadingSlot
+from apps.purchasing.models import GoodsReceipt, InboundTrip, UnloadingSlot
 from apps.sales.models import DeliveryStop
 
 REPORT_ROLES = ("DIRECTOR", "PURCHASER", "ACCOUNTANT", "DISPATCHER")
@@ -30,11 +30,17 @@ def _range(request, days=30):
     return d_from, d_to
 
 
+OTIF_RULE = ("On-time: điểm giao có giao hàng (Đã giao / Giao một phần) và ngày giao ≤ ngày khách cần. "
+             "In-full: giao đủ số lượng trên xe. Điểm giao THẤT BẠI (khách vắng, từ chối…) tính là KHÔNG đúng hạn và "
+             "KHÔNG đủ; lần giao lại thành công được tính là một điểm giao riêng.")
+
+
 def otif_data(d_from, d_to):
     stops = DeliveryStop.objects.filter(delivered_at__date__range=(d_from, d_to)).select_related("so__customer", "trip")
     rows, ot, inf, both = [], 0, 0, 0
     for s in stops:
-        on_time = timezone.localtime(s.delivered_at).date() <= s.so.requested_date
+        delivered = s.status in ("DELIVERED", "PARTIAL")  # giao thất bại không bao giờ là "đúng hạn" (STT 46)
+        on_time = delivered and timezone.localtime(s.delivered_at).date() <= s.so.requested_date
         in_full = s.status == "DELIVERED"
         ot += on_time
         inf += in_full
@@ -42,12 +48,14 @@ def otif_data(d_from, d_to):
         rows.append({"s": s, "on_time": on_time, "in_full": in_full})
     n = len(rows)
     pct = lambda x: (x / n * 100) if n else None  # noqa: E731
-    return {"rows": rows, "n": n, "ot": pct(ot), "if": pct(inf), "otif": pct(both)}
+    return {"rows": rows, "n": n, "ot": pct(ot), "if": pct(inf), "otif": pct(both), "rule": OTIF_RULE}
 
 
 def leadtime_data(d_from, d_to):
-    grs = GoodsReceipt.objects.filter(status="POSTED", posted_at__date__range=(d_from, d_to), lead_time_days__isnull=False) \
-        .select_related("po__supplier")
+    all_grs = GoodsReceipt.objects.filter(status="POSTED", posted_at__date__range=(d_from, d_to),
+                                          lead_time_days__isnull=False).select_related("po__supplier")
+    excluded = [g for g in all_grs if g.exclude_from_stats]
+    grs = [g for g in all_grs if not g.exclude_from_stats]
     by_sup = defaultdict(list)
     for g in grs:
         by_sup[g.po.supplier].append(float(g.lead_time_days))
@@ -55,7 +63,7 @@ def leadtime_data(d_from, d_to):
              "min": min(v), "max": max(v)} for s, v in by_sup.items()]
     rows.sort(key=lambda r: -r["avg"])
     allv = [x for v in by_sup.values() for x in v]
-    return {"rows": rows, "avg": statistics.fmean(allv) if allv else None, "grs": grs}
+    return {"rows": rows, "avg": statistics.fmean(allv) if allv else None, "grs": grs, "excluded": excluded}
 
 
 def wait_data(d_from, d_to):
@@ -71,18 +79,15 @@ def wait_data(d_from, d_to):
             "over30": sum(1 for w in waits if w > 30)}
 
 
-def milestone_ontime(d_from, d_to):
-    ms = TripMilestone.objects.filter(actual_at__date__range=(d_from, d_to))
-    n = ms.count()
-    tol = param("MILESTONE_ONTIME_MIN")
-    late = sum(1 for m in ms if m.delay_min and m.delay_min > tol)  # trễ = lệch > +30' (giống nhãn mốc)
-    return ((n - late) / n * 100) if n else None
+def count_lines(d_from, d_to):
+    return list(InventoryCountLine.objects.filter(count__status="APPROVED", count__updated_at__date__range=(d_from, d_to),
+                                                  final_qty__isnull=False)
+                .select_related("count__warehouse", "product__base_uom", "location").order_by("-count_id", "location__code"))
 
 
 def count_accuracy(d_from, d_to):
-    lines = InventoryCountLine.objects.filter(count__status="APPROVED", count__updated_at__date__range=(d_from, d_to),
-                                              final_qty__isnull=False)
-    n = lines.count()
+    lines = count_lines(d_from, d_to)
+    n = len(lines)
     ok = sum(1 for l in lines if (l.variance_pct or 0) <= 1)
     return (ok / n * 100) if n else None
 
@@ -102,10 +107,10 @@ def index(request):
     doi = (float(stock_val) / (float(cogs) / days)) if cogs else None
     kpis = [
         {"code": "KPI-1", "label": "OTIF (giao đúng hạn & đủ)", "value": otif["otif"], "unit": "%", "target": 95, "higher": True, "url": "/app/reports/otif"},
-        {"code": "KPI-2", "label": "Độ chính xác tồn kho (kiểm kê)", "value": count_accuracy(d_from, d_to), "unit": "%", "target": 98, "higher": True, "url": "/app/inventory/counts"},
+        {"code": "KPI-2", "label": "Độ chính xác tồn kho (kiểm kê)", "value": count_accuracy(d_from, d_to), "unit": "%", "target": 98, "higher": True, "url": "/app/reports/count-accuracy"},
         {"code": "KPI-3", "label": "Lead time Inbound TB", "value": lt["avg"], "unit": " ngày", "target": 3, "higher": False, "url": "/app/reports/leadtime"},
         {"code": "KPI-4", "label": "Thời gian chờ hạ tải TB", "value": wait["avg"], "unit": " phút", "target": 30, "higher": False, "url": "/app/reports/unloading"},
-        {"code": "KPI-5", "label": "Tỷ lệ mốc hành trình đúng giờ", "value": milestone_ontime(d_from, d_to), "unit": "%", "target": 90, "higher": True, "url": "/app/inbound/board?view=table"},
+        # KPI-5 (mốc hành trình đúng giờ) đã bỏ – STT 73: không dẫn tới hành động nào sau khi rút mốc còn 2
         {"code": "KPI-6", "label": "Tỷ lệ mã hàng hết hàng", "value": stockout, "unit": "%", "target": 2, "higher": False, "url": "/app/reports/rop"},
         {"code": "KPI-7", "label": "Số ngày tồn kho (DOI)", "value": doi, "unit": " ngày", "target": 30, "higher": False, "url": "/app/reports/nxt"},
     ]
@@ -184,6 +189,23 @@ def leadtime(request):
     d_from, d_to = _range(request, 90)
     return render(request, "reports/leadtime.html", {"title": "Báo cáo Lead time", "d": leadtime_data(d_from, d_to),
                                                      "d_from": d_from, "d_to": d_to})
+
+
+@role_required(*REPORT_ROLES)
+def count_accuracy_report(request):
+    """KPI-2: từng dòng kiểm kê đã duyệt trong kỳ – tồn sổ, số đếm, % lệch (đạt khi lệch ≤ 1%)."""
+    d_from, d_to = _range(request)
+    lines = count_lines(d_from, d_to)
+    counts = {}
+    for l in lines:
+        c = counts.setdefault(l.count_id, {"ic": l.count, "n": 0, "ok": 0})
+        c["n"] += 1
+        c["ok"] += (l.variance_pct or 0) <= 1
+    for c in counts.values():
+        c["pct"] = c["ok"] / c["n"] * 100 if c["n"] else None
+    return render(request, "reports/count_accuracy.html", {
+        "title": "KPI-2 · Độ chính xác tồn kho", "lines": lines, "counts": list(counts.values()),
+        "value": count_accuracy(d_from, d_to), "d_from": d_from, "d_to": d_to})
 
 
 @role_required(*REPORT_ROLES)

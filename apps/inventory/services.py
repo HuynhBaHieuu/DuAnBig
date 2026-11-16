@@ -69,7 +69,13 @@ def post_stock_move(product, location, qty, move_type, ref_type, ref_id, unit_co
 
 
 def transfer(product, from_loc, to_loc, qty, note=""):
-    """Chuyển vị trí = 2 bút toán TRF trong cùng transaction."""
+    """Chuyển vị trí = 2 bút toán TRF trong cùng transaction. SL phải > 0 (số âm không được hiểu là chuyển ngược)."""
+    try:
+        qty = Decimal(qty)
+    except Exception:
+        raise BusinessError("Số lượng chuyển không hợp lệ.")
+    if not qty.is_finite() or qty <= 0:
+        raise BusinessError("Số lượng chuyển phải lớn hơn 0.")
     with transaction.atomic():
         ref = int(timezone.now().timestamp())
         post_stock_move(product, from_loc, -Decimal(qty), "TRF", "TRF", ref, note=note)
@@ -141,7 +147,7 @@ def default_storage_location(product, warehouse):
 
 
 # ----------------------------------------------------------------------------------------------
-# SS / ROP (Celery 01:00 hằng đêm)
+# SS / ROP (tác vụ đêm: Vercel Cron 18:00 UTC = 01:00–02:00 giờ VN)
 #   Davg, σD từ lịch sử xuất; LT, σLT từ lead time thực tế các GRN
 #   FULL: SS = Z * sqrt(LT * σD² + Davg² * σLT²)
 #   ROP = Davg * LT + SS ;  Q = max(MOQ; Davg * chu kỳ đặt) ; PR = max(Q; ROP + Q - projected)
@@ -189,7 +195,8 @@ def calc_param(product, today=None):
     d_std = statistics.stdev(series) if len(series) > 1 else 0.0  # mẫu – khớp STDEV.S của Excel
 
     lts = [float(x) for x in GoodsReceiptLine.objects.filter(product=product, gr__status="POSTED",
-                                                              gr__lead_time_days__isnull=False)
+                                                              gr__lead_time_days__isnull=False,
+                                                              gr__exclude_from_stats=False)  # bỏ chuyến test
            .order_by("-gr__posted_at").values_list("gr__lead_time_days", flat=True)[:20]]
     # LT thực tế chỉ dùng khi đã có ≥ 3 chuyến nhập xong, ngược lại giữ lead time mặc định (đặc tả mục 2)
     lt = statistics.fmean(lts) if len(lts) >= 3 else float(rp.lead_time_days or 3)

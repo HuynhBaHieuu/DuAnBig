@@ -5,7 +5,9 @@
     <div class="page-sub">{{ gr.po.code }} · {{ gr.po.supplier.name }} · {% if gr.trip %}{{ gr.trip.code }} · xe {{ gr.trip.vehicle.plate }} · {% endif %}{{ gr.warehouse.name }}</div></div>
   <div class="toolbar">
     <a href="?pdf=1" target="_blank" class="btn btn-outline"><i data-lucide="printer"></i>In phiếu</a>
-    {% if gr.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt chênh lệch & nhập kho</button></form>{% endif %}
+    {% if gr.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}<form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="op" value="approve">
+      <select class="input" name="shortage_action" style="width:290px" title="Phần thiếu / hỏng so với dự kiến">{% for k, v in shortage_actions.items %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+      <button class="btn btn-primary"><i data-lucide="check"></i>Duyệt chênh lệch & nhập kho</button></form>{% endif %}
     {% if gr.status == "DRAFT" or gr.status == "PENDING_APPROVAL" %}{% include "partials/cancel_form.html" %}{% endif %}
   </div>
 </div>
@@ -14,7 +16,7 @@
 <div x-show="tab === 'd'">
 {% if gr.status == "PENDING_APPROVAL" %}<div class="flash flash-warning"><i data-lucide="shield-alert"></i>Có dòng lệch > {{ limit }}% so với số lượng dự kiến – chờ Director duyệt.</div>{% endif %}
 <form method="post" class="card" x-data>{% csrf_token %}
-  <div class="card-head"><h3 class="card-title">Kiểm nhận hàng</h3><span class="text-muted" style="font-size:12px">Dòng lệch > {{ limit }}% được tô màu · hàng hỏng chuyển khu cách ly</span></div>
+  <div class="card-head"><h3 class="card-title">Kiểm nhận hàng</h3><span class="text-muted" style="font-size:12px">Xác nhận là ghi sổ ngay theo số thực nhận · hàng hỏng vào khu cách ly · thiếu / hỏng tự lập khiếu nại chờ Giám đốc duyệt</span></div>
   <div class="card-body" style="padding:12px 0 0"><div class="table-wrap"><table class="tbl">
     <thead><tr><th>Sản phẩm</th><th class="num">SL dự kiến</th><th class="num" style="width:130px">SL thực nhận</th><th class="num" style="width:120px">SL hỏng</th><th class="num">Chênh lệch</th><th class="num">% lệch</th><th style="width:160px">Vị trí cất</th>{% if user.can_see_price %}<th class="num">Đơn giá</th>{% endif %}</tr></thead>
     <tbody>{% for l in lines %}
@@ -44,9 +46,13 @@
 </form>
 {% if gr.status == "POSTED" %}
 <div class="grid g-2" style="margin-top:20px">
-  <div class="card card-body"><dl class="dl"><dt>Ghi sổ lúc</dt><dd>{{ gr.posted_at|vn_dt }}</dd><dt>Lead time thực tế</dt><dd>{{ gr.lead_time_days|floatformat:2 }} ngày</dd><dt>Người duyệt</dt><dd>{{ gr.approved_by|default:"—" }}</dd></dl></div>
+  <div class="card card-body"><dl class="dl"><dt>Ghi sổ lúc</dt><dd>{{ gr.posted_at|vn_dt }}</dd><dt>Lead time thực tế</dt><dd>{{ gr.lead_time_days|floatformat:2 }} ngày
+      {% if gr.exclude_from_stats %}<div><span class="badge badge-gray">Loại khỏi thống kê</span> <span class="text-muted" style="font-size:12px">{{ gr.exclude_reason }}</span></div>{% endif %}</dd><dt>Người duyệt</dt><dd>{{ gr.approved_by|default:"—" }}</dd></dl>
+    {% if user.role in "DIRECTOR PURCHASER ADMIN" %}<form method="post" class="toolbar" style="margin-top:12px">{% csrf_token %}<input type="hidden" name="op" value="exclude_stats">
+      {% if gr.exclude_from_stats %}<button class="btn btn-soft btn-sm">Đưa lại vào thống kê lead time</button>
+      {% else %}<input class="input input-sm" name="reason" placeholder="Lý do (vd: chuyến test)" style="width:200px" required><button class="btn btn-outline btn-sm" title="Không dùng lead time của phiếu này khi tính SS/ROP và báo cáo lead time">Chuyến test – loại khỏi thống kê</button>{% endif %}</form>{% endif %}</div>
   <div class="card card-body"><h3 class="card-title" style="margin-bottom:10px">Khiếu nại (Claim)</h3>
-    {% for c in claims %}<div style="display:flex;justify-content:space-between;padding:6px 0"><span><b>{{ c.code }}</b> · {{ c.get_claim_type_display }} · {{ c.get_against_display }}</span>{% if user.can_see_price %}<b>{{ c.amount|vnd }}</b>{% endif %}</div>{% empty %}<div class="text-muted">Không có khiếu nại.</div>{% endfor %}</div>
+    {% for c in claims %}<a href="/app/warehouse/claims/{{ c.pk }}" style="display:flex;justify-content:space-between;padding:6px 0;gap:8px"><span><b class="text-primary">{{ c.code }}</b> · {{ c.get_claim_type_display }} {{ c.qty|qty }} · {{ c.get_against_display }} {% status_badge c %}</span>{% if user.can_see_price %}<b>{{ c.amount|vnd }}</b>{% endif %}</a>{% empty %}<div class="text-muted">Không có khiếu nại.</div>{% endfor %}</div>
 </div>
 {% endif %}
 </div>

@@ -198,7 +198,8 @@ class Stt17MilestoneLabel(SlotBase):
         planned = timezone.now() + timedelta(hours=12)
         t = ps.create_inbound_trip(self.po, self.route, self.vehicle, self.driver, planned, {self.pol: 30})
         ms = list(t.milestones.order_by("seq"))
-        ps.record_milestone(t, ms[0], self.taixe)              # thực tế sớm ~12 giờ
+        from .test_qt1_qt2 import photo
+        ps.record_milestone(t, ms[0], self.taixe, photo=photo(ms[0]))  # thực tế sớm ~12 giờ
         ms = list(t.milestones.order_by("seq"))
         kind, mins = ms[0].timing()
         self.assertEqual(kind, "EARLY")

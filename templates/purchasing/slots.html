@@ -14,15 +14,16 @@
   <div class="card card-body" x-data="slotGrid()">
     <div class="toolbar" style="margin-bottom:12px;font-size:12px">
       <span class="badge badge-primary">Đề xuất</span><span class="badge badge-info">Đã xác nhận</span><span class="badge badge-warn">Đã check-in</span><span class="badge badge-success">Hoàn tất</span>
-      <span class="text-muted">Kéo thẻ sang ô khác để đổi bến / giờ</span>
+      <span class="text-muted">Kéo thẻ sang ô khác để đổi bến / giờ · ô xám: không thả được (lịch sẽ kết thúc sau {{ h1|time:'H:i' }})</span>
     </div>
+    <div class="flash flash-error" x-show="msg" x-cloak style="margin-bottom:10px;display:flex;justify-content:space-between;gap:10px"><span x-text="msg"></span><a href="#" @click.prevent="msg=''" title="Đóng">✕</a></div>
     <div class="slotgrid" id="grid" style="grid-template-columns:64px repeat({{ docks|length }}, minmax(150px,1fr));max-height:70vh">
       <div class="hcell" style="left:0;z-index:3"></div>
       {% for d in docks %}<div class="hcell">{{ d.code }}<div style="font-weight:400">{{ d.name }}</div></div>{% endfor %}
       {% for t in times %}
         <div class="tcell" style="{% if forloop.counter0|divisibleby:4 %}border-top:1px solid var(--line){% endif %}">{% if forloop.counter0|divisibleby:4 %}{{ t }}{% endif %}</div>
         {% for d in docks %}<div class="cell {% if forloop.parentloop.counter0|divisibleby:4 %}hour{% endif %}" data-dock="{{ d.pk }}" data-time="{{ t }}"
-             @dragover.prevent="$el.classList.add('drop')" @dragleave="$el.classList.remove('drop')" @drop.prevent="drop($event, $el)"></div>{% endfor %}
+             @dragover="over($event, $el)" @dragleave="$el.classList.remove('drop')" @drop.prevent="drop($event, $el)"></div>{% endfor %}
       {% endfor %}
     </div>
   </div>
@@ -36,21 +37,23 @@
         <div class="toolbar" style="margin-top:8px">
           {% if s.status == "PROPOSED" %}<form method="post" action="/app/warehouse/slots/{{ s.pk }}">{% csrf_token %}<input type="hidden" name="op" value="confirm"><button class="btn btn-soft btn-sm">Xác nhận</button></form>{% endif %}
           {% if s.status == "PROPOSED" or s.status == "CONFIRMED" %}{% if s.trip.status == "ARRIVED" or s.trip.status == "IN_TRANSIT" or s.trip.status == "LOADED" %}
-            {% if s.ci.blocker %}
-            <div class="text-muted" style="font-size:12px;width:100%"><span class="badge badge-warn">Phải đợi</span> Xe sớm {{ s.ci.early_min|dur }} so với slot, bến {{ s.dock.code }} đang bận ({{ s.ci.blocker.trip.code }}{% if s.ci.blocker.status == "CHECKED_IN" %} đang hạ tải{% else %} {{ s.ci.blocker.start_at|hm }}–{{ s.ci.blocker.end_at|hm }}{% endif %}).</div>
-            <button class="btn btn-soft btn-sm" disabled title="Bến chưa trống – chờ tới khi bến trống hoặc tới giờ slot"><i data-lucide="log-in"></i>Check-in & mở GRN</button>
-            {% else %}
+            {% if s.ci.free_now %}
             <form method="post" action="/app/warehouse/slots/{{ s.pk }}" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%">{% csrf_token %}<input type="hidden" name="op" value="checkin">
-              {% if s.ci.early_min or s.ci.late_min %}<span class="badge {% if s.ci.need_reason %}badge-danger{% else %}badge-gray{% endif %}">{% if s.ci.early_min %}Sớm {{ s.ci.early_min|dur }}{% else %}Muộn {{ s.ci.late_min|dur }}{% endif %} so với slot</span>{% endif %}
-              {% if s.ci.need_reason %}<input class="input input-sm" name="reason" required maxlength="255" placeholder="Lý do check-in lệch slot (bắt buộc)" style="flex:1;min-width:180px">{% endif %}
-              <button class="btn btn-primary btn-sm"><i data-lucide="log-in"></i>Check-in & mở GRN</button></form>
-            {% endif %}{% endif %}{% endif %}
+              {% if s.ci.early_min %}<span class="badge badge-gray">Sớm {{ s.ci.early_min|dur }} so với lịch</span>{% elif s.ci.late_min %}<span class="badge {% if s.ci.need_reason %}badge-danger{% else %}badge-gray{% endif %}">Muộn {{ s.ci.late_min|dur }}</span>{% endif %}
+              {% if s.ci.need_reason %}<input class="input input-sm" name="reason" required maxlength="255" placeholder="Lý do tới muộn (bắt buộc)" style="flex:1;min-width:180px">{% endif %}
+              <button class="btn btn-primary btn-sm" title="Xe tới cổng: vào bến trống đầu tiên ngay, không chờ tới giờ lịch"><i data-lucide="log-in"></i>Xe tới cổng – vào {{ s.ci.free_now.code }}</button></form>
+            {% else %}
+            <div class="text-muted" style="font-size:12px;width:100%"><span class="badge badge-warn">Mọi bến đang bận</span>{% if s.ci.next_free.0 %} bến trống sớm nhất {{ s.ci.next_free.0.code }} lúc {{ s.ci.next_free.1|hm }}{% endif %}.</div>
+            {% endif %}
+          {% endif %}{% endif %}
         </div>
       </div>
       {% empty %}<div class="text-muted">Chưa có lịch hạ tải.</div>{% endfor %}
     </div></div>
     {% if waiting %}<div class="card"><div class="card-head"><h3 class="card-title">Chuyến chưa có lịch</h3></div><div class="card-body">
-      {% for t in waiting %}<a href="/app/inbound/trips/{{ t.pk }}" style="display:flex;justify-content:space-between;padding:6px 0"><span>{{ t.code }} · {{ t.vehicle.plate }}</span><span class="text-muted">ETA {{ t.eta|hm }}</span></a>{% endfor %}
+      <div class="text-muted" style="font-size:12px;margin-bottom:6px">Bến được xếp khi xe báo mốc "còn 2 giờ"; xe tới cổng thì vào bến trống đầu tiên.</div>
+      {% for t in waiting %}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><a href="/app/inbound/trips/{{ t.pk }}"><b>{{ t.code }}</b> · {{ t.vehicle.plate }}<div class="text-muted" style="font-size:12px">ETA {{ t.eta|hm }}</div></a>
+        {% if user.role in "WAREHOUSE DIRECTOR ADMIN" %}<form method="post" action="/app/warehouse/gate/{{ t.pk }}">{% csrf_token %}<button class="btn btn-soft btn-sm" title="Xe đã tới cổng: vào bến trống đầu tiên & check-in"><i data-lucide="log-in"></i>Xe tới cổng</button></form>{% endif %}</div>{% endfor %}
     </div></div>{% endif %}
   </div>
 </div>
@@ -60,6 +63,7 @@
 <script>
 function slotGrid() {
   return {
+    msg: "",
     init() {
       const grid = document.getElementById("grid");
       const cells = grid.querySelectorAll(".cell");
@@ -116,7 +120,8 @@ function slotGrid() {
             : `<b>${it.code}</b> · ${it.plate}<div style="opacity:.7">${it.start}–${it.end}</div>`;
           if (compact) el.classList.add("compact");
           if (it.lanes > 1) el.classList.add("overlap");
-          el.addEventListener("dragstart", e => e.dataTransfer.setData("text/plain", it.id));
+          el.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", it.id); this.markNoDrop(it); });
+          el.addEventListener("dragend", () => this.clearNoDrop());
           grid.appendChild(el);
         });
         const nowRow = {% if now_row is not None %}{{ now_row }}{% else %}null{% endif %};
@@ -140,8 +145,23 @@ function slotGrid() {
         }
       });
     },
+    // Đang kéo: tô xám các ô mà nếu thả vào thì lịch kết thúc sau giờ đóng khung hạ tải
+    markNoDrop(it) {
+      this.msg = "";
+      const need = Math.ceil(it.h - 1e-6), rows = {{ rows }};
+      const byDock = {};
+      document.querySelectorAll("#grid .cell").forEach(c => { (byDock[c.dataset.dock] = byDock[c.dataset.dock] || []).push(c); });
+      Object.values(byDock).forEach(cs => cs.forEach((c, i) => c.classList.toggle("nodrop", i + need > rows)));
+    },
+    clearNoDrop() { document.querySelectorAll("#grid .cell.nodrop").forEach(c => c.classList.remove("nodrop")); },
+    over(e, cell) {
+      if (cell.classList.contains("nodrop")) return;  // không preventDefault -> trình duyệt báo không thả được
+      e.preventDefault();
+      cell.classList.add("drop");
+    },
     async drop(e, cell) {
       cell.classList.remove("drop");
+      this.clearNoDrop();
       const id = e.dataTransfer.getData("text/plain");
       const day = JSON.parse(document.getElementById("day").textContent);
       // không cho thả ra ngoài khung giờ hạ tải: giờ kết thúc (ô thả + thời lượng) phải ≤ giờ đóng
@@ -149,13 +169,13 @@ function slotGrid() {
       const cells = [...document.querySelectorAll("#grid .cell")].filter(c => c.dataset.dock === cell.dataset.dock);
       const idx = cells.indexOf(cell);
       if (it && idx >= 0 && idx + Math.ceil(it.h - 1e-6) > {{ rows }}) {
-        alert("Chỉ được xếp lịch hạ tải trong khung {{ h0|time:'H:i' }}–{{ h1|time:'H:i' }}: lịch này sẽ kết thúc sau {{ h1|time:'H:i' }}.");
+        this.msg = "Chỉ được xếp lịch hạ tải trong khung {{ h0|time:'H:i' }}–{{ h1|time:'H:i' }}: lịch này sẽ kết thúc sau {{ h1|time:'H:i' }}.";
         return;
       }
       try {
         await postJSON(`/app/warehouse/slots/${id}`, { dock: cell.dataset.dock, start: `${day}T${cell.dataset.time}:00` });
         location.reload();
-      } catch (err) { alert(err.message); }
+      } catch (err) { this.msg = err.message; }
     },
   };
 }

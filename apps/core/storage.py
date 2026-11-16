@@ -1,7 +1,9 @@
 """Lưu file (ảnh mốc hành trình, POD, chữ ký) lên Supabase Storage qua REST API.
 
-Dùng khi chạy serverless (Vercel) – ổ đĩa không lưu lâu dài. Bucket cần để chế độ public để hiển thị ảnh:
-    python manage.py setup_storage
+Dùng khi chạy serverless (Vercel) – ổ đĩa không lưu lâu dài. Bucket để chế độ PRIVATE (test Gà STT 35):
+    python manage.py setup_storage            # tạo bucket private / chuyển bucket đang public sang private
+Ảnh không còn link public: storage.url() trả về /files/<đường dẫn> (view core.private_file) – view kiểm tra đăng
+nhập + quyền rồi chuyển hướng tới signed URL có hạn (SIGNED_URL_SECONDS) do Supabase cấp.
 """
 import json
 import logging
@@ -15,7 +17,7 @@ import uuid
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.core.files.storage import Storage
+from django.core.files.storage import FileSystemStorage, Storage
 from django.utils.deconstruct import deconstructible
 from django.utils.text import slugify
 
@@ -99,4 +101,23 @@ class SupabaseStorage(Storage):
             return False
 
     def url(self, name):
-        return f"{self.base}/object/public/{self.bucket}/{self._path(name)}"
+        """Link nội bộ (cần đăng nhập) – không lộ đường dẫn bucket."""
+        return f"/files/{self._path(name)}"
+
+    def signed_url(self, name, expires=None):
+        """Signed URL có hạn của Supabase cho 1 object trong bucket private."""
+        expires = int(expires or getattr(settings, "SIGNED_URL_SECONDS", 300))
+        _, body = _request("POST", f"{self.base}/object/sign/{self.bucket}/{self._path(name)}",
+                           json.dumps({"expiresIn": expires}).encode(), {"Content-Type": "application/json"})
+        signed = json.loads(body).get("signedURL") or json.loads(body).get("signedUrl")
+        if not signed:
+            raise BusinessError("Không tạo được link ảnh.")
+        return f"{self.base}{signed}" if signed.startswith("/") else signed
+
+
+class PrivateFileSystemStorage(FileSystemStorage):
+    """Lưu ảnh trên ổ đĩa (chạy local) nhưng phục vụ qua /files/ (cần đăng nhập), không qua /media/ công khai."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("base_url", "/files/")
+        super().__init__(*args, **kwargs)

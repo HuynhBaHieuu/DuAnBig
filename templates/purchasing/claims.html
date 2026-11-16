@@ -1,0 +1,20 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">Kho · Mua hàng</div><h1 class="page-title">Khiếu nại (Claim)</h1>
+    <div class="page-sub">Thiếu hàng (đòi nhà xe) · hư hỏng (đòi NCC) · Mở → Đã gửi → Đã bồi thường (trừ công nợ) → Đóng</div></div>
+  <form class="toolbar"><input class="input" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Mã CL / GRN / PO / NCC / sản phẩm" style="width:260px">{% if request.GET.status %}<input type="hidden" name="status" value="{{ request.GET.status }}">{% endif %}<button class="btn btn-soft">Tìm</button></form>
+</div>
+<div class="tabs"><a class="tab {% if not request.GET.status %}active{% endif %}" href="?">Tất cả</a>{% for v, l in statuses %}<a class="tab {% if request.GET.status == v %}active{% endif %}" href="?status={{ v }}">{{ l }} <span class="n">{{ counts|get_item:v|default:0 }}</span></a>{% endfor %}</div>
+<div class="card"><div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Mã</th><th>Loại</th><th>Phiếu nhập / PO</th><th>Đối tượng</th><th>Sản phẩm</th><th class="num">SL</th>{% if user.can_see_price %}<th class="num">Số tiền</th><th class="num">Đã bồi thường</th>{% endif %}<th>Trạng thái</th><th>Ngày</th></tr></thead>
+  <tbody>{% for c in page_obj %}
+    <tr><td><a class="code" href="/app/warehouse/claims/{{ c.pk }}">{{ c.code }}</a></td><td>{{ c.get_claim_type_display }}</td>
+      <td><a class="text-primary" href="/app/warehouse/receipts/{{ c.gr_id }}">{{ c.gr.code }}</a><div class="text-muted" style="font-size:12px">{{ c.gr.po.code }}</div></td>
+      <td>{{ c.get_against_display }}<div class="text-muted" style="font-size:12px">{{ c.partner|default:"Xe nội bộ" }}</div></td>
+      <td>{% if c.product %}<b class="code">{{ c.product.code }}</b>{% else %}—{% endif %}</td><td class="num">{{ c.qty|qty }} {{ c.product.base_uom.code }}</td>
+      {% if user.can_see_price %}<td class="num">{{ c.amount|vnd }}</td><td class="num">{% if c.compensated_amount %}{{ c.compensated_amount|vnd }}{% else %}—{% endif %}</td>{% endif %}
+      <td>{% status_badge c %}</td><td class="text-muted">{{ c.created_at|vn_dt }}</td></tr>
+  {% empty %}<tr><td colspan="10" class="empty">Không có khiếu nại.</td></tr>{% endfor %}</tbody>
+</table></div>{% include "partials/pager.html" %}</div>
+{% endblock %}

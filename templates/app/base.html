@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="shell">
-  <aside class="sidebar">
+<div class="shell" x-data="{drawer:false}" :class="drawer && 'drawer-open'" @keydown.escape.window="drawer=false">
+  <div class="drawer-backdrop" @click="drawer=false"></div>
+  <aside class="sidebar" id="sidebar">
     <a href="/app/dashboard" class="brand">
       <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
       <div class="brand-name">TRACON 80</div>
@@ -26,6 +27,7 @@
   </aside>
   <div class="main">
     <header class="topbar">
+      <button type="button" class="icon-btn menu-btn" @click="drawer=!drawer" :aria-expanded="drawer" aria-controls="sidebar" title="Menu" style="border:0;cursor:pointer;margin-right:10px"><i data-lucide="menu"></i></button>
       <form class="search" action="{% block search_action %}/app/search{% endblock %}" method="get">
         <i data-lucide="search"></i>
         <input name="q" value="{{ request.GET.q|default:'' }}" placeholder="Tìm mã chứng từ, sản phẩm, khách hàng...">

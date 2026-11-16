@@ -11,9 +11,10 @@
 <div class="card"><table class="tbl">
   <thead><tr><th>Đơn</th><th>Khách hàng / công trình</th><th>Chuyến</th><th>Ngày cần</th><th>Giao lúc</th><th>Đúng hạn</th><th>Đủ hàng</th></tr></thead>
   <tbody>{% for r in d.rows %}<tr><td><a href="/app/sales/orders/{{ r.s.so.pk }}" class="code">{{ r.s.so.code }}</a></td><td>{{ r.s.so.customer.name }}<div class="text-muted" style="font-size:12px">{{ r.s.site.name }}</div></td><td>{{ r.s.trip.code }}</td>
-    <td>{{ r.s.so.requested_date|vn_d }}</td><td>{{ r.s.delivered_at|vn_dt }}</td><td>{% if r.on_time %}<span class="badge badge-success">✓</span>{% else %}<span class="badge badge-danger">Trễ</span>{% endif %}</td><td>{% if r.in_full %}<span class="badge badge-success">✓</span>{% else %}<span class="badge badge-danger">{{ r.s.get_status_display }}</span>{% endif %}</td></tr>
+    <td>{{ r.s.so.requested_date|vn_d }}</td><td>{{ r.s.delivered_at|vn_dt }}</td><td>{% if r.on_time %}<span class="badge badge-success">✓</span>{% elif r.s.status == "FAILED" %}<span class="badge badge-danger" title="Giao thất bại không tính là đúng hạn">Thất bại</span>{% else %}<span class="badge badge-danger">Trễ</span>{% endif %}</td><td>{% if r.in_full %}<span class="badge badge-success">✓</span>{% else %}<span class="badge badge-danger">{{ r.s.get_status_display }}</span>{% endif %}</td></tr>
   {% empty %}<tr><td colspan="7" class="empty">Không có dữ liệu giao hàng.</td></tr>{% endfor %}</tbody>
 </table></div>
+<p class="text-muted" style="font-size:12px;margin-top:10px">Quy tắc tính: {{ d.rule }}</p>
 {{ chart|json_script:"cd" }}
 {% endblock %}
 {% block scripts %}<script>

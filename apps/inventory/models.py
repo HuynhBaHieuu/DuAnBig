@@ -189,6 +189,9 @@ class StockAdjustment(TimeStamped):
     status = models.CharField(max_length=20, choices=STATUS, default="DRAFT")
     reason = models.CharField(max_length=255)
     approved_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    requested_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
+    reject_reason = models.CharField(max_length=255, blank=True)
 
     class Meta:
         db_table = "stock_adjustment"
@@ -196,6 +199,11 @@ class StockAdjustment(TimeStamped):
 
     def __str__(self):
         return self.code
+
+    @property
+    def value(self):
+        """Giá trị điều chỉnh (tuyệt đối) = Σ |SL lệch| × đơn giá vốn – so với ngưỡng ADJ_APPROVAL_THRESHOLD."""
+        return sum((abs(l.qty_diff) * l.unit_cost for l in self.lines.all()), 0)
 
 
 class StockAdjustmentLine(models.Model):

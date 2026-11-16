@@ -50,12 +50,12 @@ class InvoiceLine(models.Model):
 
 
 class Bill(TimeStamped):
-    TYPES = [("GOODS", "Hóa đơn vật tư"), ("FREIGHT", "Cước vận chuyển")]
+    TYPES = [("GOODS", "Hóa đơn vật tư"), ("FREIGHT", "Cước vận chuyển"), ("CLAIM_CREDIT", "Giảm trừ khiếu nại")]
     STATUS = [("DRAFT", "Nháp"), ("MATCHED", "Khớp 3 bên"), ("MISMATCH", "Lệch – chờ duyệt"),
               ("ACCEPTED", "Director chấp nhận lệch"), ("POSTED", "Đã ghi sổ"), ("PARTIAL", "Trả một phần"),
               ("PAID", "Đã trả đủ"), ("CANCELLED", "Đã hủy")]
     code = models.CharField(max_length=20, unique=True)
-    bill_type = models.CharField(max_length=10, choices=TYPES, default="GOODS")
+    bill_type = models.CharField(max_length=15, choices=TYPES, default="GOODS")
     supplier = models.ForeignKey("masterdata.Supplier", null=True, blank=True, on_delete=models.PROTECT,
                                  related_name="bills")
     carrier = models.ForeignKey("masterdata.Carrier", null=True, blank=True, on_delete=models.PROTECT,
@@ -65,10 +65,14 @@ class Bill(TimeStamped):
     due_date = models.DateField()
     status = models.CharField(max_length=10, choices=STATUS, default="DRAFT")
     subtotal = models.DecimalField(**MONEY)
+    # thuế suất ghi trên hóa đơn NCC (mặc định theo PO); đối chiếu 3 bên so với thuế suất của PO (STT 36)
+    vat_rate = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
     vat_amount = models.DecimalField(**MONEY)
     total = models.DecimalField(**MONEY)
     paid_amount = models.DecimalField(**MONEY)
     accepted_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    accept_reason = models.CharField(max_length=255, blank=True)
+    posted_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     cancel_reason = models.CharField(max_length=255, blank=True)
 
     class Meta:
@@ -88,7 +92,8 @@ class Bill(TimeStamped):
 
 
 class BillLine(models.Model):
-    MATCH = [("MATCH", "Khớp"), ("QTY_DIFF", "Lệch số lượng"), ("PRICE_DIFF", "Lệch đơn giá"), ("NO_GRN", "Chưa nhập kho")]
+    MATCH = [("MATCH", "Khớp"), ("QTY_DIFF", "Lệch số lượng"), ("PRICE_DIFF", "Lệch đơn giá"), ("NO_GRN", "Chưa nhập kho"),
+             ("VAT_DIFF", "Lệch thuế suất")]
     bill = models.ForeignKey(Bill, on_delete=models.CASCADE, related_name="lines")
     po_line = models.ForeignKey("purchasing.PurchaseOrderLine", null=True, blank=True, on_delete=models.PROTECT,
                                 related_name="bill_lines")

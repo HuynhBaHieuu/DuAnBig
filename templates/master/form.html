@@ -2,6 +2,12 @@
 {% block content %}
 <div class="page-head"><div><div class="crumbs"><a href="/app/master/">Danh mục</a> / <a href="/app/master/{{ slug }}/">{{ label }}</a> /</div><h1 class="page-title">{{ title }}</h1></div>
   {% if obj and has_active %}<form method="post">{% csrf_token %}<input type="hidden" name="toggle" value="1"><button class="btn {% if obj.is_active %}btn-danger{% else %}btn-soft{% endif %}">{% if obj.is_active %}Ngưng sử dụng{% else %}Kích hoạt lại{% endif %}</button></form>{% endif %}</div>
+{% if slug == "supplier-prices" and obj %}<div class="flash {% if obj.status == 'PENDING' %}flash-warning{% elif obj.status == 'REJECTED' %}flash-error{% else %}flash-success{% endif %}" style="max-width:900px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+  <span>Trạng thái: <b>{{ obj.get_status_display }}</b>{% if obj.approved_by %} · {{ obj.approved_by }} {{ obj.approved_at|vn_dt }}{% endif %}{% if obj.status == "PENDING" %} – giá chưa được dùng cho PO{% endif %}</span>
+  {% if can_approve_price %}<form method="post" class="toolbar">{% csrf_token %}
+    <button name="decision" value="approve" class="btn btn-primary btn-sm"><i data-lucide="check"></i>Duyệt giá</button>
+    <button name="decision" value="reject" class="btn btn-danger btn-sm" data-confirm="Từ chối giá mua này?" data-confirm-ok="Từ chối" data-confirm-danger>Từ chối</button></form>{% endif %}
+</div>{% elif slug == "supplier-prices" and user.role == "PURCHASER" %}<div class="flash flash-warning" style="max-width:900px;margin-bottom:12px">Giá mua do Thu mua nhập / sửa sẽ chờ Giám đốc duyệt; chỉ giá đã duyệt mới được điền vào PO.</div>{% endif %}
 <form method="post" class="card card-body" style="max-width:900px">{% csrf_token %}
   <div class="grid g-2">
     {% for f in form %}{% if f.name != "is_active" %}

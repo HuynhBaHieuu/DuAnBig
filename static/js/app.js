@@ -108,7 +108,7 @@ document.addEventListener("submit", async e => {
     }
     busyOverlay(true, "Đang gửi lên máy chủ…");
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 90000);
+    const timer = setTimeout(() => ctrl.abort(), 60000);
     let r;
     try {
       r = await fetch(form.getAttribute("action") || location.href, {
@@ -122,17 +122,30 @@ document.addEventListener("submit", async e => {
     }
     const j = await r.json().catch(() => ({}));
     if (r.ok && j.ok !== false) { location.href = j.redirect || form.dataset.next || location.href; return; }
+    if (r.status >= 500) {  // lỗi máy chủ SAU khi có thể đã lưu (vd. 503 ở bước phụ) -> tải lại để xem dữ liệu thật
+      reloadToCheck("Máy chủ phản hồi lỗi (mã " + r.status + "). Đang tải lại để kiểm tra dữ liệu đã được lưu chưa…");
+      return;
+    }
     throw new Error(j.error || HTTP_MSG[r.status] || `Máy chủ báo lỗi (mã ${r.status}). Vui lòng thử lại.`);
   } catch (err) {
+    if (err.name === "AbortError") {  // quá giờ: yêu cầu có thể đã tới máy chủ -> kiểm tra lại thay vì bảo gửi lại
+      reloadToCheck("Mạng chậm – quá 60 giây chưa nhận phản hồi. Đang tải lại để kiểm tra đã lưu chưa…");
+      return;
+    }
     busyOverlay(false);
-    showFormError(form, err.name === "AbortError"
-      ? "Mạng chậm – quá 90 giây chưa gửi xong. Kiểm tra kết nối 3G/4G rồi bấm gửi lại."
-      : (err.message === "Failed to fetch" || err.name === "TypeError")
+    showFormError(form, (err.message === "Failed to fetch" || err.name === "TypeError")
         ? "Mất kết nối mạng, chưa gửi được. Kiểm tra 3G/4G rồi bấm gửi lại." : err.message);
     delete form.dataset.sending;
     return;
   }
 });
+
+// Sau lỗi 5xx / quá giờ: KHÔNG bảo người dùng bấm gửi lại (dễ gửi trùng) mà tải lại trang để thấy trạng thái thật.
+// Máy chủ cũng chặn ghi trùng (mốc đã có thực tế thì bỏ qua).
+function reloadToCheck(msg) {
+  busyOverlay(true, msg);
+  setTimeout(() => location.reload(), 1800);
+}
 
 // SignaturePad tối giản cho POD (canvas, hỗ trợ cảm ứng)
 function signaturePad(canvas, hidden) {
@@ -177,3 +190,54 @@ document.addEventListener("click", e => {
   document.addEventListener("keydown", esc);
   document.body.appendChild(box);
 });
+
+// ------------------------------------------------------------------ Hộp thoại trong trang (thay confirm()/alert())
+// confirm()/alert() của trình duyệt chặn cả trang (test tự động bị treo) -> dùng modal HTML.
+//   uiConfirm(msg, {ok, danger}) -> Promise<boolean> ;  uiAlert(msg, {title}) -> Promise
+//   <button data-confirm="Câu hỏi?" data-confirm-ok="Xóa" data-confirm-danger> trong form: hỏi trước khi gửi.
+function uiDialog(msg, { title = "", ok = "Đồng ý", cancel = "Hủy", danger = false, alertOnly = false } = {}) {
+  return new Promise(resolve => {
+    const box = document.createElement("div");
+    box.className = "ui-dialog";
+    box.setAttribute("role", "dialog");
+    box.innerHTML = '<div class="card card-body ui-dialog-box"><h3 class="card-title ui-dialog-title"></h3><div class="ui-dialog-msg"></div>'
+      + '<div class="toolbar" style="justify-content:flex-end;margin-top:16px">'
+      + (alertOnly ? "" : '<button type="button" class="btn btn-outline" data-v="0"></button>')
+      + '<button type="button" class="btn" data-v="1"></button></div></div>';
+    const t = box.querySelector(".ui-dialog-title");
+    if (title) t.textContent = title; else t.remove();
+    box.querySelector(".ui-dialog-msg").textContent = msg;
+    const okBtn = box.querySelector('[data-v="1"]');
+    okBtn.textContent = ok;
+    okBtn.classList.add(danger ? "btn-danger" : "btn-primary");
+    const cBtn = box.querySelector('[data-v="0"]');
+    if (cBtn) cBtn.textContent = cancel;
+    const done = v => { box.remove(); document.removeEventListener("keydown", key); resolve(v); };
+    const key = ev => { if (ev.key === "Escape") done(false); if (ev.key === "Enter") { ev.preventDefault(); done(true); } };
+    box.addEventListener("click", ev => {
+      const b = ev.target.closest("[data-v]");
+      if (b) done(b.dataset.v === "1"); else if (ev.target === box) done(false);
+    });
+    document.addEventListener("keydown", key);
+    document.body.appendChild(box);
+    okBtn.focus();
+  });
+}
+window.uiConfirm = (msg, opt = {}) => uiDialog(msg, opt);
+window.uiAlert = (msg, opt = {}) => uiDialog(msg, { ok: "Đã hiểu", ...opt, alertOnly: true });
+
+document.addEventListener("click", async e => {
+  const btn = e.target.closest("[data-confirm]");
+  if (!btn || btn.dataset.confirmed) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  const form = btn.form || btn.closest("form");
+  if (form && !form.reportValidity()) return;  // ô bắt buộc chưa nhập -> báo trước khi hỏi
+  const yes = await uiConfirm(btn.dataset.confirm, { ok: btn.dataset.confirmOk || "Đồng ý",
+                                                     danger: btn.hasAttribute("data-confirm-danger") });
+  if (!yes) return;
+  btn.dataset.confirmed = "1";
+  if (form && form.requestSubmit) form.requestSubmit(btn.type === "submit" || btn.tagName === "BUTTON" ? btn : undefined);
+  else btn.click();
+  delete btn.dataset.confirmed;
+}, true);

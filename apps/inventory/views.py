@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Case, IntegerField, Q, Sum, When
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -16,6 +16,7 @@ from apps.masterdata.models import Location, Product, ProductCategory, Warehouse
 from .models import (InventoryCount, InventoryCountLine, ReplenishmentJobRun, ReplenishmentParam, StockAdjustment, StockAdjustmentLine,
                      StockMove, StockQuant)
 from .services import calc_param, demand_series, post_stock_move, run_replenishment, stock_summary, transfer
+from apps.core.templatetags.tracon import qty as fmt_qty
 
 INTERNAL = ("DIRECTOR", "PURCHASER", "DISPATCHER", "WAREHOUSE", "ACCOUNTANT")
 LEVEL_LABEL = {"OK": ("Bình thường", "success"), "BELOW_ROP": ("Chạm ROP", "warn"), "BELOW_SS": ("Dưới SS", "danger"),
@@ -37,7 +38,9 @@ def _bar(s):
 # ------------------------------------------------------------------ MH-10 Tồn kho
 @role_required(*INTERNAL)
 def stock(request):
-    products = Product.objects.filter(is_active=True).select_related("base_uom", "category")
+    # sản phẩm ngừng kinh doanh nhưng còn tồn vẫn phải hiện (có nhãn) – không để hàng "biến mất" tới khi kiểm kê
+    with_stock = StockQuant.objects.filter(on_hand__gt=0).values("product_id")
+    products = Product.objects.filter(Q(is_active=True) | Q(pk__in=with_stock)).select_related("base_uom", "category")
     q = request.GET.get("q", "").strip()
     if q:
         products = products.filter(Q(code__icontains=q) | Q(name__icontains=q))
@@ -85,8 +88,11 @@ def stock_locations(request, pk):
     return render(request, "inventory/_quants.html", {
         "quants": quants, "pk": pk, "product": product,
         "can_edit": request.user.role in ("WAREHOUSE", "DIRECTOR", "ADMIN"),
+        # vị trí Lưu trữ lên đầu (mặc định chọn), khu Cách ly / Chờ xuất xếp sau – tránh cất nhầm hàng tốt vào Q-01
         "locations": Location.objects.filter(is_active=True).select_related("warehouse")
-        .order_by("loc_type", "warehouse__name", "code")})
+        .annotate(_o=Case(When(loc_type="STORAGE", then=0), When(loc_type="STAGING_OUT", then=1), default=2,
+                          output_field=IntegerField()))
+        .order_by("_o", "warehouse__name", "code")})
 
 
 @role_required("WAREHOUSE", "DIRECTOR")
@@ -95,58 +101,37 @@ def stock_locations(request, pk):
 def stock_quant_edit(request, pk):
     """Sửa / Xoá tồn tại 1 vị trí: đặt lại SL thực tế (op=set) hoặc đưa về 0 (op=delete).
 
-    Không sửa trực tiếp stock_quant: ghi phiếu điều chỉnh ADJ + post_stock_move theo chênh lệch để có sổ kho,
-    nhật ký; sau đó giữ hàng cho backorder (nếu tăng) và gọi check_replenishment (STOCK_ADJUSTED)."""
-    from apps.sales.models import StockReservation
-    from apps.sales.services import retry_backorders
-
-    from .replenishment import Trigger, fire_checks
+    Không sửa trực tiếp stock_quant: lập phiếu điều chỉnh ADJ theo chênh lệch (adjustments.create_adjustment):
+    dưới ngưỡng ghi sổ ngay, vượt ngưỡng ADJ_APPROVAL_THRESHOLD thì chờ Giám đốc duyệt (test Gà STT 34)."""
+    from .adjustments import create_adjustment
 
     op = request.POST.get("op")
-    reason = request.POST.get("reason", "").strip()
-    if not reason:
-        raise BusinessError("Phải nhập lý do sửa / xoá tồn.")
-    with transaction.atomic():
-        q = StockQuant.objects.select_for_update().select_related("product__base_uom", "location").get(pk=pk)
-        prod, loc = q.product, q.location
-        if op == "delete":
-            new_qty = Decimal(0)
-        elif op == "set":
-            new_qty = _num(request, "qty")
-            if new_qty is None:
-                raise BusinessError("Nhập số lượng mới.")
-        else:
-            raise BusinessError("Thao tác không hợp lệ.")
-        diff = new_qty - q.on_hand
-        if diff == 0:
-            messages.info(request, "Số lượng không đổi.")
-            return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
-        if diff < 0 and loc.loc_type != "QUARANTINE":
-            # không cho giảm tồn thực xuống dưới lượng đang giữ cho đơn bán
-            sellable = StockQuant.objects.filter(product=prod).exclude(location__loc_type="QUARANTINE") \
-                .aggregate(s=Sum("on_hand"))["s"] or Decimal(0)
-            held = StockReservation.objects.filter(product=prod, status="ACTIVE",
-                                                   so_line__so__status__in=["CONFIRMED", "PARTIAL"]) \
-                .aggregate(s=Sum("qty"))["s"] or Decimal(0)
-            if sellable + diff < held:
-                raise BusinessError(f"Không giảm được: {prod.code} đang giữ {held:g} {prod.base_uom.code} cho đơn bán, "
-                                    f"sau khi sửa tồn thực chỉ còn {sellable + diff:g}. Hủy / giảm đơn trước.")
-        label = "Xoá tồn" if op == "delete" else "Sửa tồn"
-        adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), reason=f"{label} {loc.code}: {reason}"[:255],
-                                             approved_by=request.user, status="POSTED")
-        StockAdjustmentLine.objects.create(adjustment=adj, product=prod, location=loc, qty_diff=diff,
-                                           unit_cost=prod.avg_cost)
-        post_stock_move(prod, loc, diff, "ADJ", "ADJ", adj.pk, note=f"{adj.code} – {label}: {reason}"[:255])
-        audit("UPDATE" if op == "set" else "DELETE", adj,
-              {"product": prod.code, "location": loc.code, "old": str(q.on_hand), "new": str(new_qty), "reason": reason})
-        trig = Trigger("STOCK_ADJUSTED", "ADJ", adj.code, request.user)
-        if diff > 0:
-            retry_backorders(prod.pk, trig)
-        fire_checks([prod.pk], trig)
-    from apps.core.templatetags.tracon import qty as fmt_qty
-    messages.success(request, f"{label} {prod.code} tại {loc.code}: {fmt_qty(q.on_hand)} → {fmt_qty(new_qty)} "
-                              f"{prod.base_uom.code} (phiếu {adj.code}).")
+    q = get_object_or_404(StockQuant.objects.select_related("product__base_uom", "location"), pk=pk)
+    prod, loc = q.product, q.location
+    if op == "delete":
+        new_qty = Decimal(0)
+    elif op == "set":
+        new_qty = _num(request, "qty")
+        if new_qty is None:
+            raise BusinessError("Nhập số lượng mới.")
+    else:
+        raise BusinessError("Thao tác không hợp lệ.")
+    diff = new_qty - q.on_hand
+    if diff == 0:
+        messages.info(request, "Số lượng không đổi.")
+        return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
+    label = f"{'Xoá' if op == 'delete' else 'Sửa'} tồn {loc.code}"
+    adj = create_adjustment(request.user, request.POST.get("reason"), [(prod, loc, diff, prod.avg_cost)], label)
+    _adj_message(request, adj, f"{label} {prod.code}: {fmt_qty(q.on_hand)} → {fmt_qty(new_qty)} {prod.base_uom.code}")
     return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
+
+
+def _adj_message(request, adj, what):
+    if adj.status == "PENDING_APPROVAL":
+        messages.warning(request, f"{what}: giá trị {adj.value:,.0f} ₫ vượt ngưỡng duyệt – phiếu {adj.code} đang chờ "
+                                  "Giám đốc duyệt, CHƯA ghi sổ kho.")
+    else:
+        messages.success(request, f"{what} (phiếu {adj.code}, đã ghi sổ).")
 
 
 @role_required("WAREHOUSE", "DIRECTOR")
@@ -155,37 +140,57 @@ def stock_quant_edit(request, pk):
 def stock_add(request):
     """Thêm tồn thực (nhập điều chỉnh tăng) – vd. khai báo tồn đầu kỳ, hàng phát hiện thừa.
 
-    Đi qua phiếu điều chỉnh ADJ + post_stock_move để có sổ kho / nhật ký; có hàng -> tự giữ cho đơn backorder."""
-    from apps.sales.services import retry_backorders
+    Lập phiếu ADJ (adjustments.create_adjustment): dưới ngưỡng ghi sổ ngay và tự giữ cho đơn backorder; vượt ngưỡng
+    chờ Giám đốc duyệt."""
+    from .adjustments import create_adjustment
 
     p = get_object_or_404(Product, pk=request.POST["product"])
+    if not request.POST.get("location"):
+        raise BusinessError("Chọn vị trí cất hàng.")
     loc = get_object_or_404(Location, pk=request.POST["location"], is_active=True)
     qty = _num(request, "qty")
     if not qty or qty <= 0:
         raise BusinessError("Số lượng thêm phải lớn hơn 0.")
-    reason = request.POST.get("reason", "").strip()
-    if not reason:
-        raise BusinessError("Phải nhập lý do thêm tồn.")
     cost = _num(request, "unit_cost") if request.user.can_see_cost else None
-    with transaction.atomic():
-        prod = Product.objects.select_for_update().get(pk=p.pk)
-        if cost is None:
-            cost = prod.avg_cost or prod.standard_cost
-        total = StockQuant.objects.filter(product=prod).aggregate(s=Sum("on_hand"))["s"] or Decimal(0)
-        if total + qty > 0:  # giá vốn bình quân gia quyền như nhập mua
-            prod.avg_cost = ((total * prod.avg_cost + qty * cost) / (total + qty)).quantize(Decimal(1))
-            prod.save(update_fields=["avg_cost", "updated_at"])
-        adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), reason=f"Thêm tồn thực: {reason}",
-                                             approved_by=request.user, status="POSTED")
-        StockAdjustmentLine.objects.create(adjustment=adj, product=prod, location=loc, qty_diff=qty, unit_cost=cost)
-        post_stock_move(prod, loc, qty, "ADJ", "ADJ", adj.pk, unit_cost=cost, note=f"{adj.code} – {reason}"[:255])
-        audit("CREATE", adj, {"product": prod.code, "location": loc.code, "qty": str(qty), "reason": reason})
-        from .replenishment import Trigger, fire_checks
-        trig = Trigger("STOCK_ADJUSTED", "ADJ", adj.code, request.user)
-        retry_backorders(prod.pk, trig)
-        fire_checks([prod.pk], trig)
-    messages.success(request, f"Đã thêm {qty:g} {prod.base_uom.code} {prod.code} vào {loc.code} (phiếu {adj.code}).")
+    if cost is None:
+        cost = p.avg_cost or p.standard_cost
+    adj = create_adjustment(request.user, request.POST.get("reason"), [(p, loc, qty, cost)], "Thêm tồn thực")
+    _adj_message(request, adj, f"Thêm {fmt_qty(qty)} {p.base_uom.code} {p.code} vào {loc.code}")
     return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
+
+
+@role_required("WAREHOUSE", "DIRECTOR", "ACCOUNTANT")
+def adjustments(request):
+    qs = StockAdjustment.objects.select_related("requested_by", "approved_by", "count").prefetch_related(
+        "lines__product__base_uom", "lines__location")
+    if request.GET.get("status"):
+        qs = qs.filter(status=request.GET["status"])
+    page, qs_str = paginate(request, qs, 30)
+    return render(request, "inventory/adjustments.html", {
+        "title": "Phiếu điều chỉnh tồn (ADJ)", "page_obj": page, "qs": qs_str, "statuses": StockAdjustment.STATUS,
+        "pending": StockAdjustment.objects.filter(status="PENDING_APPROVAL").count()})
+
+
+@role_required("WAREHOUSE", "DIRECTOR", "ACCOUNTANT")
+@business_action
+def adjustment_detail(request, pk):
+    from .adjustments import post_adjustment, reject_adjustment
+
+    adj = get_object_or_404(StockAdjustment.objects.select_related("requested_by", "approved_by", "count"), pk=pk)
+    if request.method == "POST":
+        if request.user.role not in ("DIRECTOR", "ADMIN"):
+            raise BusinessError("Chỉ Giám đốc duyệt phiếu điều chỉnh tồn.")
+        op = request.POST.get("op")
+        if op == "approve":
+            post_adjustment(adj, request.user)
+            messages.success(request, f"Đã duyệt và ghi sổ phiếu {adj.code}.")
+        elif op == "cancel":
+            reject_adjustment(adj, request.user, request.POST.get("reason"))
+            messages.success(request, f"Đã từ chối phiếu {adj.code}.")
+        return redirect(request.path)
+    return render(request, "inventory/adjustment_detail.html", {
+        "title": adj.code, "adj": adj, "lines": adj.lines.select_related("product__base_uom", "location"),
+        "is_director": request.user.role in ("DIRECTOR", "ADMIN")})
 
 
 @role_required("WAREHOUSE", "DIRECTOR")
@@ -197,11 +202,14 @@ def stock_transfer(request):
     dst = get_object_or_404(Location, pk=request.POST["to"])
     if src == dst:
         raise BusinessError("Vị trí đích phải khác vị trí nguồn.")
-    transfer(p, src, dst, Decimal(request.POST["qty"]), note="Chuyển vị trí")
+    qty = _num(request, "qty")  # số âm -> lỗi "không được âm"
+    if not qty or qty <= 0:
+        raise BusinessError("Số lượng chuyển phải lớn hơn 0.")
+    transfer(p, src, dst, qty, note="Chuyển vị trí")
     if "QUARANTINE" in (src.loc_type, dst.loc_type):  # vào / ra khu cách ly làm đổi tồn dùng được -> kiểm tra ROP
         from .replenishment import Trigger, fire_checks
         fire_checks([p.pk], Trigger("STOCK_ADJUSTED", "", f"Chuyển {src.code}→{dst.code}", request.user))
-    messages.success(request, f"Đã chuyển {request.POST['qty']} {p.code} từ {src} sang {dst}.")
+    messages.success(request, f"Đã chuyển {qty:g} {p.code} từ {src} sang {dst}.")
     return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
 
 
@@ -537,10 +545,13 @@ def counts(request):
                                                      "warehouses": Warehouse.objects.filter(is_active=True)})
 
 
-def _approve_count(ic, lines, user):
-    """Giám đốc duyệt phiếu kiểm kê -> sinh phiếu điều chỉnh ADJ + bút toán kho theo chênh lệch."""
-    adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), count=ic, reason=f"Kiểm kê {ic.code}",
-                                         approved_by=user, status="POSTED")
+def _approve_count(ic, lines, user, auto=False):
+    """Duyệt phiếu kiểm kê -> sinh phiếu điều chỉnh ADJ + bút toán kho theo chênh lệch.
+    auto=True: tự ghi sổ vì giá trị điều chỉnh dưới ngưỡng ADJ_APPROVAL_THRESHOLD (STT 76) – không có người duyệt."""
+    reason = f"Kiểm kê {ic.code}" + (" (tự ghi sổ – dưới ngưỡng duyệt)" if auto else "")
+    adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), count=ic, reason=reason,
+                                         requested_by=ic.created_by, approved_by=None if auto else user,
+                                         approved_at=timezone.now(), status="POSTED")
     for l in lines:
         # tồn có thể đã thay đổi trong lúc đếm -> điều chỉnh theo chênh lệch so với tồn sổ lúc chụp
         diff = (l.final_qty or 0) - l.book_qty
@@ -548,13 +559,17 @@ def _approve_count(ic, lines, user):
             StockAdjustmentLine.objects.create(adjustment=adj, product=l.product, location=l.location,
                                                qty_diff=diff, unit_cost=l.product.avg_cost)
             post_stock_move(l.product, l.location, diff, "ADJ", "ADJ", adj.pk, note=adj.code)
-    ic.status, ic.approved_by = "APPROVED", user
+    ic.status, ic.approved_by = "APPROVED", None if auto else user
     ic.save()
     resolve_alerts("COUNT_APPROVAL", "inventory_count", ic.pk)
-    audit("APPROVE", ic)
+    audit("APPROVE", ic, {"auto": "Tự ghi sổ – giá trị điều chỉnh dưới ngưỡng duyệt"} if auto else None)
+    from .adjustments import release_excess_reservations
     from .replenishment import Trigger, fire_checks
-    fire_checks([l.product_id for l in lines if (l.final_qty or 0) != l.book_qty],
-                Trigger("COUNT_APPROVED", "IC", ic.code, user))
+    trig = Trigger("COUNT_APPROVED", "IC", ic.code, user)
+    # STT 60: kiểm kê làm tồn thực < đã giữ -> bỏ giữ phần thiếu (đơn ưu tiên thấp trước) và đưa sang phân bổ
+    for l in {l.product_id: l for l in lines if (l.final_qty or 0) < l.book_qty}.values():
+        release_excess_reservations(l.product, trig)
+    fire_checks([l.product_id for l in lines if (l.final_qty or 0) != l.book_qty], trig)
     return adj
 
 
@@ -604,9 +619,15 @@ def count_detail(request, pk):
                 else:
                     ic.status = "PENDING_APPROVAL"
                     ic.save()
+                    # STT 76: tổng giá trị điều chỉnh < ngưỡng ADJ -> tự ghi sổ, không chờ Giám đốc
+                    value = sum((abs((l.final_qty or 0) - l.book_qty) * l.product.avg_cost for l in lines), Decimal(0))
                     if op == "count_approve":
                         adj = _approve_count(ic, lines, request.user)
                         messages.success(request, f"Đã lưu số đếm, duyệt phiếu và ghi bút toán điều chỉnh {adj.code}.")
+                    elif value < Decimal(param("ADJ_APPROVAL_THRESHOLD") or 0):
+                        adj = _approve_count(ic, lines, request.user, auto=True)
+                        messages.success(request, f"Đã hoàn tất đếm. Giá trị điều chỉnh {value:,.0f} ₫ dưới ngưỡng duyệt – "
+                                                  f"tự ghi sổ{f' ({adj.code})' if adj.lines.exists() else ''}.")
                     else:
                         messages.success(request, "Đã hoàn tất đếm, chờ Giám đốc duyệt.")
                         raise_alert("COUNT_APPROVAL", f"Kiểm kê {ic.code} chờ duyệt", ic.warehouse.name,

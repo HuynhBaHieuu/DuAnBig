@@ -95,6 +95,58 @@ def submit_so(so, user):
 
 
 @transaction.atomic
+def auto_submit_portal(so, user):
+    """STT 77 – đơn khách gửi từ Cổng KH được kiểm tra NGAY:
+      - dưới giá sàn / vượt hạn mức / nợ quá hạn -> hàng chờ Giám đốc duyệt ("DIRECTOR");
+      - thiếu hàng -> để Nháp, vào hàng chờ của Điều phối ("DISPATCHER");
+      - hợp lệ, đủ hàng -> tự "Đã xác nhận" và giữ hàng, báo Điều phối ("AUTO").
+    Điều phối vẫn hủy / mở lại để sửa đơn đã tự xác nhận (reopen_so)."""
+    from apps.inventory.replenishment import notify
+
+    so.recalc_total()
+    so.save()
+    if approval_reasons(so):
+        submit_so(so, user)
+        return "DIRECTOR"
+    short = [l for l in atp_preview(so.lines.select_related("product")) if l.short_qty > 0]
+    if short:
+        detail = ", ".join(f"{l.product.code} thiếu {l.short_qty:g}" for l in short)
+        raise_alert("PORTAL_ORDER", f"Đơn cổng KH {so.code} thiếu hàng – chờ điều phối",
+                    f"{so.customer.name} – {so.site.name} – cần {so.requested_date:%d/%m}: {detail}", level="WARN",
+                    ref_type="so", ref_id=so.pk, url=f"/app/sales/orders/{so.pk}", target_role="DISPATCHER")
+        so_log(so, "SUBMITTED", user, {"auto": "Thiếu hàng – chờ điều phối xác nhận", "short": detail})
+        return "DISPATCHER"
+    submit_so(so, user)
+    so_log(so, "CONFIRMED", user, {"auto": "Tự xác nhận: đủ hàng, đúng giá, không nợ quá hạn"})
+    notify("DISPATCHER", f"Đơn cổng KH {so.code} đã tự xác nhận",
+           f"{so.customer.name} – {so.site.name} – cần {so.requested_date:%d/%m}. Kiểm tra lại số lượng / ngày giao; "
+           "nếu sai có thể hủy hoặc mở lại để sửa.", url=f"/app/sales/orders/{so.pk}", ref_type="so", ref_id=so.pk)
+    return "AUTO"
+
+
+@transaction.atomic
+def reopen_so(so, user, reason=""):
+    """Điều phối mở lại đơn đã xác nhận (chưa xếp chuyến / chưa giao) để sửa: nhả hàng giữ, đơn về Nháp."""
+    from apps.inventory.replenishment import Trigger, fire_checks
+
+    if so.status != "CONFIRMED":
+        raise BusinessError("Chỉ mở lại được đơn đã xác nhận, chưa giao.")
+    if any(l.planned_qty > 0 or l.delivered_qty > 0 for l in so.lines.all()):
+        raise BusinessError("Đơn đã xếp chuyến / đã giao – gỡ khỏi chuyến trước khi sửa.")
+    pids = list(so.lines.values_list("product_id", flat=True))
+    StockReservation.objects.filter(so_line__so=so, status="ACTIVE").update(status="RELEASED")
+    so.lines.update(reserved_qty=0, atp_status="")
+    so.status, so.confirmed_at, so.confirmed_by = "DRAFT", None, None
+    so.save()
+    so_log(so, "EDITED", user, {"reopen": reason or "Điều phối mở lại để sửa"})
+    audit("UPDATE", so, {"Mở lại để sửa": reason or "—"})
+    trig = Trigger("SO_CANCELLED", "SO", so.code, user)
+    for pid in sorted(set(pids)):
+        retry_backorders(pid, trig)
+    fire_checks(pids, trig)
+
+
+@transaction.atomic
 def approve_so(so, user, approve=True, reason=""):
     if so.status != "PENDING_APPROVAL":
         raise BusinessError("Đơn không chờ duyệt.")
@@ -161,10 +213,34 @@ def reserve_line(line):
         return
     competing = SalesOrderLine.objects.filter(product=line.product, atp_status="SHORT",
                                               so__status__in=["CONFIRMED", "PARTIAL"]).exclude(pk=line.pk).exists()
+    # STT 25: đơn ưu tiên cao xác nhận SAU đơn ưu tiên thấp đã giữ hàng -> tranh chấp, lập phiếu AL cho Giám đốc
+    competing = competing or bool(_lower_priority_holders(line.product, priority_key(line, "PENALTY"), "PENALTY",
+                                                          exclude=[line.pk]))
     line.atp_status = "SHORT" if competing else "BACKORDER"
     line.save(update_fields=["atp_status"])
     if competing:
         propose_allocation(line.product)
+
+
+def movable_qty(line):
+    """Lượng dòng đang giữ mà CHƯA xếp chuyến / soạn hàng – có thể chuyển cho đơn ưu tiên cao hơn."""
+    active = line.reservations.filter(status="ACTIVE").aggregate(s=Sum("qty"))["s"] or D0
+    consumed = line.reservations.filter(status="CONSUMED").aggregate(s=Sum("qty"))["s"] or D0
+    return max(D0, active - max(D0, line.planned_qty - consumed))
+
+
+def _lower_priority_holders(product, best_key, rule, exclude=()):
+    """Dòng đơn đang giữ hàng (chưa xếp chuyến) của sản phẩm, xếp SAU best_key theo quy tắc -> có thể bị phân bổ lại."""
+    out = []
+    for l in SalesOrderLine.objects.filter(product=product, so__status__in=["CONFIRMED", "PARTIAL"],
+                                           reservations__status="ACTIVE").exclude(atp_status="SHORT") \
+            .exclude(pk__in=list(exclude)).distinct().select_related("so__site"):
+        if priority_key(l, rule) > best_key:
+            m = movable_qty(l)
+            if m > 0:
+                l.movable = m
+                out.append(l)
+    return out
 
 
 def atp_preview(lines):
@@ -212,7 +288,11 @@ def priority_key(line, rule):
 
 @transaction.atomic
 def propose_allocation(product, rule="PENALTY"):
-    """Gom các dòng đang thiếu của 1 sản phẩm, chia lượng khả dụng theo quy tắc ưu tiên."""
+    """Gom các dòng đang thiếu của 1 sản phẩm, chia lượng khả dụng theo quy tắc ưu tiên
+    (mốc phạt -> ưu tiên công trình -> FIFO, hoặc quy tắc Giám đốc chọn).
+
+    STT 25: dòng của đơn ưu tiên THẤP HƠN đang giữ hàng (chưa xếp chuyến) cũng được đưa vào phiếu với cột "Đang giữ":
+    lượng đó cộng vào quỹ phân bổ, Giám đốc duyệt thì hàng được chuyển sang đơn ưu tiên cao."""
     for old in Allocation.objects.filter(product=product, status="PROPOSED"):  # đề xuất cũ chưa duyệt -> làm lại
         # xóa luôn cảnh báo của đề xuất cũ: giữ lại sẽ là link tới trang không còn tồn tại (404)
         Alert.objects.filter(alert_type="ALLOCATION", ref_type="allocation", ref_id=old.pk).delete()
@@ -222,40 +302,79 @@ def propose_allocation(product, rule="PENALTY"):
                  .select_related("so__site"))
     if not lines:
         return None
+    for l in lines:
+        l.movable = D0
+    best = min(priority_key(l, rule) for l in lines)
+    holders = _lower_priority_holders(product, best, rule, exclude=[l.pk for l in lines])
     avail = max(D0, available_qty(product))
-    lines.sort(key=lambda l: priority_key(l, rule))
-    demand = sum((l.qty - l.reserved_qty for l in lines), D0)
+    pool = avail + sum((h.movable for h in holders), D0)
+    lines = sorted(lines + holders, key=lambda l: priority_key(l, rule))
+    need = {l.pk: l.qty - l.reserved_qty + l.movable for l in lines}  # đơn đang giữ: nhu cầu gồm cả phần đang giữ
+    demand = sum(need.values(), D0)
     alloc = Allocation.objects.create(code=next_doc_no("AL"), product=product, priority_rule=rule,
-                                      available_qty=avail, demand_qty=demand)
-    remain = avail
+                                      available_qty=pool, demand_qty=demand)
+    remain = pool
     for i, l in enumerate(lines, 1):
-        d = l.qty - l.reserved_qty
-        p = min(d, remain)
+        p = min(need[l.pk], remain)
         remain -= p
-        AllocationLine.objects.create(allocation=alloc, so_line=l, demand_qty=d, proposed_qty=p, rank=i)
-    raise_alert("ALLOCATION", f"Phân bổ thiếu hàng {product.code}", f"Khả dụng {avail:g} / nhu cầu {demand:g}",
+        AllocationLine.objects.create(allocation=alloc, so_line=l, demand_qty=need[l.pk], proposed_qty=p,
+                                      held_qty=l.movable, rank=i)
+    raise_alert("ALLOCATION", f"Phân bổ thiếu hàng {product.code}",
+                f"Khả dụng {avail:g}" + (f" + đang giữ của đơn ưu tiên thấp {pool - avail:g}" if pool > avail else "")
+                + f" / nhu cầu {demand:g}",
                 ref_type="allocation", ref_id=alloc.pk, url=f"/app/sales/allocations/{alloc.pk}",
                 target_role="DIRECTOR")
     return alloc
 
 
+def _release(line, q):
+    """Nhả q khỏi phần đang giữ (chưa xếp chuyến) của dòng – giữ mới nhất nhả trước."""
+    left = q
+    for r in line.reservations.filter(status="ACTIVE").order_by("-created_at", "-id"):
+        if left <= 0:
+            break
+        take = min(r.qty, left)
+        if take == r.qty:
+            r.status = "RELEASED"
+            r.save(update_fields=["status"])
+        else:
+            r.qty -= take
+            r.save(update_fields=["qty"])
+        left -= take
+    line.reserved_qty -= q - left
+    line.save(update_fields=["reserved_qty"])
+
+
 @transaction.atomic
 def approve_allocation(alloc, user, approved):
-    """approved: {allocation_line_id: qty}. Phần thiếu -> backorder."""
+    """approved: {allocation_line_id: qty} – tổng lượng dòng được giữ trong phạm vi phiếu (kể cả phần đang giữ).
+    Dòng bị giảm so với lượng đang giữ -> nhả hàng; dòng được tăng -> giữ thêm. Phần thiếu -> backorder."""
     if alloc.status != "PROPOSED":
         raise BusinessError("Phân bổ đã được xử lý.")
-    avail = max(D0, available_qty(alloc.product))
-    total = sum((Decimal(v or 0) for v in approved.values()), D0)
+    als = list(alloc.lines.select_related("so_line__so"))
+    held_now = {al.pk: min(al.held_qty, movable_qty(al.so_line)) for al in als}
+    avail = max(D0, available_qty(alloc.product)) + sum(held_now.values(), D0)
+    qs = {}
+    for al in als:
+        q = Decimal(approved.get(al.pk, al.proposed_qty) or 0)
+        if q < 0:
+            raise BusinessError("Số lượng duyệt không được âm.")
+        qs[al.pk] = min(q, al.demand_qty)
+    total = sum(qs.values(), D0)
     if total > avail:
         raise BusinessError(f"Tổng phân bổ {total:g} vượt lượng khả dụng hiện tại {avail:g}.")
-    for al in alloc.lines.select_related("so_line"):
-        q = Decimal(approved.get(al.pk, al.proposed_qty) or 0)
-        q = min(q, al.demand_qty)
+    for al in als:  # nhả trước, giữ sau
+        if qs[al.pk] < held_now[al.pk]:
+            _release(al.so_line, held_now[al.pk] - qs[al.pk])
+            so_log(al.so_line.so, "ALLOCATION", user, {"product": alloc.product.code, "al": alloc.code,
+                                                       "released": float(held_now[al.pk] - qs[al.pk])})
+    for al in als:
+        q = qs[al.pk]
         al.approved_qty = q
         al.save(update_fields=["approved_qty"])
-        line = al.so_line
-        _reserve(line, q)
-        line.atp_status = "OK" if q >= al.demand_qty else "BACKORDER"
+        line = SalesOrderLine.objects.get(pk=al.so_line_id)
+        _reserve(line, q - held_now[al.pk])
+        line.atp_status = "OK" if line.qty - line.reserved_qty <= 0 else "BACKORDER"
         line.save(update_fields=["atp_status"])
     alloc.status, alloc.approved_by = "APPROVED", user
     alloc.save()
@@ -463,6 +582,8 @@ def confirm_pod(stop, user, delivered, receiver_name, photo=None, signature_data
     check_image(photo, "Ảnh giao hàng")
     if not failed and (not photo or not sig):
         raise BusinessError("POD bắt buộc có ảnh giao hàng và chữ ký người nhận.")
+    if failed and not (note or "").strip():
+        raise BusinessError("Nhập lý do giao thất bại để báo Điều phối.")
     total_plan = total_deliv = D0
     returns = []
     for dl in stop.lines.select_related("so_line__product"):
@@ -490,6 +611,16 @@ def confirm_pod(stop, user, delivered, receiver_name, photo=None, signature_data
         stop.pod_signature = sig
     stop.save()
 
+    if failed or returns:  # STT 30: báo Điều phối NGAY khi tài xế báo thất bại / giao thiếu (không đợi nhập lại kho)
+        from apps.inventory.replenishment import notify
+        what = "Giao thất bại" if failed else "Giao thiếu"
+        detail = ", ".join(f"{sl.product.code} thiếu {q:g}" for sl, q in returns)
+        notify("DISPATCHER", f"{what}: {stop.so.code} – {stop.so.customer.name}",
+               f"Chuyến {stop.trip.code}, điểm {stop.seq} ({stop.site.name}). {detail}. "
+               f"Lý do: {note or 'tài xế không ghi lý do'}.", url=f"/app/sales/orders/{stop.so_id}",
+               ref_type="so", ref_id=stop.so_id, level="WARN")
+        so_log(stop.so, "DELIVERY_FAILED", user, {"stop": stop.seq, "trip": stop.trip.code, "failed": failed,
+                                                  "reason": note, "short": detail})
     if returns:
         ret = SalesReturn.objects.create(code=next_doc_no("RT"), so=stop.so, stop=stop,
                                          reason=note or ("Giao thất bại" if failed else "Khách nhận thiếu"))

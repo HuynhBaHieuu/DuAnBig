@@ -17,15 +17,17 @@
 
 {% else %}
 <form class="card card-body toolbar" style="margin-bottom:16px"><input type="hidden" name="type" value="GOODS">
-  <select class="input" name="supplier" style="width:280px" onchange="this.form.submit()"><option value="">— Chọn nhà cung cấp —</option>{% for s in suppliers %}<option value="{{ s.pk }}" {% if request.GET.supplier == s.pk|stringformat:"d" %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></form>
-{% if request.GET.supplier %}
-<form method="post" class="card">{% csrf_token %}<input type="hidden" name="bill_type" value="GOODS"><input type="hidden" name="supplier" value="{{ request.GET.supplier }}">
-  <div class="card-body grid g-3"><div class="field"><label>Số hóa đơn NCC</label><input name="vendor_invoice_no" required></div><div class="field"><label>Ngày hóa đơn</label><input type="date" name="bill_date" value="{{ today|date:'Y-m-d' }}"></div></div>
-  <table class="tbl"><thead><tr><th>PO</th><th>Sản phẩm</th><th class="num">SL PO</th><th class="num">Đã nhận (GRN)</th><th class="num">Đã lập bill</th><th class="num">Giá PO</th><th class="num" style="width:130px">SL trên HĐ</th><th class="num" style="width:150px">Đơn giá HĐ</th></tr></thead>
-    <tbody>{% for l in pols %}<tr><td>{{ l.po.code }}<input type="hidden" name="pol" value="{{ l.pk }}"></td><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_billed|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td>
-      <td><input class="input input-sm num" type="number" step="0.001" name="q_{{ l.pk }}" value="{{ l.qty_received|sub:l.qty_billed }}"></td><td><input class="input input-sm num" type="number" name="p_{{ l.pk }}" value="{{ l.unit_price }}"></td></tr>
-    {% empty %}<tr><td colspan="8" class="empty">Không có dòng PO cần lập hóa đơn.</td></tr>{% endfor %}</tbody></table>
-  <div class="card-body toolbar" style="justify-content:flex-end"><button class="btn btn-primary">Ghi nhận & đối chiếu 3 bên</button></div>
-</form>{% endif %}
+  <select class="input" name="supplier" style="width:280px" onchange="this.form.po && (this.form.po.value=''); this.form.submit()"><option value="">— 1. Chọn nhà cung cấp —</option>{% for s in suppliers %}<option value="{{ s.pk }}" {% if sup_id == s.pk|stringformat:"d" %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select>
+  {% if sup_id %}<select class="input" name="po" style="width:320px" onchange="this.form.submit()"><option value="">— 2. Chọn PO của hóa đơn —</option>{% for p in open_pos %}<option value="{{ p.pk }}" {% if po.pk == p.pk %}selected{% endif %}>{{ p.code }} · {{ p.order_date|vn_d }} · {{ p.get_status_display }}</option>{% empty %}<option value="" disabled>NCC không có PO cần lập hóa đơn</option>{% endfor %}</select>{% endif %}</form>
+{% if po %}
+<form method="post" class="card">{% csrf_token %}<input type="hidden" name="bill_type" value="GOODS"><input type="hidden" name="supplier" value="{{ po.supplier_id }}"><input type="hidden" name="po" value="{{ po.pk }}">
+  <div class="card-body grid g-3"><div class="field"><label>Số hóa đơn NCC *</label><input name="vendor_invoice_no" required></div><div class="field"><label>Ngày hóa đơn</label><input type="date" name="bill_date" value="{{ today|date:'Y-m-d' }}"></div>
+    <div class="field"><label>Thuế suất VAT trên hóa đơn (%)</label><input name="vat_rate" type="number" step="0.1" min="0" value="{{ po.vat_rate|floatformat:'-1' }}"><span class="text-muted" style="font-size:12px">Mặc định theo PO {{ po.code }} ({{ po.vat_rate|floatformat:'-1' }}%) – khác PO sẽ báo "Lệch thuế suất".</span></div></div>
+  <table class="tbl"><thead><tr><th>Sản phẩm</th><th class="num">SL PO</th><th class="num">Đã nhận (GRN)</th><th class="num">Đã lập bill</th><th class="num">Còn có thể lập</th><th class="num">Giá PO</th><th class="num" style="width:130px">SL trên HĐ</th><th class="num" style="width:150px">Đơn giá HĐ</th></tr></thead>
+    <tbody>{% for l in pols %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}<input type="hidden" name="pol" value="{{ l.pk }}"></td><td class="num">{{ l.qty|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_billed|qty }}</td><td class="num">{{ l.qty_received|sub:l.qty_billed|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td>
+      <td><input class="input input-sm num" type="number" step="0.001" min="0" name="q_{{ l.pk }}" value="0" title="Nhập đúng số lượng ghi trên hóa đơn NCC"></td><td><input class="input input-sm num" type="number" min="0" name="p_{{ l.pk }}" value="{{ l.unit_price }}"></td></tr>
+    {% empty %}<tr><td colspan="8" class="empty">PO này không còn dòng cần lập hóa đơn.</td></tr>{% endfor %}</tbody></table>
+  <div class="card-body toolbar" style="justify-content:space-between"><span class="text-muted" style="font-size:12px">Số lượng mặc định 0 – chỉ nhập dòng có trên hóa đơn NCC.</span><button class="btn btn-primary">Ghi nhận & đối chiếu 3 bên</button></div>
+</form>{% elif sup_id %}<div class="card card-body text-muted">Chọn PO để hiện các dòng cần lập hóa đơn.</div>{% endif %}
 {% endif %}
 {% endblock %}

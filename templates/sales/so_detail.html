@@ -13,7 +13,7 @@
   {% if user.role != "ACCOUNTANT" %}<div class="toolbar">
     {% if so.status == "DRAFT" %}
       <a href="/app/sales/orders/{{ so.pk }}/edit" class="btn btn-outline"><i data-lucide="pencil"></i>Sửa</a>
-      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" onclick="return confirm('Xóa đơn nháp?')">Xóa</button></form>
+      <form method="post">{% csrf_token %}<input type="hidden" name="op" value="delete"><button class="btn btn-danger" data-confirm="Xóa đơn nháp?" data-confirm-ok="Xóa" data-confirm-danger>Xóa</button></form>
       <form method="post">{% csrf_token %}<input type="hidden" name="op" value="submit"><button class="btn btn-primary"><i data-lucide="check"></i>Xác nhận đơn</button></form>
     {% endif %}
     {% if so.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}
@@ -21,6 +21,7 @@
       <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary"><i data-lucide="check"></i>Duyệt đơn</button></form>
     {% endif %}
     {% if so.status == "CONFIRMED" or so.status == "PARTIAL" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="reserve"><button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Chạy lại ATP</button></form>{% endif %}
+    {% if so.status == "CONFIRMED" and user.role in "DISPATCHER DIRECTOR ADMIN" %}<form method="post">{% csrf_token %}<input type="hidden" name="op" value="reopen"><button class="btn btn-outline" data-confirm="Mở lại {{ so.code }} để sửa? Hàng đang giữ sẽ được nhả, đơn về Nháp – sửa xong bấm Xác nhận lại." data-confirm-ok="Mở lại để sửa"><i data-lucide="pencil"></i>Mở lại để sửa</button></form>{% endif %}
     {% if so.status in "DRAFT PENDING_APPROVAL CONFIRMED" %}{% include "partials/cancel_form.html" with label="Hủy đơn" %}{% endif %}
   </div>{% endif %}
 </div>
@@ -40,7 +41,7 @@
         <tbody>{% for l in lines %}<tr class="{% if preview %}{% if l.short_qty %}row-warn{% endif %}{% elif l.atp_status == 'BACKORDER' %}row-danger{% elif l.atp_status == 'SHORT' %}row-warn{% endif %}">
           <td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
           <td class="num">{% if preview %}<span class="text-muted" title="Đơn chưa xác nhận – sẽ giữ khi bấm Xác nhận đơn">{{ l.qty|sub:l.short_qty|qty }}*</span>{% else %}{{ l.reserved_qty|qty }}{% endif %}</td>
-          <td class="num" style="{% if l.short_qty %}color:var(--danger-ink);font-weight:700{% endif %}">{{ l.short_qty|qty }}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
+          <td class="num" style="{% if l.short_qty %}color:var(--danger-ink);font-weight:700{% endif %}">{% if so.status == "CANCELLED" %}—{% else %}{{ l.short_qty|qty }}{% endif %}</td><td class="num">{{ l.planned_qty|qty }}</td><td class="num">{{ l.delivered_qty|qty }}</td><td class="num">{{ l.invoiced_qty|qty }}</td>
           <td>{% if preview %}{% if l.short_qty %}{% code_badge "SHORT" "Thiếu" %}{% else %}{% code_badge "OK" "Đủ hàng" %}{% endif %}<div class="text-muted" style="font-size:11px">khả dụng {{ l.avail_qty|qty }}</div>
             {% elif l.atp_status %}{% if l.atp_status != "OK" and l.reserved_qty %}{% code_badge "SHORT" "Giữ một phần" %}<div class="text-muted" style="font-size:11px">{% if l.atp_status == "SHORT" %}chờ phân bổ{% else %}chờ hàng về{% endif %} {{ l.short_qty|qty }}</div>{% else %}{% code_badge l.atp_status l.get_atp_status_display %}{% endif %}{% else %}—{% endif %}</td>
           <td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>

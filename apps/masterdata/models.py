@@ -135,6 +135,11 @@ class SupplierPrice(TimeStamped):
     min_qty = models.DecimalField(**QTY)
     valid_from = models.DateField(default=timezone.localdate)
     valid_to = models.DateField(null=True, blank=True)
+    # Giá do Thu mua nhập/sửa phải được Giám đốc duyệt mới dùng cho PO (test Gà STT 43)
+    STATUS = [("PENDING", "Chờ duyệt"), ("APPROVED", "Đã duyệt"), ("REJECTED", "Từ chối")]
+    status = models.CharField("Trạng thái duyệt", max_length=10, choices=STATUS, default="APPROVED")
+    approved_by = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "supplier_price"

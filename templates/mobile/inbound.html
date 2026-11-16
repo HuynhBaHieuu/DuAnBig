@@ -7,12 +7,13 @@
   <div class="text-muted" style="font-size:13px;margin-top:8px">{{ trip.route.name }} · {{ trip.vehicle.plate }} · {{ trip.total_ton|floatformat:2 }} tấn</div>
 </div>
 
-{% if next_ms %}
+{% if trip.status == "CANCELLED" %}<div class="flash flash-error" style="margin-bottom:14px"><i data-lucide="x-circle"></i><div><b>Chuyến đã bị hủy</b>{% if trip.cancel_reason %}: {{ trip.cancel_reason }}{% endif %}.</div></div>
+{% elif next_ms %}
 <form method="post" enctype="multipart/form-data" data-async class="card card-body" style="margin-bottom:14px" x-data="{f:null, err:''}">{% csrf_token %}
   <input type="hidden" name="op" value="milestone"><input type="hidden" name="milestone" value="{{ next_ms.pk }}">
   <div class="lbl">Mốc tiếp theo · dự kiến {{ next_ms.expected_at|hm }}</div>
   <div style="font-size:22px;font-weight:700;margin:4px 0 12px">{{ next_ms.name }}</div>
-  {% if next_ms.code == "LOADED" %}
+  {% if next_ms.code == "LOADED" or next_ms.code == "DEPART" %}
     <div class="lbl" style="margin-bottom:6px">Số lượng thực bốc</div>
     {% for l in lines %}<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><div style="flex:1;font-size:14px"><b>{{ l.po_line.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.po_line.product.name|truncatechars:30 }}</div></div>
       <input class="input num" style="width:120px;font-size:18px" type="number" step="0.001" name="l_{{ l.pk }}" value="{{ l.qty_planned }}"><span class="text-muted" style="font-size:12px">{{ l.po_line.product.base_uom.code }}</span></div>{% endfor %}

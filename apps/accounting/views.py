@@ -10,7 +10,7 @@ from apps.core.permissions import role_required
 from apps.core.services import BusinessError
 from apps.core.utils import business_action, excel_response, paginate, pdf_response
 from apps.masterdata.models import Carrier, Customer, Supplier
-from apps.purchasing.models import InboundTrip, PurchaseOrderLine
+from apps.purchasing.models import InboundTrip, PurchaseOrder, PurchaseOrderLine
 
 from . import services as svc
 from .models import Bill, Invoice, Payment
@@ -129,28 +129,43 @@ def bill_new(request):
             bill = svc.create_freight_bill(carrier, request.POST.get("vendor_invoice_no", ""), bill_date, pairs)
         else:
             sup = get_object_or_404(Supplier, pk=request.POST["supplier"])
+            po = get_object_or_404(PurchaseOrder, pk=request.POST.get("po"), supplier=sup)  # 1 hóa đơn = 1 PO
             lines = []
             for lid in request.POST.getlist("pol"):
                 q = _dec(request.POST.get(f"q_{lid}"))
+                if q < 0:
+                    raise BusinessError("Số lượng trên hóa đơn không được âm.")
                 if q > 0:
-                    lines.append((PurchaseOrderLine.objects.get(pk=lid, po__supplier=sup), q, _dec(request.POST.get(f"p_{lid}"))))
+                    lines.append((get_object_or_404(PurchaseOrderLine, pk=lid, po=po), q, _dec(request.POST.get(f"p_{lid}"))))
             if not lines:
-                raise BusinessError("Chưa nhập dòng hóa đơn.")
-            bill = svc.create_goods_bill(sup, request.POST.get("vendor_invoice_no", ""), bill_date, lines)
+                raise BusinessError("Chưa nhập số lượng cho dòng nào trên hóa đơn.")
+            vat = request.POST.get("vat_rate", "").strip().replace(",", ".")
+            bill = svc.create_goods_bill(sup, request.POST.get("vendor_invoice_no", ""), bill_date, lines,
+                                         _dec(vat) if vat else None)
         messages.success(request, f"Đã ghi nhận {bill.code} – kết quả đối chiếu: {bill.get_status_display()}.")
         return redirect(f"/app/accounting/bills/{bill.pk}")
     sup_id = request.GET.get("supplier")
     car_id = request.GET.get("carrier")
-    pols = PurchaseOrderLine.objects.filter(po__supplier_id=sup_id, po__status__in=["SENT", "PARTIAL", "RECEIVED"]) \
-        .select_related("po", "product__base_uom") if sup_id else []
-    pols = [l for l in pols if l.qty_received - l.qty_billed > 0 or l.qty - l.qty_billed > 0]
+    po_id = request.GET.get("po")
+    po = None
+    if po_id:  # chọn PO từ trang PO -> tự chọn luôn NCC
+        po = get_object_or_404(PurchaseOrder.objects.select_related("supplier"), pk=po_id)
+        sup_id = str(po.supplier_id)
+    # STT 37: chọn PO trước, chỉ hiện dòng của PO đó, số lượng để trống (0) – kế toán nhập theo hóa đơn NCC
+    open_pos = PurchaseOrder.objects.filter(supplier_id=sup_id, status__in=["SENT", "PARTIAL", "RECEIVED"]) \
+        .order_by("-id") if sup_id else []
+    open_pos = [p for p in open_pos if any(l.qty_received - l.qty_billed > 0 or l.qty - l.qty_billed > 0
+                                           for l in p.lines.all())]
+    pols = [l for l in po.lines.select_related("po", "product__base_uom")
+            if l.qty_received - l.qty_billed > 0 or l.qty - l.qty_billed > 0] if po else []
     # loại None: NOT IN (..., NULL) trong SQL sẽ không trả về dòng nào
     billed_trip_ids = set(Bill.objects.exclude(status="CANCELLED").values_list("lines__inbound_trip_id", flat=True)) - {None}
     trips = InboundTrip.objects.filter(carrier_id=car_id).exclude(status="CANCELLED").exclude(pk__in=billed_trip_ids) \
         .select_related("vehicle", "route") if car_id else []
     return render(request, "accounting/bill_new.html", {
         "title": "Ghi nhận hóa đơn mua", "kind": kind, "suppliers": Supplier.objects.filter(is_active=True),
-        "carriers": Carrier.objects.filter(is_active=True), "pols": pols, "trips": trips, "today": timezone.localdate()})
+        "carriers": Carrier.objects.filter(is_active=True), "pols": pols, "trips": trips, "today": timezone.localdate(),
+        "sup_id": sup_id or "", "open_pos": open_pos, "po": po})
 
 
 @role_required(*ACC)
@@ -164,10 +179,10 @@ def bill_detail(request, pk):
         elif op == "accept":
             if request.user.role not in ("DIRECTOR", "ADMIN"):
                 raise BusinessError("Chỉ Director chấp nhận lệch đối chiếu.")
-            svc.accept_mismatch(bill, request.user)
+            svc.accept_mismatch(bill, request.user, request.POST.get("reason", ""))
             messages.success(request, "Đã chấp nhận chênh lệch – kế toán có thể ghi sổ.")
         elif op == "post":
-            svc.post_bill(bill)
+            svc.post_bill(bill, request.user)
             messages.success(request, "Đã ghi sổ – phát sinh công nợ phải trả.")
         elif op == "cancel":
             if bill.status in ("POSTED", "PARTIAL", "PAID"):
@@ -187,7 +202,10 @@ def bill_detail(request, pk):
         elif bl.inbound_trip_id:
             r.update(po_price=bl.inbound_trip.freight_amount, grn_qty=1 if bl.inbound_trip.status == "RECEIVED" else 0)
         rows.append(r)
+    po_rates = sorted({str(r["bl"].po_line.po.vat_rate) for r in rows if r["bl"].po_line_id})
     return render(request, "accounting/bill_detail.html", {"title": bill.code, "bill": bill, "rows": rows,
+                                                           "po_rates": po_rates,
+                                                           "can_post": request.user.role in ("ACCOUNTANT", "ADMIN"),
                                                            "allocs": bill.allocations.select_related("payment")})
 
 

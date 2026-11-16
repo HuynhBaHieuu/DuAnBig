@@ -1,5 +1,5 @@
 <form method="post" action="{{ action|default:'' }}" x-data="{o:false}" style="display:inline">{% csrf_token %}
-  <input type="hidden" name="op" value="cancel">
+  <input type="hidden" name="op" value="{{ op|default:'cancel' }}">
   <button type="button" class="btn btn-danger" @click="o=true"><i data-lucide="x-circle"></i>{{ label|default:"Hủy chứng từ" }}</button>
   <div x-show="o" x-cloak style="position:fixed;inset:0;background:rgba(13,6,45,.35);display:grid;place-items:center;z-index:60">
     <div class="card card-body" style="width:420px" @click.outside="o=false">

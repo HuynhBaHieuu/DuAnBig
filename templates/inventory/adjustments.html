@@ -1,0 +1,24 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs">Kho hàng</div><h1 class="page-title">Phiếu điều chỉnh tồn (ADJ)</h1>
+    <div class="page-sub">Thêm / sửa / xoá tồn thực và kiểm kê đều sinh phiếu ADJ · phiếu có giá trị ≥ ngưỡng duyệt do Thủ kho lập phải chờ Giám đốc duyệt mới ghi sổ</div></div>
+  <div class="toolbar">
+    <a href="?status=PENDING_APPROVAL" class="btn {% if request.GET.status == 'PENDING_APPROVAL' %}btn-primary{% else %}btn-outline{% endif %}">Chờ duyệt ({{ pending }})</a>
+    <form class="toolbar"><select class="input" name="status" onchange="this.form.submit()" style="width:170px"><option value="">Mọi trạng thái</option>
+      {% for v, l in statuses %}<option value="{{ v }}" {% if request.GET.status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></form>
+  </div>
+</div>
+<div class="card"><div class="table-wrap"><table class="tbl">
+  <thead><tr><th>Mã phiếu</th><th>Nội dung</th><th>Dòng</th>{% if user.can_see_cost %}<th class="num">Giá trị</th>{% endif %}<th>Trạng thái</th><th>Người lập</th><th>Người duyệt</th><th>Ngày</th><th></th></tr></thead>
+  <tbody>{% for a in page_obj %}
+    <tr><td><a class="code" href="/app/inventory/adjustments/{{ a.pk }}">{{ a.code }}</a></td>
+      <td>{{ a.reason }}</td>
+      <td style="font-size:12px">{% for l in a.lines.all %}<div>{{ l.product.code }} @ {{ l.location.code }}: <b>{% if l.qty_diff > 0 %}+{% endif %}{{ l.qty_diff|qty }}</b> {{ l.product.base_uom.code }}</div>{% endfor %}</td>
+      {% if user.can_see_cost %}<td class="num">{{ a.value|vnd }}</td>{% endif %}
+      <td>{% status_badge a %}</td><td>{{ a.requested_by|default:"" }}</td><td>{{ a.approved_by|default:"" }}</td>
+      <td class="text-muted">{{ a.created_at|vn_dt }}</td>
+      <td style="text-align:right">{% if a.status == "PENDING_APPROVAL" and user.role in "DIRECTOR ADMIN" %}<a class="btn btn-primary btn-sm" href="/app/inventory/adjustments/{{ a.pk }}"><i data-lucide="check"></i>Xem & duyệt</a>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="9" class="empty">Chưa có phiếu điều chỉnh.</td></tr>{% endfor %}</tbody>
+</table></div>{% include "partials/pager.html" %}</div>
+{% endblock %}

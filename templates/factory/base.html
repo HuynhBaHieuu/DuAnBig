@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block body %}
+<header class="portal-top">
+  <div class="factory-top">
+    <a href="/factory/" style="display:flex;align-items:center;gap:10px"><div class="brand-mark"><span></span><span></span><span></span><span></span></div><div class="brand-name">TRACON 80</div><span class="badge badge-primary">Nhà máy</span></a>
+    <div style="flex:1"></div>
+    <div class="user-chip"><div><div class="name">{{ user.display_name }}</div><div class="role">{{ sup.name }}</div></div>
+      <form method="post" action="/logout">{% csrf_token %}<button class="avatar" style="border:0;cursor:pointer" title="Đăng xuất">{{ user.initials }}</button></form></div>
+  </div>
+</header>
+<main class="factory-main">
+  {% include "partials/messages.html" %}
+  {% block content %}{% endblock %}
+</main>
+{% endblock %}

@@ -78,61 +78,251 @@ class Stt21BarColorByProjected(tf.Base):
         self.assertIn("background:var(--", r.content.decode())
 
 
-class Stt22CheckinWindow(tf.SlotBase):
+
+
+# ======================================================================= Sheet "Gà" STT 23–77 (đợt 2)
+class Stt74GateCheckin(tf.SlotBase):
+    """Xe tới cổng -> vào bến trống đầu tiên ngay (không chờ giờ lịch); mọi bến bận -> chờ; muộn -> bắt lý do."""
+
     def setUp(self):
         super().setUp()
         self.dock = m.Dock.objects.get(code="BEN-1")
+        self.dock2 = m.Dock.objects.create(warehouse=self.wh, code="BEN-2", name="Bến 2")
 
     def make_slot(self, start, minutes=75, dock=None, status="CONFIRMED"):
         t = self.trip(start)
-        t.status = "ARRIVED"
+        t.status = "IN_TRANSIT"
         t.save()
         return UnloadingSlot.objects.create(trip=t, dock=dock or self.dock, start_at=start,
                                             end_at=start + timedelta(minutes=minutes), status=status)
 
-    def test_early_more_than_1h_needs_reason(self):
-        slot = self.make_slot(timezone.now() + timedelta(hours=6))
-        with self.assertRaisesMessage(BusinessError, "lý do"):
-            ps.check_in(slot, self.warehouse_user, enforce_window=True)
-        gr = ps.check_in(slot, self.warehouse_user, reason="Xe chạy đêm tới sớm", enforce_window=True)
+    def test_early_arrival_goes_in_now(self):
+        slot = self.make_slot(timezone.now() + timedelta(hours=4))        # lịch 4 giờ nữa, bến trống
+        ps.gate_checkin(slot.trip, self.warehouse_user)
         slot.refresh_from_db()
-        self.assertEqual((slot.status, slot.checkin_reason), ("CHECKED_IN", "Xe chạy đêm tới sớm"))
-        self.assertTrue(gr.code.startswith("GRN"))
+        self.assertEqual(slot.status, "CHECKED_IN")
+        self.assertLess(abs((slot.start_at - timezone.now()).total_seconds()), 120)
 
-    def test_late_more_than_1h_needs_reason(self):
-        slot = self.make_slot(timezone.now() - timedelta(hours=4))   # slot kết thúc ~2h45' trước
+    def test_own_dock_busy_uses_first_free_dock(self):
+        self.make_slot(timezone.now() - timedelta(minutes=10), status="CHECKED_IN")   # BEN-1 đang hạ tải
+        slot = self.make_slot(timezone.now() + timedelta(hours=1))
+        ps.gate_checkin(slot.trip, self.warehouse_user)
+        slot.refresh_from_db()
+        self.assertEqual((slot.status, slot.dock_id), ("CHECKED_IN", self.dock2.pk))
+
+    def test_all_docks_busy_must_wait(self):
+        self.make_slot(timezone.now() - timedelta(minutes=10), status="CHECKED_IN")
+        self.make_slot(timezone.now() - timedelta(minutes=10), dock=self.dock2, status="CHECKED_IN")
+        slot = self.make_slot(timezone.now() + timedelta(hours=1))
+        with self.assertRaisesMessage(BusinessError, "Tất cả bến đang bận"):
+            ps.gate_checkin(slot.trip, self.warehouse_user)
+
+    def test_late_needs_reason_and_trip_without_slot(self):
+        slot = self.make_slot(timezone.now() - timedelta(hours=4))
         with self.assertRaisesMessage(BusinessError, "lý do"):
-            ps.check_in(slot, self.warehouse_user, enforce_window=True)
-
-    def test_within_tolerance_no_reason(self):
-        slot = self.make_slot(timezone.now() + timedelta(minutes=30))
-        ps.check_in(slot, self.warehouse_user, enforce_window=True)
-        self.assertEqual(UnloadingSlot.objects.get(pk=slot.pk).status, "CHECKED_IN")
-
-    def test_early_but_dock_busy_must_wait(self):
-        busy = self.make_slot(timezone.now() - timedelta(minutes=20), status="CHECKED_IN")
-        slot = self.make_slot(timezone.now() + timedelta(minutes=40))
-        st = ps.checkin_state(slot)
-        self.assertEqual(st["blocker"].pk, busy.pk)
-        with self.assertRaisesMessage(BusinessError, "phải đợi"):
-            ps.check_in(slot, self.warehouse_user, reason="x", enforce_window=True)
-        # bến đã xong -> trống -> cho check-in sớm
-        UnloadingSlot.objects.filter(pk=busy.pk).update(status="DONE")
-        ps.check_in(slot, self.warehouse_user, enforce_window=True)
-
-    def test_early_dock_booked_overlap_must_wait(self):
-        self.make_slot(timezone.now() + timedelta(minutes=30), minutes=60)       # lịch khác chồng khoảng hạ tải sớm
-        slot = self.make_slot(timezone.now() + timedelta(hours=2), minutes=75)
-        self.assertIsNotNone(ps.checkin_state(slot)["blocker"])
-
-    def test_view_requires_reason(self):
-        slot = self.make_slot(timezone.now() + timedelta(hours=6))
+            ps.gate_checkin(slot.trip, self.warehouse_user)
+        ps.gate_checkin(slot.trip, self.warehouse_user, reason="Kẹt xe QL1A")
+        t = self.trip(timezone.now() + timedelta(hours=1))      # chuyến chưa có lịch: tạo lịch tại bến trống
+        t.status = "IN_TRANSIT"
+        t.save()
         c = Client()
         c.force_login(self.warehouse_user)
-        r = c.post(f"/app/warehouse/slots/{slot.pk}", {"op": "checkin"}, HTTP_REFERER="/app/warehouse/slots")
-        self.assertEqual(r.status_code, 302)
-        self.assertEqual(UnloadingSlot.objects.get(pk=slot.pk).status, "CONFIRMED")
-        r = c.post(f"/app/warehouse/slots/{slot.pk}", {"op": "checkin", "reason": "Tới sớm, bến trống"})
-        self.assertEqual(UnloadingSlot.objects.get(pk=slot.pk).status, "CHECKED_IN")
-        html = c.get(f"/app/inbound/trips/{slot.trip_id}").content.decode()
-        self.assertIn("Tới sớm, bến trống", html)
+        c.post(f"/app/warehouse/gate/{t.pk}")
+        self.assertEqual(UnloadingSlot.objects.get(trip=t).status, "CHECKED_IN")
+
+    def test_slot_only_on_near_milestone(self):
+        t = ps.create_inbound_trip(self.po, self.route, self.vehicle, self.driver, timezone.now(), {self.pol: 30})
+        ms = list(t.milestones.order_by("seq"))
+        self.assertEqual([x.code for x in ms], ["DEPART", "NEAR"])                 # STT 73: 2 mốc chuẩn
+        self.assertTrue(ms[0].photo_required)
+        with self.captureOnCommitCallbacks(execute=True):
+            ps.record_milestone(t, ms[0], self.taixe, photo=_img())
+        self.assertFalse(UnloadingSlot.objects.filter(trip=t).exists())           # STT 74: chưa xếp bến
+        with self.captureOnCommitCallbacks(execute=True):
+            ps.record_milestone(t, ms[1], self.taixe)
+        self.assertTrue(UnloadingSlot.objects.filter(trip=t).exists())            # báo "còn 2 giờ" -> xếp bến
+
+
+def _img():
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    return SimpleUploadedFile("can.png", b"\x89PNG\r\n\x1a\n" + b"0" * 200, content_type="image/png")
+
+
+class Stt73EtaIncident(tf.SlotBase):
+    def test_incident_delay_not_added_twice(self):
+        t = ps.create_inbound_trip(self.po, self.route, self.vehicle, self.driver, timezone.now(), {self.pol: 30})
+        depart, near = list(t.milestones.order_by("seq"))
+        with self.captureOnCommitCallbacks(execute=True):
+            ps.record_milestone(t, depart, self.taixe, photo=_img())
+        ps.report_incident(t, self.taixe, "TRAFFIC", "Kẹt cầu", 90)
+        t.refresh_from_db()
+        depart.refresh_from_db()
+        std = timedelta(hours=float(self.route.std_hours))
+        self.assertLess(abs((t.eta - (depart.actual_at + std + timedelta(minutes=90))).total_seconds()), 60)
+        with self.captureOnCommitCallbacks(execute=True):
+            ps.record_milestone(t, near, self.taixe)
+        t.refresh_from_db()
+        near.refresh_from_db()
+        # từ mốc mới: ETA = thực tế mốc + 2 giờ, KHÔNG cộng 90' của sự cố thêm lần nữa
+        self.assertLess(abs((t.eta - (near.actual_at + timedelta(minutes=120))).total_seconds()), 60)
+
+    def test_duplicate_milestone_is_idempotent(self):
+        t = ps.create_inbound_trip(self.po, self.route, self.vehicle, self.driver, timezone.now(), {self.pol: 30})
+        depart = t.milestones.order_by("seq").first()
+        _, created = ps.record_milestone(t, depart, self.taixe, photo=_img())
+        _, again = ps.record_milestone(t, depart, self.taixe, photo=_img())
+        self.assertEqual((created, again), (True, False))
+
+
+class Stt75GrnPostsNow(tf.Base):
+    def test_variance_posts_immediately_and_claims_need_director(self):
+        from apps.purchasing.models import GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine
+        po = PurchaseOrder.objects.create(code="PO-X", supplier=self.supplier, order_date=TODAY(), warehouse=self.wh,
+                                          status="SENT")
+        pol = PurchaseOrderLine.objects.create(po=po, product=self.product, qty=25, unit_price=tf.PRICE)
+        gr = GoodsReceipt.objects.create(code="GRN-X", po=po, warehouse=self.wh, received_at=timezone.now())
+        GoodsReceiptLine.objects.create(gr=gr, po_line=pol, product=self.product, location=self.loc,
+                                        qty_expected=25, qty_received=24, qty_damaged=1, unit_cost=tf.PRICE)
+        self.act(ps.submit_grn, gr, self.warehouse_user)
+        gr.refresh_from_db()
+        self.assertEqual(gr.status, "POSTED")                                     # không treo chờ duyệt
+        claims = {c.claim_type: c for c in gr.claims.all()}
+        # STT 58: thiếu = 25 − 24 = 1 (nhà xe), hỏng = 1 (NCC) – không đòi trùng
+        self.assertEqual((claims["SHORTAGE"].qty, claims["DAMAGE"].qty), (D(1), D(1)))
+        self.assertEqual({c.status for c in claims.values()}, {"OPEN"})
+        pol.refresh_from_db()
+        self.assertEqual(pol.qty_open, D(0))                                      # STT 61: không còn "đang về 2 t"
+        with self.assertRaisesMessage(BusinessError, "Giám đốc"):
+            ps.claim_action(claims["SHORTAGE"], self.purchaser, "approve")
+        ps.claim_action(claims["SHORTAGE"], self.director, "approve", amount=1_500_000)
+        ps.claim_action(claims["DAMAGE"], self.director, "backfill")              # NCC giao bù -> PO mở lại 1 t
+        pol.refresh_from_db()
+        self.assertEqual(pol.qty_open, D(1))
+
+
+class Stt76CountAutoPost(tf.Base):
+    def test_small_variance_auto_posts(self):
+        from .models import InventoryCount
+        c = Client()
+        c.force_login(self.warehouse_user)
+        c.post("/app/inventory/counts", {"warehouse": self.wh.pk})
+        ic = InventoryCount.objects.get()
+        line = ic.lines.get()
+        with self.captureOnCommitCallbacks(execute=True):
+            c.post(f"/app/inventory/counts/{ic.pk}", {"op": "count", f"c_{line.pk}": "100"})
+        ic.refresh_from_db()
+        self.assertEqual(ic.status, "APPROVED")                                   # lệch 0 < ngưỡng -> tự ghi sổ
+
+
+class Stt77PortalAutoConfirm(tf.Base):
+    def setUp(self):
+        super().setUp()
+        from apps.core.models import User
+        self.cust_user = User.objects.create_user("kh", password="x", role="CUSTOMER", customer=self.customer)
+
+    def post_order(self, qty):
+        c = Client()
+        c.force_login(self.cust_user)
+        with self.captureOnCommitCallbacks(execute=True):
+            c.post("/portal/order", {"site": self.site.pk, "product": [self.product.pk], "qty": [str(qty)],
+                                     "date": [TODAY().isoformat()]})
+        from apps.sales.models import SalesOrder
+        return SalesOrder.objects.order_by("-id").first()
+
+    def test_valid_order_auto_confirmed_short_order_waits(self):
+        so = self.post_order(10)
+        self.assertEqual((so.status, so.lines.get().reserved_qty), ("CONFIRMED", D(10)))
+        self.assertEqual(so.customer_status[1], "Đã xác nhận")
+        big = self.post_order(500)
+        self.assertEqual(big.status, "DRAFT")                                     # thiếu hàng -> chờ điều phối
+        self.assertEqual(big.customer_status[1], "Đã gửi")
+
+    def test_past_date_rejected(self):
+        c = Client()
+        c.force_login(self.cust_user)
+        c.post("/portal/order", {"site": self.site.pk, "product": [self.product.pk], "qty": ["5"],
+                                 "date": [(TODAY() - timedelta(days=3)).isoformat()]})
+        from apps.sales.models import SalesOrder
+        self.assertFalse(SalesOrder.objects.exists())                             # STT 55
+
+    def test_customer_cancel_unconfirmed_only(self):
+        big = self.post_order(500)
+        c = Client()
+        c.force_login(self.cust_user)
+        c.post(f"/portal/orders/{big.pk}", {"op": "cancel", "reason": "đặt nhầm"})
+        big.refresh_from_db()
+        self.assertEqual(big.status, "CANCELLED")                                 # STT 57
+
+
+class Stt25AllocationContention(tf.Base):
+    def test_high_priority_after_low_holder_creates_al(self):
+        from apps.sales.models import Allocation
+        self.adjust(-70)                                                          # tồn 30
+        low = self.so(25, days=5)                                                 # ưu tiên thấp giữ 25
+        hi_site = m.Site.objects.create(customer=self.customer, code="CT-HI", name="Ưu tiên cao", priority=1)
+        high = self.so(25, days=1, site=hi_site)                                  # cần sớm hơn: giữ 5, thiếu 20
+        al = Allocation.objects.get(status="PROPOSED")
+        lines = {l.so_line.so_id: l for l in al.lines.all()}
+        self.assertEqual((lines[high.pk].proposed_qty, lines[low.pk].held_qty), (D(20), D(25)))
+        from apps.sales import services as ss
+        self.act(ss.approve_allocation, al, self.director, {l.pk: l.proposed_qty for l in al.lines.all()})
+        self.assertEqual((high.lines.get().reserved_qty, low.lines.get().reserved_qty), (D(25), D(5)))
+
+
+class Stt33And43Permissions(tf.Base):
+    def test_dispatcher_cannot_change_credit_limit(self):
+        c = Client()
+        c.force_login(self.dispatcher)
+        self.customer.credit_limit = 100
+        self.customer.save()
+        data = {"code": "KH", "name": "Khách", "customer_type": "B2B", "credit_limit": "999999999",
+                "payment_terms_days": "30"}
+        c.post(f"/app/master/customers/{self.customer.pk}", data)
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.credit_limit, 100)
+
+    def test_purchaser_price_pending_until_director(self):
+        c = Client()
+        c.force_login(self.purchaser)
+        c.post("/app/master/supplier-prices/new", {"supplier": self.supplier.pk, "product": self.product.pk,
+                                                   "price": "1", "min_qty": "0", "valid_from": TODAY().isoformat()})
+        sp = m.SupplierPrice.objects.get()
+        self.assertEqual(sp.status, "PENDING")
+        self.assertEqual(ps.latest_price(self.supplier, self.product), self.product.standard_cost)
+
+
+class Stt34AdjustmentApproval(tf.Base):
+    def test_warehouse_large_adjustment_pending(self):
+        from .adjustments import create_adjustment, post_adjustment
+        adj = create_adjustment(self.warehouse_user, "Phát hiện thừa khi đếm", [(self.product, self.loc, D(10), None)])
+        self.assertEqual(adj.status, "PENDING_APPROVAL")                          # 10 t × 1,6 tr ≥ 5 tr
+        self.assertEqual(self.metrics()["on_hand"], D(100))
+        with self.captureOnCommitCallbacks(execute=True):
+            post_adjustment(adj, self.director)
+        self.assertEqual(self.metrics()["on_hand"], D(110))
+
+
+class Stt63AmountWords(tf.Base):
+    def test_words(self):
+        from apps.core.templatetags.tracon import vnd_words
+        self.assertEqual(vnd_words(1_250_000), "Một triệu hai trăm năm mươi nghìn đồng")
+        self.assertEqual(vnd_words(105_021), "Một trăm lẻ năm nghìn không trăm hai mươi mốt đồng")
+
+
+class Stt64FactoryIsolation(tf.Base):
+    def test_other_supplier_po_404(self):
+        from apps.core.models import User
+        from apps.purchasing.models import PurchaseOrder
+        other = m.Supplier.objects.create(code="NCC-B", name="NCC B")
+        po_a = PurchaseOrder.objects.create(code="PO-A", supplier=self.supplier, order_date=TODAY(), warehouse=self.wh,
+                                            status="SENT", sent_at=timezone.now())
+        po_b = PurchaseOrder.objects.create(code="PO-B", supplier=other, order_date=TODAY(), warehouse=self.wh,
+                                            status="SENT", sent_at=timezone.now())
+        u = User.objects.create_user("nhamay", password="x", role="SUPPLIER", supplier=self.supplier)
+        c = Client()
+        c.force_login(u)
+        self.assertEqual(c.get(f"/factory/orders/{po_b.pk}").status_code, 404)
+        self.assertEqual(c.get("/app/dashboard").status_code, 302)                # không vào được khu nội bộ
+        c.post(f"/factory/orders/{po_a.pk}", {"note": "giao trễ 1 ngày"})
+        po_a.refresh_from_db()
+        self.assertEqual((po_a.supplier_ack_by, po_a.supplier_ack_note), (u, "giao trễ 1 ngày"))

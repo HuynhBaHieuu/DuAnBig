@@ -15,6 +15,7 @@ MENU = [
         ("SS / ROP", "/app/inventory/replenishment", "trending-up", ("DIRECTOR", "PURCHASER")),
         ("Sổ kho", "/app/inventory/moves", "scroll-text", ("DIRECTOR", "WAREHOUSE", "ACCOUNTANT")),
         ("Kiểm kê", "/app/inventory/counts", "clipboard-check", ("DIRECTOR", "WAREHOUSE")),
+        ("Điều chỉnh tồn (ADJ)", "/app/inventory/adjustments", "file-diff", ("DIRECTOR", "WAREHOUSE", "ACCOUNTANT")),
     ]),
     ("Mua hàng & Inbound", [
         ("Đề xuất mua (PR)", "/app/purchase/requisitions", "file-plus-2", ("DIRECTOR", "PURCHASER")),
@@ -22,6 +23,7 @@ MENU = [
         ("Điều phối Inbound", "/app/inbound/board", "truck", ("DIRECTOR", "PURCHASER", "WAREHOUSE")),
         ("Lịch hạ tải", "/app/warehouse/slots", "calendar-clock", ("DIRECTOR", "PURCHASER", "WAREHOUSE")),
         ("Phiếu nhập (GRN)", "/app/warehouse/receipts", "package-check", ("DIRECTOR", "PURCHASER", "WAREHOUSE")),
+        ("Khiếu nại (CL)", "/app/warehouse/claims", "message-square-warning", ("DIRECTOR", "PURCHASER", "WAREHOUSE", "ACCOUNTANT")),
     ]),
     ("Bán hàng & Giao hàng", [
         ("Đơn bán (SO)", "/app/sales/orders", "receipt", ("DIRECTOR", "DISPATCHER", "ACCOUNTANT")),
@@ -40,7 +42,7 @@ MENU = [
         ("Báo cáo KPI", "/app/reports/", "bar-chart-3", ("DIRECTOR", "PURCHASER", "ACCOUNTANT", "DISPATCHER")),
     ]),
     ("Danh mục & Hệ thống", [
-        ("Danh mục", "/app/master/", "database", ("PURCHASER", "DISPATCHER")),
+        ("Danh mục", "/app/master/", "database", ("PURCHASER", "DISPATCHER", "DIRECTOR", "ACCOUNTANT")),
         ("Tài khoản", "/app/admin/users", "users", ()),
         ("Tham số", "/app/admin/params", "sliders-horizontal", ()),
         ("Nhật ký kiểm toán", "/app/admin/audit", "shield-check", ()),

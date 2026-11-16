@@ -31,6 +31,14 @@ PRICE = D(1_600_000)
 TODAY = timezone.localdate
 
 
+def photo(ms):
+    """Ảnh giả cho mốc bắt buộc ảnh (mốc Rời nhà máy – ảnh phiếu cân, test Gà STT 73)."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    if not ms.photo_required:
+        return None
+    return SimpleUploadedFile("can.png", bytes([137, 80, 78, 71, 13, 10, 26, 10]) + b"0" * 200, content_type="image/png")
+
+
 class Fixture:
     """Dữ liệu chuẩn 8.2: XM-TEST-01 (tấn), Khóa thủ công SS 20 / ROP 60, Q tay 140, làm tròn xe 30 t, tồn 100 t."""
 
@@ -135,7 +143,7 @@ class Base(Fixture, TestCase):
     def run_trip_to_grn(self, trip):
         for ms in trip.milestones.order_by("seq"):
             if ms.actual_at is None:
-                self.act(ps.record_milestone, trip, ms, self.taixe)
+                self.act(ps.record_milestone, trip, ms, self.taixe, photo=photo(ms))
                 trip.refresh_from_db()
         slot = UnloadingSlot.objects.get(trip=trip)
         gr = ps.check_in(slot, self.warehouse_user)
@@ -221,7 +229,7 @@ class MainScenarioTest(Base):
         trips = [ps.create_inbound_trip(po, self.route, self.vehicle, self.driver, timezone.now(), {pol: 30})
                  for _ in range(5)]
         first = trips[0].milestones.order_by("seq").first()
-        self.act(ps.record_milestone, trips[0], first, self.taixe)
+        self.act(ps.record_milestone, trips[0], first, self.taixe, photo=photo(first))
         self.assert_state(70, 25, 150, 195, 1)
 
         # B8: nhập chuyến 1
@@ -473,8 +481,9 @@ class RuleTest(Base):
         x = self.metrics()
         self.assertEqual((x["incoming"], x["projected"]), (D(0), D(45)))
         self.assertIsNotNone(self.open_alert())
-        new = self.auto_prs().order_by("-id").first()
-        self.assertEqual((new.lines.get().qty, new.snapshot["raw"], new.trigger_event), (D(180), 155.0, "PO_CANCELLED"))
+        # test Gà STT 47: hủy PO -> PR trả về "Đã gửi", 150 t quay lại kế hoạch (pipeline) -> không sinh PR trùng
+        pr.refresh_from_db()
+        self.assertEqual((pr.status, x["pipeline"], self.auto_prs().count()), ("SUBMITTED", D(150), 1))
 
     def test_t13_allocation_order(self):
         self.adjust(-100)
@@ -516,7 +525,8 @@ class RuleTest(Base):
             ps.create_inbound_trip(po, self.route, self.vehicle, self.driver, timezone.now(),
                                    {pol.__class__.objects.get(pk=pol.pk): 5})
         before = self.metrics()
-        self.act(ps.record_milestone, trip, trip.milestones.order_by("seq").first(), self.taixe)
+        first = trip.milestones.order_by("seq").first()
+        self.act(ps.record_milestone, trip, first, self.taixe, photo=photo(first))
         self.assertEqual(self.metrics(), before)
 
     def test_t17_traces_and_pr_list_column(self):
@@ -559,22 +569,25 @@ class QuantEditTest(Base):
         from .models import StockQuant
         return StockQuant.objects.get(product=self.product, location=loc or self.loc)
 
+    # Giám đốc điều chỉnh: ghi sổ ngay. Thủ kho vượt ngưỡng ADJ_APPROVAL_THRESHOLD: chờ duyệt (test_ga_fixes STT 34).
     def test_set_and_delete_write_ledger_and_trigger(self):
-        self.post(self.warehouse_user, self.quant(), op="set", qty="80", reason="Đếm lại")
+        self.post(self.director, self.quant(), op="set", qty="80", reason="Đếm lại cuối ca")
         self.assertEqual(self.quant().on_hand, D(80))
         self.assertTrue(self.product.moves.filter(move_type="ADJ", qty=-20).exists())   # sổ kho ghi chênh lệch
         post_stock_move(self.product, self.qloc, D(30), "ADJ", "ADJ", 0)
-        self.post(self.warehouse_user, self.quant(self.qloc), op="delete", reason="Hủy hàng lỗi")
+        self.post(self.director, self.quant(self.qloc), op="delete", reason="Hủy hàng lỗi bể bao")
         self.assertEqual(self.quant(self.qloc).on_hand, D(0))
-        self.post(self.warehouse_user, self.quant(), op="set", qty="50", reason="Hao hụt")
+        self.post(self.director, self.quant(), op="set", qty="50", reason="Hao hụt do mưa ướt")
         self.assertEqual(self.auto_prs().get().trigger_event, "STOCK_ADJUSTED")       # 50 ≤ ROP 60 -> PR
 
     def test_blocked_below_reserved_and_requires_reason(self):
         self.so(90)
-        self.post(self.warehouse_user, self.quant(), op="set", qty="50", reason="x")
+        self.post(self.director, self.quant(), op="set", qty="50", reason="Hao hụt do mưa ướt")
         self.assertEqual(self.quant().on_hand, D(100))                                  # đang giữ 90 -> chặn
-        self.post(self.warehouse_user, self.quant(), op="delete", reason="")
+        self.post(self.director, self.quant(), op="delete", reason="")
         self.assertEqual(self.quant().on_hand, D(100))                                  # thiếu lý do -> chặn
+        self.post(self.director, self.quant(), op="set", qty="99", reason="x")
+        self.assertEqual(self.quant().on_hand, D(100))                                  # lý do quá ngắn -> chặn
 
     def test_forbidden_roles(self):
         r = self.post(self.dispatcher, self.quant(), op="delete", reason="x")

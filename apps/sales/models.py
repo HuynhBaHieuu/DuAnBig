@@ -90,6 +90,29 @@ class SalesOrder(TimeStamped):
             return "SCHEDULED", "Đã xếp chuyến"
         return self.status, self.get_status_display()
 
+    CUSTOMER_STEPS = ["Đã gửi", "Đã xác nhận", "Đang giao", "Đã giao"]
+
+    @property
+    def customer_status(self):
+        """Trạng thái khách hàng thấy ở Cổng KH – chỉ 4 bước (STT 56, 70, 71): Đã gửi → Đã xác nhận → Đang giao →
+        Đã giao (+ Đã hủy). Các bước nội bộ (nháp, chờ Giám đốc duyệt, giữ hàng, xếp chuyến) đều quy về bước gần nhất.
+        Trả về (code, nhãn, số bước đã đạt 1..4)."""
+        if self.status == "CANCELLED":
+            return "CANCELLED", "Đã hủy", 0
+        if self.status in ("DELIVERED", "CLOSED"):
+            return "DELIVERED", "Đã giao", 4
+        if self.status in ("DRAFT", "PENDING_APPROVAL"):
+            return "SUBMITTED", "Đã gửi", 1
+        if self.status == "PARTIAL" or any(s.trip.status == "IN_TRANSIT" for s in self.stops.all()
+                                           if s.status == "PENDING"):
+            return "IN_TRANSIT", "Đang giao", 3
+        return "CONFIRMED", "Đã xác nhận", 2
+
+    @property
+    def customer_editable(self):
+        """Khách được sửa / hủy khi đơn chưa được TRACON xác nhận."""
+        return self.status in ("DRAFT", "PENDING_APPROVAL")
+
     @property
     def stock_status(self):
         """Đủ / Thiếu / Backorder – tổng hợp từ các dòng."""
@@ -106,7 +129,8 @@ class SalesOrderHistory(models.Model):
     EVENTS = [("CREATED", "Tạo đơn"), ("EDITED", "Sửa đơn"), ("SUBMITTED", "Gửi xác nhận"),
               ("PENDING_APPROVAL", "Chờ Giám đốc duyệt"), ("CONFIRMED", "Xác nhận & giữ hàng"),
               ("APPROVED", "Giám đốc duyệt"), ("REJECTED", "Giám đốc từ chối"), ("RESERVED", "Giữ thêm hàng"),
-              ("ISSUED", "Xuất kho"), ("DELIVERED", "Giao hàng"), ("CANCELLED", "Hủy đơn")]
+              ("ISSUED", "Xuất kho"), ("DELIVERED", "Giao hàng"), ("CANCELLED", "Hủy đơn"),
+              ("RELEASED", "Bỏ giữ hàng"), ("ALLOCATION", "Phân bổ lại"), ("DELIVERY_FAILED", "Giao thất bại / thiếu")]
     so = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name="history")
     event = models.CharField(max_length=20, choices=EVENTS)
     user = models.ForeignKey("core.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
@@ -185,6 +209,8 @@ class AllocationLine(models.Model):
     demand_qty = models.DecimalField(**QTY)
     proposed_qty = models.DecimalField(**QTY)
     approved_qty = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    # lượng dòng này đang giữ (chưa xếp chuyến) đưa vào phân bổ lại – đơn ưu tiên thấp có thể bị chuyển bớt (STT 25)
+    held_qty = models.DecimalField(**QTY)
     rank = models.PositiveSmallIntegerField(default=0)
 
     class Meta:

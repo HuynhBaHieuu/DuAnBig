@@ -1,10 +1,10 @@
-from django.conf import settings
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
 from apps.accounting import views as acc
 from apps.core import views as core
+from apps.core.files import private_file
+from apps.purchasing import factory_views as factory
 from apps.inventory import views as inv
 from apps.masterdata import views as md
 from apps.mobile import views as mob
@@ -30,6 +30,8 @@ app_patterns = [
     path("inventory/moves", inv.moves),
     path("inventory/counts", inv.counts),
     path("inventory/counts/<int:pk>", inv.count_detail),
+    path("inventory/adjustments", inv.adjustments),
+    path("inventory/adjustments/<int:pk>", inv.adjustment_detail),
     # Mua hàng & Inbound
     path("purchase/requisitions", pur.pr_list),
     path("purchase/requisitions/new", pur.pr_new),
@@ -44,8 +46,11 @@ app_patterns = [
     path("inbound/trips/<int:pk>", pur.trip_detail),
     path("warehouse/slots", pur.slots),                                    # MH-26
     path("warehouse/slots/<int:pk>", pur.slot_action),
+    path("warehouse/gate/<int:pk>", pur.gate_checkin),
     path("warehouse/receipts", pur.receipts),
     path("warehouse/receipts/<int:pk>", pur.receipt_detail),               # MH-27
+    path("warehouse/claims", pur.claims),
+    path("warehouse/claims/<int:pk>", pur.claim_detail),
     # Bán hàng & Fulfillment
     path("sales/orders", sal.so_list),                                     # MH-31
     path("sales/orders/new", sal.so_form),
@@ -73,6 +78,7 @@ app_patterns = [
     path("reports/otif", rep.otif),
     path("reports/leadtime", rep.leadtime),
     path("reports/unloading", rep.unloading),
+    path("reports/count-accuracy", rep.count_accuracy_report),
     # Danh mục & quản trị
     path("master/", md.index),
     path("master/<slug:slug>/", md.entity_list),
@@ -97,9 +103,15 @@ portal_patterns = [
     path("orders", portal.orders),                                         # MH-93
     path("orders/<int:pk>", portal.order_detail),
     path("orders/<int:pk>/status", portal.order_status),
+    path("orders/<int:pk>/edit", portal.order_edit),
     path("documents", portal.documents),                                   # MH-94
     path("invoices/<int:pk>/pdf", portal.invoice_pdf),
     path("debts", portal.debts),                                           # MH-95
+]
+
+factory_patterns = [                                                       # tài khoản nhà máy (NCC) – STT 64–68
+    path("", factory.orders),
+    path("orders/<int:pk>", factory.order_detail),
 ]
 
 urlpatterns = [
@@ -109,8 +121,9 @@ urlpatterns = [
     path("app/", include(app_patterns)),
     path("m/", include(mobile_patterns)),
     path("portal/", include(portal_patterns)),
+    path("factory/", include(factory_patterns)),
+    path("files/<path:name>", private_file),                               # ảnh POD / mốc: cần đăng nhập + quyền
     path("api/", include("apps.core.api")),
     path("cron/nightly", core.cron_nightly),
     path("django-admin/", admin.site.urls),
 ]
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

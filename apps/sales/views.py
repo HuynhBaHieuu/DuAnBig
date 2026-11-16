@@ -175,6 +175,12 @@ def so_detail(request, pk):
         elif op == "cancel":
             svc.cancel_so(so, request.POST.get("reason"), request.user)
             messages.success(request, "Đã hủy đơn, nhả hàng giữ.")
+        elif op == "reopen":  # STT 77: sửa đơn đã (tự) xác nhận khi phát hiện sai
+            if request.user.role not in ("DISPATCHER", "DIRECTOR", "ADMIN"):
+                raise BusinessError("Điều phối mở lại đơn để sửa.")
+            svc.reopen_so(so, request.user, request.POST.get("reason", ""))
+            messages.success(request, f"Đã mở lại {so.code} về Nháp và nhả hàng giữ – sửa xong bấm Xác nhận lại.")
+            return redirect(f"/app/sales/orders/{so.pk}/edit")
         elif op == "delete" and so.status == "DRAFT":
             so.delete()
             return redirect("/app/sales/orders")
@@ -186,8 +192,9 @@ def so_detail(request, pk):
     if preview:
         svc.atp_preview(lines)  # đơn chưa xác nhận: tính trước Thiếu = SL đặt − Khả dụng
     else:
+        closed = so.status in ("CANCELLED", "CLOSED", "DELIVERED")  # STT 28: đơn đã hủy / đóng không còn "Thiếu"
         for l in lines:
-            l.short_qty = l.backorder_qty
+            l.short_qty = 0 if closed else l.backorder_qty
     from apps.inventory.replenishment import event_label
     from apps.purchasing.models import PurchaseRequisition
     from apps.inventory.models import ReplenishmentCheckLog

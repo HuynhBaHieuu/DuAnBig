@@ -12,4 +12,8 @@
     <td><div class="bar"><i style="width:{% widthratio r.avg 10 100 %}%"></i></div></td></tr>
   {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu nhập trong kỳ.</td></tr>{% endfor %}</tbody>
 </table></div>
+{% if d.excluded %}<div class="card" style="margin-top:20px"><div class="card-head"><h3 class="card-title">Phiếu nhập bị loại khỏi thống kê ({{ d.excluded|length }})</h3></div>
+  <table class="tbl"><thead><tr><th>GRN</th><th>Nhà cung cấp</th><th class="num">Lead time (ngày)</th><th>Lý do loại</th></tr></thead>
+  <tbody>{% for g in d.excluded %}<tr><td><a class="code" href="/app/warehouse/receipts/{{ g.pk }}">{{ g.code }}</a></td><td>{{ g.po.supplier.name }}</td><td class="num">{{ g.lead_time_days|floatformat:2 }}</td><td class="text-muted">{{ g.exclude_reason }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<p class="text-muted" style="font-size:12px;margin-top:10px">Phiếu có lead time ngắn bất thường (&lt; tham số LEADTIME_MIN_DAYS) hoặc được đánh dấu "Chuyến test" ở trang phiếu nhập bị loại khỏi báo cáo này và khỏi tác vụ đêm tính SS/ROP.</p>
 {% endblock %}

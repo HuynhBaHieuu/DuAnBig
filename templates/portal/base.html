@@ -6,7 +6,7 @@
     <nav class="portal-nav" style="flex:1">
       {% with p=request.path %}
       <a href="/portal/" class="{% if p == '/portal/' %}active{% endif %}">Tổng quan</a>
-      <a href="/portal/order" class="{% if p == '/portal/order' %}active{% endif %}">Đặt hàng / Kế hoạch tuần</a>
+      <a href="/portal/order" class="{% if p == '/portal/order' %}active{% endif %}">Đặt hàng</a>
       <a href="/portal/orders" class="{% if '/portal/orders' in p %}active{% endif %}">Theo dõi đơn & ETA</a>
       <a href="/portal/documents" class="{% if p == '/portal/documents' %}active{% endif %}">Chứng từ</a>
       <a href="/portal/debts" class="{% if p == '/portal/debts' %}active{% endif %}">Công nợ</a>

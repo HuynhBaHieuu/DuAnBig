@@ -15,11 +15,11 @@
           <template x-if="mode === 'set'"><span class="toolbar">SL mới ({{ q.product.base_uom.code }}):
             <input class="input input-sm num" name="qty" type="number" step="0.001" min="0" value="{{ q.on_hand|floatformat:'-3' }}" style="width:110px" required></span></template>
           <template x-if="mode === 'delete'"><span style="color:var(--danger-ink);font-weight:600">Xoá {{ q.on_hand|qty }} {{ q.product.base_uom.code }} khỏi {{ q.location.code }}?</span></template>
-          <input class="input input-sm" name="reason" maxlength="200" placeholder="Lý do (bắt buộc)" style="width:220px" required>
+          <input class="input input-sm" name="reason" maxlength="200" minlength="10" placeholder="Lý do cụ thể (tối thiểu 10 ký tự)" style="width:240px" required>
           <button class="btn btn-sm" :class="mode === 'delete' ? 'btn-danger' : 'btn-primary'" x-text="mode === 'delete' ? 'Xác nhận xoá' : 'Lưu'"></button>
           <button type="button" class="btn btn-outline btn-sm" @click="mode=''">Hủy</button>
         </form>
-        <div class="text-muted" style="font-size:12px;margin-top:4px">Ghi phiếu điều chỉnh ADJ vào sổ kho theo chênh lệch; không giảm được dưới lượng đang giữ cho đơn bán.</div>
+        <div class="text-muted" style="font-size:12px;margin-top:4px">Lập phiếu điều chỉnh ADJ theo chênh lệch: dưới ngưỡng duyệt ghi sổ ngay, vượt ngưỡng chờ Giám đốc duyệt; không giảm được dưới lượng đang giữ cho đơn bán.</div>
       </td></tr>{% endif %}
     </tbody>
     {% empty %}<tbody><tr><td colspan="6" class="empty">Không có tồn tại vị trí nào.</td></tr></tbody>{% endfor %}
@@ -28,11 +28,11 @@
   <form method="post" action="/app/inventory/stock/add" class="card card-body" style="width:340px" @click.stop>{% csrf_token %}
     <input type="hidden" name="product" value="{{ pk }}">
     <div class="card-title" style="margin-bottom:10px"><i data-lucide="package-plus" style="width:16px"></i> Thêm tồn thực</div>
-    <div class="field" style="margin-bottom:8px"><label>Vị trí *</label><select name="location" required>{% for l in locations %}<option value="{{ l.pk }}">{{ l.code }} – {{ l.get_loc_type_display }} · {{ l.warehouse.name }}</option>{% endfor %}</select></div>
+    <div class="field" style="margin-bottom:8px"><label>Vị trí *</label><select name="location" required><option value="">— Chọn vị trí —</option>{% for l in locations %}<option value="{{ l.pk }}" {% if forloop.first and l.loc_type == "STORAGE" %}selected{% endif %}>{{ l.code }} – {{ l.get_loc_type_display }} · {{ l.warehouse.name }}</option>{% endfor %}</select></div>
     <div class="field" style="margin-bottom:8px"><label>Số lượng thêm ({{ product.base_uom.code }}) *</label><input name="qty" type="number" step="0.001" min="0.001" required></div>
     {% if user.can_see_cost %}<div class="field" style="margin-bottom:8px"><label>Đơn giá vốn (₫/{{ product.base_uom.code }})</label><input name="unit_cost" type="number" step="1" min="0" placeholder="Để trống = giá vốn hiện tại {{ product.avg_cost|default:product.standard_cost|floatformat:0 }}"></div>{% endif %}
-    <div class="field" style="margin-bottom:12px"><label>Lý do *</label><input name="reason" maxlength="200" required placeholder="Vd: Tồn đầu kỳ, kiểm đếm phát hiện thừa"></div>
-    <button class="btn btn-primary btn-sm" onclick="return confirm('Thêm tồn thực cho {{ product.code }}? Thao tác ghi sổ kho (phiếu ADJ).')"><i data-lucide="plus"></i>Thêm tồn thực</button>
+    <div class="field" style="margin-bottom:12px"><label>Lý do *</label><input name="reason" maxlength="200" minlength="10" required placeholder="Vd: Tồn đầu kỳ, kiểm đếm phát hiện thừa"></div>
+    <button class="btn btn-primary btn-sm" data-confirm="Thêm tồn thực cho {{ product.code }}? Thao tác ghi phiếu điều chỉnh ADJ." data-confirm-ok="Thêm tồn"><i data-lucide="plus"></i>Thêm tồn thực</button>
   </form>
   {% if quants %}
   <form method="post" action="/app/inventory/transfer" class="card card-body" style="width:340px" @click.stop>{% csrf_token %}

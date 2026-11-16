@@ -6,9 +6,9 @@
     <div class="page-sub">{{ ic.warehouse.name }} · {{ lines|length }} dòng · {% if blind %}<b class="text-primary">Chế độ đếm mù – tồn sổ được ẩn</b>{% endif %}</div></div>
   <div class="toolbar">
     {% if ic.status == "PENDING_APPROVAL" and is_director %}
-    <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary" onclick="return confirm('Duyệt phiếu kiểm kê {{ ic.code }} và ghi bút toán điều chỉnh tồn kho?')"><i data-lucide="check"></i>Duyệt phiếu kiểm kê</button></form>
+    <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary" data-confirm="Duyệt phiếu kiểm kê {{ ic.code }} và ghi bút toán điều chỉnh tồn kho?" data-confirm-ok="Duyệt"><i data-lucide="check"></i>Duyệt phiếu kiểm kê</button></form>
     {% elif ic.status == "COUNTING" or ic.status == "RECOUNT" %}{% if is_director %}
-    <button type="submit" form="count-form" name="op" value="count_approve" class="btn btn-primary" onclick="return confirm('Lưu số đếm và duyệt phiếu {{ ic.code }}?')"><i data-lucide="check"></i>Lưu số đếm & duyệt phiếu</button>
+    <button type="submit" form="count-form" name="op" value="count_approve" class="btn btn-primary" data-confirm="Lưu số đếm và duyệt phiếu {{ ic.code }}?" data-confirm-ok="Lưu & duyệt"><i data-lucide="check"></i>Lưu số đếm & duyệt phiếu</button>
     {% endif %}{% endif %}
     {% if ic.status != "APPROVED" and ic.status != "CANCELLED" %}{% include "partials/cancel_form.html" %}{% endif %}
   </div>

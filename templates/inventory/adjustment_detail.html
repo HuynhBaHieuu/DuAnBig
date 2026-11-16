@@ -1,0 +1,27 @@
+{% extends "app/base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><div class="crumbs"><a href="/app/inventory/adjustments">Phiếu điều chỉnh tồn</a> /</div><h1 class="page-title">{{ adj.code }} {% status_badge adj %}</h1>
+    <div class="page-sub">{{ adj.reason }}</div></div>
+  {% if adj.status == "PENDING_APPROVAL" and is_director %}<div class="toolbar">
+    <form method="post">{% csrf_token %}<input type="hidden" name="op" value="approve"><button class="btn btn-primary" data-confirm="Duyệt và ghi sổ kho phiếu {{ adj.code }}?" data-confirm-ok="Duyệt & ghi sổ"><i data-lucide="check"></i>Duyệt & ghi sổ</button></form>
+    {% include "partials/cancel_form.html" with label="Từ chối" %}
+  </div>{% endif %}
+</div>
+{% if adj.status == "PENDING_APPROVAL" %}<div class="flash flash-warning" style="margin-bottom:14px">Phiếu vượt ngưỡng duyệt – <b>chưa ghi sổ kho</b>. Tồn kho chỉ thay đổi khi Giám đốc duyệt.</div>{% endif %}
+{% if adj.reject_reason %}<div class="flash flash-error" style="margin-bottom:14px">Từ chối: {{ adj.reject_reason }}</div>{% endif %}
+<div class="grid g-stack" style="grid-template-columns:1fr 320px">
+  <div class="card"><div class="table-wrap"><table class="tbl">
+    <thead><tr><th>Sản phẩm</th><th>Vị trí</th><th class="num">SL lệch</th>{% if user.can_see_cost %}<th class="num">Đơn giá vốn</th><th class="num">Giá trị</th>{% endif %}</tr></thead>
+    <tbody>{% for l in lines %}<tr><td><b class="code">{{ l.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.product.name }}</div></td><td>{{ l.location.code }}</td>
+      <td class="num"><b style="color:{% if l.qty_diff < 0 %}var(--danger-ink){% else %}var(--success-ink){% endif %}">{% if l.qty_diff > 0 %}+{% endif %}{{ l.qty_diff|qty }}</b> {{ l.product.base_uom.code }}</td>
+      {% if user.can_see_cost %}<td class="num">{{ l.unit_cost|vnd }}</td><td class="num">{{ l.qty_diff|mul:l.unit_cost|vnd }}</td>{% endif %}</tr>{% endfor %}</tbody>
+  </table></div></div>
+  <div class="card card-body"><dl class="dl">
+    <dt>Người lập</dt><dd>{{ adj.requested_by|default:"—" }}</dd><dt>Ngày lập</dt><dd>{{ adj.created_at|vn_dt }}</dd>
+    {% if user.can_see_cost %}<dt>Giá trị (tuyệt đối)</dt><dd>{{ adj.value|vnd }}</dd>{% endif %}
+    <dt>{% if adj.status == "CANCELLED" %}Người từ chối{% else %}Người duyệt / ghi sổ{% endif %}</dt><dd>{{ adj.approved_by|default:"—" }} {{ adj.approved_at|vn_dt }}</dd>
+    {% if adj.count %}<dt>Từ kiểm kê</dt><dd><a class="text-primary" href="/app/inventory/counts/{{ adj.count.pk }}">{{ adj.count.code }}</a></dd>{% endif %}
+  </dl></div>
+</div>
+{% endblock %}

@@ -4,7 +4,8 @@
 {% block content %}
 {% if not stop %}
 <div class="card card-body" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">{% status_badge trip %}<span class="text-muted">Xe {{ trip.vehicle.plate }}</span></div>
-{% if trip.status != "IN_TRANSIT" and trip.status != "COMPLETED" %}<div class="flash flash-info"><i data-lucide="info"></i>Chuyến chưa xuất kho – chờ kho soạn hàng và ghi sổ phiếu xuất.</div>{% endif %}
+{% if trip.status == "CANCELLED" %}<div class="flash flash-error"><i data-lucide="x-circle"></i><div><b>Chuyến đã bị hủy</b>{% if trip.cancel_reason %}: {{ trip.cancel_reason }}{% endif %}. Không giao hàng theo chuyến này – liên hệ điều phối nếu cần.</div></div>
+{% elif trip.status != "IN_TRANSIT" and trip.status != "COMPLETED" %}<div class="flash flash-info"><i data-lucide="info"></i>Chuyến chưa xuất kho – chờ kho soạn hàng và ghi sổ phiếu xuất.</div>{% endif %}
 {% for s in stops %}
 <a href="{% if s.status == 'PENDING' and trip.status == 'IN_TRANSIT' %}?stop={{ s.pk }}{% else %}#{% endif %}" class="card card-body" style="display:block;margin-bottom:10px">
   <div style="display:flex;gap:12px;align-items:flex-start">
@@ -35,7 +36,7 @@
       <input type="file" name="photo" accept="image/*" capture="environment" style="display:none" @change="photo=true"></label>
     <div x-show="!failed"><div class="lbl" style="margin-bottom:6px;display:flex;justify-content:space-between"><span>Chữ ký người nhận</span><a href="#" @click.prevent="pad.clear()" class="text-primary">Ký lại</a></div>
       <canvas class="sig-pad" x-ref="sig"></canvas><input type="hidden" name="signature" x-ref="sigval"></div>
-    <textarea class="input" name="note" rows="2" placeholder="Ghi chú (lý do giao thiếu / thất bại)"></textarea>
+    <textarea class="input" name="note" rows="2" :required="failed" :placeholder="failed ? 'Lý do giao thất bại (bắt buộc) – vd: khách vắng, công trình đóng cửa' : 'Ghi chú (lý do giao thiếu nếu có)'"></textarea>
   </div>
   <button class="btn btn-primary big-btn" x-show="!failed"><i data-lucide="check-circle-2"></i>Xác nhận đã giao</button>
   <div style="text-align:center;margin:14px 0">
@@ -51,8 +52,8 @@ function pod() {
     init() { this.$nextTick(() => { this.pad = signaturePad(this.$refs.sig, this.$refs.sigval); }); },
     check(e) {
       if (this.failed) return true;
-      if (!this.photo) { alert("Vui lòng chụp ảnh giao hàng."); e.preventDefault(); return false; }
-      if (!this.$refs.sigval.value) { alert("Vui lòng lấy chữ ký người nhận."); e.preventDefault(); return false; }
+      if (!this.photo) { uiAlert("Vui lòng chụp ảnh giao hàng."); e.preventDefault(); return false; }
+      if (!this.$refs.sigval.value) { uiAlert("Vui lòng lấy chữ ký người nhận."); e.preventDefault(); return false; }
       return true;
     } };
 }

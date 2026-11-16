@@ -342,3 +342,28 @@ table.tbl { width: 100%; border-collapse: collapse; }
   background: var(--primary); color: #fff; border: 0; border-radius: 0 10px 10px 0; padding: 14px 8px; cursor: pointer;
   font-weight: 600; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.15); }
 .slot.overlap { box-shadow: inset 0 0 0 1px rgba(238,32,28,.35); }
+
+/* Hộp thoại trong trang (uiConfirm / uiAlert) */
+.ui-dialog { position: fixed; inset: 0; background: rgba(13,6,45,.35); display: grid; place-items: center; z-index: 9998; padding: 16px; }
+.ui-dialog-box { width: 420px; max-width: 100%; }
+.ui-dialog-msg { white-space: pre-line; line-height: 1.5; }
+.slotgrid .cell.nodrop { background: repeating-linear-gradient(45deg, rgba(6,6,6,.06) 0 6px, rgba(6,6,6,.11) 6px 12px); cursor: not-allowed; }
+
+/* Tài khoản nhà máy (/factory/) – dùng được trên điện thoại */
+.factory-top { max-width: 900px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 16px; }
+.factory-main { max-width: 900px; margin: 0 auto; padding: 20px 16px 60px; }
+.factory-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.factory-po { color: var(--ink); }
+.factory-po:hover { box-shadow: 0 0 0 2px var(--primary-50); }
+@media (max-width: 600px) { .factory-top .user-chip .name, .factory-top .user-chip .role { display: none; } }
+
+/* STT 62: menu dạng ngăn kéo trên màn ≤ 900px (nút ☰ ở topbar) */
+.menu-btn { display: none; }
+.drawer-backdrop { display: none; }
+@media (max-width: 900px) {
+  .menu-btn { display: inline-flex; }
+  .shell.drawer-open .sidebar { display: flex; position: fixed; inset: 0 auto 0 0; width: 280px; max-width: 85vw; z-index: 80;
+    overflow-y: auto; box-shadow: 0 0 40px rgba(0,0,0,.35); }
+  .shell.drawer-open .drawer-backdrop { display: block; position: fixed; inset: 0; background: rgba(6,6,6,.45); z-index: 79; }
+  .topbar .search { flex: 1; min-width: 0; }
+}

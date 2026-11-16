@@ -14,6 +14,7 @@ class Role(models.TextChoices):
     ACCOUNTANT = "ACCOUNTANT", "Kế toán"
     DRIVER = "DRIVER", "Tài xế"
     CUSTOMER = "CUSTOMER", "Khách hàng"
+    SUPPLIER = "SUPPLIER", "Nhà máy (NCC)"
 
 
 class TimeStamped(models.Model):
@@ -32,6 +33,8 @@ class User(AbstractUser):
                                related_name="users")
     customer = models.ForeignKey("masterdata.Customer", null=True, blank=True, on_delete=models.PROTECT,
                                  related_name="portal_users")
+    supplier = models.ForeignKey("masterdata.Supplier", null=True, blank=True, on_delete=models.PROTECT,
+                                 related_name="factory_users")
     failed_login_count = models.PositiveSmallIntegerField(default=0)
     locked_until = models.DateTimeField(null=True, blank=True)
 
@@ -66,6 +69,8 @@ class User(AbstractUser):
             return "/m/trips"
         if self.role == Role.CUSTOMER:
             return "/portal/"
+        if self.role == Role.SUPPLIER:
+            return "/factory/"
         return "/app/dashboard"
 
 

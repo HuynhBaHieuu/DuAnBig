@@ -141,8 +141,10 @@ def stock_metrics(products, today=None):  # today: giữ để tương thích, k
     quarantine = agg(StockQuant.objects.filter(product_id__in=ids, location__loc_type="QUARANTINE"), Sum("on_hand"))
     reserved = agg(StockReservation.objects.filter(product_id__in=ids, status="ACTIVE",
                                                    so_line__so__status__in=SO_OPEN), Sum("qty"))
+    # phần thiếu / hỏng đã khiếu nại & đóng (qty_closed) không còn là "Đang về"
     incoming = agg(PurchaseOrderLine.objects.filter(product_id__in=ids, po__status__in=PO_INCOMING,
-                                                    qty__gt=F("qty_received")), Sum(F("qty") - F("qty_received")))
+                                                    qty__gt=F("qty_received") + F("qty_closed")),
+                   Sum(F("qty") - F("qty_received") - F("qty_closed")))
     # một dòng PR đã gộp vào PO (po_line khác rỗng) chỉ được tính ở PO – không đếm hai lần
     pr_pipe = agg(PurchaseRequisitionLine.objects.filter(product_id__in=ids, pr__status__in=PR_PIPELINE,
                                                          po_line__isnull=True), Sum("qty"))
