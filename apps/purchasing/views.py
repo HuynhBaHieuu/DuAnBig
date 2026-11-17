@@ -195,7 +195,7 @@ def po_detail(request, pk):
             messages.success(request, "Đã gửi duyệt." if po.status == "PENDING_APPROVAL" else "PO dưới ngưỡng – tự động duyệt.")
         elif op in ("approve", "reject"):
             if request.user.role not in ("DIRECTOR", "ADMIN"):
-                raise BusinessError("Chỉ Director được duyệt PO.")
+                raise BusinessError("Chỉ Giám đốc được duyệt PO.")
             svc.approve_po(po, request.user, op == "approve", request.POST.get("reason", ""))
             messages.success(request, "Đã duyệt PO." if op == "approve" else "Đã trả lại PO về Nháp cho Thu mua.")
         elif op == "send":
@@ -545,7 +545,7 @@ def receipt_detail(request, pk):
                 messages.success(request, "Đã lưu nháp.")
         elif op == "approve":
             if request.user.role not in ("DIRECTOR", "ADMIN"):
-                raise BusinessError("Chỉ Director duyệt chênh lệch GRN.")
+                raise BusinessError("Chỉ Giám đốc duyệt chênh lệch GRN.")
             action = request.POST.get("shortage_action", "CLOSE")
             svc.approve_grn(gr, request.user, action)
             messages.success(request, f"Đã duyệt chênh lệch và nhập kho – {svc.SHORTAGE_ACTIONS[action].lower()}.")

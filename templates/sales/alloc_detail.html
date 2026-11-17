@@ -2,7 +2,7 @@
 {% block content %}
 <div class="page-head">
   <div><div class="crumbs"><a href="/app/sales/allocations">Phân bổ</a> /</div><h1 class="page-title">{{ al.code }} {% status_badge al %}</h1>
-    <div class="page-sub">{{ al.product.code }} – {{ al.product.name }} · khả dụng <b>{{ al.available_qty|qty }}</b> / nhu cầu <b>{{ al.demand_qty|qty }}</b> {{ al.product.base_uom.code }}</div></div>
+    <div class="page-sub">{{ al.product.code }} – {{ al.product.name }} · khả dụng <b>{{ al.available_qty|qty:al.product }}</b> / nhu cầu <b>{{ al.demand_qty|qty:al.product }}</b> {{ al.product.base_uom.code }}</div></div>
   {% if al.status == "PROPOSED" %}<form method="post" class="toolbar">{% csrf_token %}<input type="hidden" name="op" value="rerun">
     <select name="rule" class="input" style="width:220px" onchange="this.form.submit()" title="Đổi quy tắc: hệ thống tự sắp xếp & phân bổ lại">{% for v, l in rules %}<option value="{{ v }}" {% if al.priority_rule == v %}selected{% endif %}>Ưu tiên: {{ l }}</option>{% endfor %}</select>
     <button class="btn btn-outline"><i data-lucide="refresh-cw"></i>Đề xuất lại</button></form>{% endif %}
@@ -21,11 +21,11 @@
           <span x-show="e" x-cloak style="display:flex;gap:4px"><input class="input input-sm" type="date" form="pen-{{ l.pk }}" name="penalty_date" value="{{ l.penalty|date:'Y-m-d' }}" style="width:140px">
             <button class="btn btn-primary btn-sm" form="pen-{{ l.pk }}">Lưu</button><button type="button" class="btn btn-outline btn-sm" @click="e=false">✕</button></span>
           {% else %}{{ l.penalty|vn_d }}{% endif %}</td><td>{{ l.so_line.so.order_date|vn_d }}</td>
-        <td class="num">{% if l.held_qty %}<span title="Đơn ưu tiên thấp hơn đang giữ – có thể bị chuyển cho đơn ưu tiên cao">{{ l.held_qty|qty }}</span>{% else %}—{% endif %}</td>
-        <td class="num">{{ l.demand_qty|qty }}</td><td class="num">{{ l.proposed_qty|qty }}</td>
-        <td>{% if al.status == "PROPOSED" %}<input class="input input-sm num" type="number" step="0.001" min="0" max="{{ l.demand_qty }}" name="a_{{ l.pk }}" x-model.number="a['{{ l.pk }}']">{% else %}<b class="num">{{ l.approved_qty|qty }}</b>{% endif %}</td></tr>
+        <td class="num">{% if l.held_qty %}<span title="Đơn ưu tiên thấp hơn đang giữ – có thể bị chuyển cho đơn ưu tiên cao">{{ l.held_qty|qty:al.product }}</span>{% else %}—{% endif %}</td>
+        <td class="num">{{ l.demand_qty|qty:al.product }}</td><td class="num">{{ l.proposed_qty|qty:al.product }}</td>
+        <td>{% if al.status == "PROPOSED" %}<input class="input input-sm num" type="number" step="0.001" min="0" max="{{ l.demand_qty }}" name="a_{{ l.pk }}" x-model.number="a['{{ l.pk }}']">{% else %}<b class="num">{{ l.approved_qty|qty:al.product }}</b>{% endif %}</td></tr>
     {% endfor %}</tbody>
-    <tfoot><tr><td colspan="9" class="num">Tổng phân bổ / khả dụng{% if al.lines.all|length %} <span class="text-muted" style="font-weight:400">(gồm lượng đang giữ của đơn ưu tiên thấp)</span>{% endif %}</td><td class="num"><b :style="sum > {{ al.available_qty }} ? 'color:var(--danger-ink)' : ''" x-text="sum.toLocaleString('vi-VN')"></b> / {{ al.available_qty|qty }}</td></tr></tfoot>
+    <tfoot><tr><td colspan="9" class="num">Tổng phân bổ / khả dụng{% if al.lines.all|length %} <span class="text-muted" style="font-weight:400">(gồm lượng đang giữ của đơn ưu tiên thấp)</span>{% endif %}</td><td class="num"><b :style="sum > {{ al.available_qty }} ? 'color:var(--danger-ink)' : ''" x-text="sum.toLocaleString('vi-VN')"></b> / {{ al.available_qty|qty:al.product }}</td></tr></tfoot>
   </table>
   {% if al.status == "PROPOSED" and user.role in "DIRECTOR ADMIN" %}<div class="card-body toolbar" style="justify-content:flex-end"><button class="btn btn-primary" :disabled="sum > {{ al.available_qty }}"><i data-lucide="check"></i>Duyệt phân bổ</button></div>{% endif %}
 </form>

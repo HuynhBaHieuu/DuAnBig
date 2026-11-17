@@ -1,12 +1,11 @@
 {% extends "app/base.html" %}
 {% block content %}
-{# ===== Ảnh doanh nghiệp (thay bản đồ GPS của mẫu) + tìm kiếm, kỳ xem, việc chờ bạn ===== #}
+{# ===== Ảnh doanh nghiệp (thay bản đồ GPS của mẫu) + kỳ xem, việc chờ bạn ===== #}
 <section class="dz-hero{% if hero_url %} has-photo{% endif %}" aria-label="TRACON 80">
   {% if hero_url %}<img class="dz-hero-img" src="{{ hero_url }}" alt="Ảnh doanh nghiệp TRACON 80">
   {% else %}{% include "core/_hero_art.svg" %}{% endif %}
   <div class="dz-hero-shade"></div>
   <div class="dz-hero-top">
-    <form class="dz-pill dz-search" action="/app/search" method="get"><i data-lucide="search"></i><input name="q" placeholder="Tìm mã đơn, chuyến, sản phẩm…" aria-label="Tìm kiếm"></form>
     <div class="dz-pill dz-period">{% include "partials/period_filter.html" %}</div>
     {% if can_hero %}<div class="dz-hero-tools" x-data="{o:false}">
       <button type="button" class="dz-round" @click="o=!o" title="Đổi ảnh doanh nghiệp"><i data-lucide="image-plus"></i></button>
@@ -35,8 +34,8 @@
         <span class="text-muted" style="font-size:12px">26 tuần · tấn</span></div>
       <div class="dz-volume-chart"><canvas id="ch-volume" aria-label="Khối lượng đơn đã xác nhận theo tuần"></canvas></div>
       <div class="dz-volume-nums">
-        <div><div class="dz-big">{{ volume.period_ton|floatformat:0 }}<small> tấn</small></div><div class="text-muted">Đơn xác nhận kỳ này</div></div>
-        <div><div class="dz-big">{% if volume.success_pct is None %}—{% else %}{{ volume.success_pct|floatformat:0 }}%{% endif %}</div><div class="text-muted">Giao thành công ({{ volume.stops }} điểm)</div></div>
+        <div><div class="dz-big">{{ volume.period_ton|num:0 }}<small> tấn</small></div><div class="text-muted">Đơn xác nhận kỳ này</div></div>
+        <div><div class="dz-big">{% if volume.success_pct is None %}—{% else %}{{ volume.success_pct|num:0 }}%{% endif %}</div><div class="text-muted">Giao thành công ({{ volume.stops }} điểm)</div></div>
       </div>
     </section>
     <div class="dz-mini-grid">
@@ -44,12 +43,12 @@
       <a {% if k.url %}href="{{ k.url }}"{% endif %} class="dz-card dz-mini" title="{{ k.label }} · kỳ {{ k.period }} · mục tiêu {% if k.higher %}≥{% else %}≤{% endif %} {{ k.target }}{{ k.unit }}">
         <div class="dz-mini-label"><span class="kt-code">{{ k.code }}</span><br>{{ k.label }}</div>
         <div class="dz-mini-row">
-          <div class="dz-mini-val">{% if k.value is None %}—{% else %}{{ k.value|floatformat:1 }}<small>{{ k.unit }}</small>{% endif %}</div>
+          <div class="dz-mini-val">{% if k.value is None %}—{% else %}{{ k.value|num:1 }}<small>{{ k.unit }}</small>{% endif %}</div>
           {% with pts=k.spark|sparkline %}{% if pts %}<svg class="dz-mini-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ pts }}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>{% endif %}{% endwith %}
         </div>
         <div class="dz-mini-foot">
           {% if k.ok is None %}<span class="dz-chip gray">Chưa có dữ liệu</span>{% elif k.ok %}<span class="dz-chip good">Đạt mục tiêu</span>{% else %}<span class="dz-chip bad">Chưa đạt · mục tiêu {{ k.target }}{{ k.unit }}</span>{% endif %}
-          {% if k.delta is not None %}<span class="kt-delta {% if k.better %}good{% elif k.better is False %}bad{% endif %}">{% if k.delta > 0 %}▲{% elif k.delta < 0 %}▼{% else %}■{% endif %} {{ k.delta|floatformat:1|cut:"-" }}</span>{% endif %}
+          {% if k.delta is not None %}<span class="kt-delta {% if k.better %}good{% elif k.better is False %}bad{% endif %}">{% if k.delta > 0 %}▲{% elif k.delta < 0 %}▼{% else %}■{% endif %} {{ k.delta|num:1|cut:"-" }}</span>{% endif %}
         </div>
       </a>
       {% endfor %}
@@ -97,8 +96,8 @@
       <div class="dz-head"><span class="dz-title"><span class="dz-ico"><i data-lucide="{% if sales.money %}badge-dollar-sign{% else %}package-check{% endif %}"></i></span>{{ sales.title }}</span>
         <span class="dz-range"><i data-lucide="calendar"></i>{{ period_text }}</span></div>
       <div class="dz-sales-num">
-        <span class="dz-hero-num">{% if sales.money %}{{ sales.value|vnd }}{% else %}{{ sales.value|floatformat:1 }} tấn{% endif %}</span>
-        {% if sales.growth is not None %}<span class="dz-chip {% if sales.growth >= 0 %}good{% else %}bad{% endif %}" title="So với kỳ trước cùng độ dài">{% if sales.growth >= 0 %}+{% endif %}{{ sales.growth|floatformat:1 }}%</span>{% endif %}
+        <span class="dz-hero-num">{% if sales.money %}{{ sales.value|vnd }}{% else %}{{ sales.value|num:1 }} tấn{% endif %}</span>
+        {% if sales.growth is not None %}<span class="dz-chip {% if sales.growth >= 0 %}good{% else %}bad{% endif %}" title="So với kỳ trước cùng độ dài">{% if sales.growth >= 0 %}+{% endif %}{{ sales.growth|num:1 }}%</span>{% endif %}
       </div>
       <div class="dz-bars" role="img" aria-label="{{ sales.title }} theo tuần, {{ sales.range }}">
         {% for b in sales.bars %}<span class="dz-bar{% if b.on %} on{% endif %}" style="height:{{ b.h|floatformat:1 }}%" title="Tuần {{ b.label }}: {{ b.v_text }}"></span>{% endfor %}
@@ -121,16 +120,16 @@
     <div class="card-body">
       <div class="bullet-legend text-muted"><span><i class="lg-bar"></i>Tồn dự kiến</span><span><i class="lg-ss"></i>SS</span><span><i class="lg-rop"></i>ROP</span><span>· sắp theo số ngày đủ bán</span></div>
       {% for r in stock.rows %}
-      <a href="{{ r.url }}" class="bullet-row" title="{{ r.product.code }}: tồn dự kiến {{ r.projected|floatformat:1 }} · SS {{ r.ss|floatformat:1 }} · ROP {{ r.rop|floatformat:1 }} {{ r.product.base_uom.code }} · đủ {% if r.days is None %}—{% else %}{{ r.days|floatformat:1 }} ngày{% endif %}">
+      <a href="{{ r.url }}" class="bullet-row" title="{{ r.product.code }}: tồn dự kiến {{ r.projected|qty:r.product }} · SS {{ r.ss|qty:r.product }} · ROP {{ r.rop|qty:r.product }} {{ r.product.base_uom.code }} · đủ {% if r.days is None %}—{% else %}{{ r.days|num:1 }} ngày{% endif %}">
         <span class="br-name"><b>{{ r.product.code }}</b><span class="text-muted">{{ r.product.name|truncatechars:26 }}</span></span>
         <span class="br-track"><span class="br-fill tone-bg-{{ r.tone }}" style="width:{{ r.w|floatformat:1 }}%"></span>
           <span class="br-ss" style="left:{{ r.ss_x|clamp_pct }}%"></span><span class="br-rop" style="left:{{ r.rop_x|clamp_pct }}%"></span></span>
-        <span class="br-val"><b>{{ r.projected|floatformat:0 }}</b> {{ r.product.base_uom.code }}<span class="br-status {{ r.tone }}">{{ r.tone_label }}</span></span>
-        <span class="br-days">{% if r.days is None %}—{% else %}{{ r.days|floatformat:1 }} ngày{% endif %}</span>
+        <span class="br-val"><b>{{ r.projected|qty:r.product }}</b> {{ r.product.base_uom.code }}<span class="br-status {{ r.tone }}">{{ r.tone_label }}</span></span>
+        <span class="br-days">{% if r.days is None %}—{% else %}{{ r.days|num:1 }} ngày{% endif %}</span>
       </a>
       {% empty %}<div class="empty">Chưa có mã theo dõi SS/ROP.</div>{% endfor %}
       <details class="table-view"><summary>Xem dạng bảng</summary><table class="tbl"><thead><tr><th>Mã</th><th class="num">Tồn dự kiến</th><th class="num">SS</th><th class="num">ROP</th><th class="num">Đủ (ngày)</th><th>Tình trạng</th></tr></thead>
-        <tbody>{% for r in stock.rows %}<tr><td>{{ r.product.code }}</td><td class="num">{{ r.projected|floatformat:1 }}</td><td class="num">{{ r.ss|floatformat:1 }}</td><td class="num">{{ r.rop|floatformat:1 }}</td><td class="num">{% if r.days is None %}—{% else %}{{ r.days|floatformat:1 }}{% endif %}</td><td>{{ r.tone_label }}</td></tr>{% endfor %}</tbody></table></details>
+        <tbody>{% for r in stock.rows %}<tr><td>{{ r.product.code }}</td><td class="num">{{ r.projected|qty:r.product }}</td><td class="num">{{ r.ss|qty:r.product }}</td><td class="num">{{ r.rop|qty:r.product }}</td><td class="num">{% if r.days is None %}—{% else %}{{ r.days|num:1 }}{% endif %}</td><td>{{ r.tone_label }}</td></tr>{% endfor %}</tbody></table></details>
     </div>
   </section>
   {% endif %}

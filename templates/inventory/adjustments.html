@@ -14,7 +14,7 @@
   <tbody>{% for a in page_obj %}
     <tr><td><a class="code" href="/app/inventory/adjustments/{{ a.pk }}">{{ a.code }}</a></td>
       <td>{{ a.reason }}</td>
-      <td style="font-size:12px">{% for l in a.lines.all %}<div>{{ l.product.code }} @ {{ l.location.code }}: <b>{% if l.qty_diff > 0 %}+{% endif %}{{ l.qty_diff|qty }}</b> {{ l.product.base_uom.code }}</div>{% endfor %}</td>
+      <td style="font-size:12px">{% for l in a.lines.all %}<div>{{ l.product.code }} @ {{ l.location.code }}: <b>{% if l.qty_diff > 0 %}+{% endif %}{{ l.qty_diff|qty:l.product }}</b> {{ l.product.base_uom.code }}</div>{% endfor %}</td>
       {% if user.can_see_cost %}<td class="num">{{ a.value|vnd }}</td>{% endif %}
       <td>{% status_badge a %}</td><td>{{ a.requested_by|default:"" }}</td><td>{{ a.approved_by|default:"" }}</td>
       <td class="text-muted">{{ a.created_at|vn_dt }}</td>

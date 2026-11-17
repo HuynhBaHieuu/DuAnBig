@@ -1,6 +1,6 @@
 {% extends "portal/base.html" %}
 {% block content %}
-<div class="page-head"><div><div class="crumbs">MH-90</div><h1 class="page-title">Xin chào, {{ cust.name }}</h1><div class="page-sub">{{ sites|length }} công trình được phép truy cập</div></div>
+<div class="page-head"><div><div class="crumbs">Cổng khách hàng</div><h1 class="page-title">Xin chào, {{ cust.name }}</h1><div class="page-sub">{{ sites|length }} công trình được phép truy cập</div></div>
   <div class="toolbar"><a href="/portal/order" class="btn btn-primary"><i data-lucide="shopping-cart"></i>Đặt hàng mới</a></div></div>
 <div class="grid g-4" style="margin-bottom:24px">
   {% include "partials/kpi.html" with label="Đơn đang xử lý" value=open_count icon="package" tone="primary" %}

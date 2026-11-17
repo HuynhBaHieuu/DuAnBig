@@ -129,7 +129,7 @@ def _tracked():
 
 
 def stockout_pct(d_to):
-    """KPI-6: tỷ lệ mã theo dõi ROP có khả dụng ≤ 0. Hôm nay: số liệu tức thời; ngày cũ: ảnh chụp tác vụ đêm gần nhất."""
+    """KPI-5: tỷ lệ mã theo dõi ROP có khả dụng ≤ 0. Hôm nay: số liệu tức thời; ngày cũ: ảnh chụp tác vụ đêm gần nhất."""
     from apps.inventory.models import ReplenishmentSnapshot
     from apps.inventory.services import stock_summary
     prods = _tracked()
@@ -162,7 +162,7 @@ def stock_value_at(d):
 
 
 def doi(d_from, d_to):
-    """KPI-7: số ngày tồn kho = giá trị tồn cuối kỳ / (giá vốn hàng xuất trong kỳ / số ngày)."""
+    """KPI-6: số ngày tồn kho = giá trị tồn cuối kỳ / (giá vốn hàng xuất trong kỳ / số ngày)."""
     from apps.inventory.models import StockMove
     days = (d_to - d_from).days + 1
     cogs = -(StockMove.objects.filter(move_type__in=["OUT_SALE", "OUT_INTERNAL"], at__date__range=(d_from, d_to))
@@ -179,9 +179,9 @@ KPI_DEFS = [
     ("KPI-2", "Độ chính xác tồn kho (kiểm kê)", "%", 98, True, "/app/reports/count-accuracy", count_accuracy),
     ("KPI-3", "Lead time Inbound TB", " ngày", 3, False, "/app/reports/leadtime", lambda a, b: leadtime_data(a, b)["avg"]),
     ("KPI-4", "Thời gian chờ hạ tải TB", " phút", 30, False, "/app/reports/unloading", lambda a, b: wait_data(a, b)["avg"]),
-    # KPI-5 (mốc hành trình đúng giờ) đã bỏ – STT 73
-    ("KPI-6", "Tỷ lệ mã hàng hết hàng", "%", 2, False, "/app/reports/rop", lambda a, b: stockout_pct(b)),
-    ("KPI-7", "Số ngày tồn kho (DOI)", " ngày", 30, False, "/app/reports/nxt", doi),
+    # KPI mốc hành trình đúng giờ đã bỏ (STT 73) -> đánh số lại liền mạch KPI-1 → KPI-6 (Gà STT 117)
+    ("KPI-5", "Tỷ lệ mã hàng hết hàng", "%", 2, False, "/app/inventory/stock?level=STOCKOUT", lambda a, b: stockout_pct(b)),
+    ("KPI-6", "Số ngày tồn kho (DOI)", " ngày", 30, False, "/app/reports/nxt", doi),
 ]
 TREND_WEEKS = 8
 

@@ -17,6 +17,7 @@ from apps.core.services import BusinessError, audit, next_doc_no, param, raise_a
 
 from .models import StockAdjustment, StockAdjustmentLine, StockQuant
 from .services import post_stock_move
+from apps.core.fmt import money as _money, qty_unit as _qu, qty as _q
 
 D0 = Decimal(0)
 APPROVERS = ("DIRECTOR", "ADMIN")
@@ -55,7 +56,7 @@ def create_adjustment(user, reason, lines, label="Điều chỉnh tồn"):
         if d < 0:
             on_hand = StockQuant.objects.filter(product=p, location=loc).values_list("on_hand", flat=True).first() or D0
             if on_hand + d < 0:
-                raise BusinessError(f"Không đủ tồn: {p.code} tại {loc.code} còn {on_hand:g}.")
+                raise BusinessError(f"Không đủ tồn: {p.code} tại {loc.code} còn {_qu(on_hand, p)}.")
     value = sum((abs(d) * c for _, _, d, c in lines), D0)
     need_approval = user.role not in APPROVERS and value >= Decimal(param("ADJ_APPROVAL_THRESHOLD") or 0)
     adj = StockAdjustment.objects.create(code=next_doc_no("ADJ"), reason=f"{label}: {reason}"[:255],
@@ -66,7 +67,7 @@ def create_adjustment(user, reason, lines, label="Điều chỉnh tồn"):
                           "lines": [f"{p.code}@{loc.code} {d:+g}" for p, loc, d, _ in lines]})
     if need_approval:
         raise_alert("ADJ_APPROVAL", f"Điều chỉnh tồn {adj.code} chờ duyệt",
-                    f"{label} – giá trị {value:,.0f} ₫ – {user}: {reason}"[:250], ref_type="stock_adjustment",
+                    f"{label} – giá trị {_money(value)} – {user}: {reason}"[:250], ref_type="stock_adjustment",
                     ref_id=adj.pk, url=f"/app/inventory/adjustments/{adj.pk}", target_role="DIRECTOR")
         return adj
     post_adjustment(adj, user)
@@ -89,8 +90,8 @@ def post_adjustment(adj, user):
         if l.qty_diff < 0 and l.location.loc_type != "QUARANTINE":
             sellable, held = _sellable(l.product), _held(l.product)
             if sellable + l.qty_diff < held:
-                raise BusinessError(f"Không giảm được: {l.product.code} đang giữ {held:g} {l.product.base_uom.code} "
-                                    f"cho đơn bán, sau điều chỉnh tồn thực chỉ còn {sellable + l.qty_diff:g}. "
+                raise BusinessError(f"Không giảm được: {l.product.code} đang giữ {_qu(held, l.product)} "
+                                    f"cho đơn bán, sau điều chỉnh tồn thực chỉ còn {_qu(sellable + l.qty_diff, l.product)}. "
                                     "Hủy / giảm đơn trước, hoặc dùng kiểm kê.")
     for l in lines:
         if l.qty_diff > 0:  # giá vốn bình quân gia quyền như nhập mua
@@ -187,7 +188,7 @@ def release_excess_reservations(product, trigger=None):
     if released:
         propose_allocation(product)
         from .replenishment import notify
-        codes = ", ".join(f"{l.so.code} ({q:g})" for l, q in released)
+        codes = ", ".join(f"{l.so.code} ({_q(q, l.product)})" for l, q in released)
         notify("DISPATCHER", f"{product.code}: bỏ giữ do tồn giảm",
                f"Tồn thực {product.code} thấp hơn lượng đã giữ – đã bỏ giữ {codes}, chờ Giám đốc phân bổ lại.",
                url="/app/sales/allocations", ref_type="product", ref_id=product.pk)

@@ -12,7 +12,7 @@
     <span class="avatar">{{ s.seq }}</span>
     <div style="flex:1"><div style="display:flex;justify-content:space-between"><b>{{ s.so.customer.name }}</b>{% status_badge s %}</div>
       <div style="font-size:13px">{{ s.site.name }}</div><div class="text-muted" style="font-size:12px">{{ s.site.address }} · {{ s.site.contact_name }} {{ s.site.contact_phone }}</div>
-      <div style="font-size:12px;margin-top:6px">{% for l in s.lines.all %}<span class="badge badge-gray" style="margin:0 4px 4px 0">{{ l.so_line.product.code }} × {{ l.qty_planned|qty }}</span>{% endfor %}</div></div>
+      <div style="font-size:12px;margin-top:6px">{% for l in s.lines.all %}<span class="badge badge-gray" style="margin:0 4px 4px 0">{{ l.so_line.product.code }} × {{ l.qty_planned|qty:l.so_line.product }}</span>{% endfor %}</div></div>
   </div>
 </a>
 {% endfor %}
@@ -27,7 +27,7 @@
   </div>
   <div class="card card-body" style="margin-bottom:12px" x-show="!failed">
     <div class="lbl" style="margin-bottom:8px">Số lượng thực giao</div>
-    {% for l in stop_lines %}<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="flex:1"><b>{{ l.so_line.product.code }}</b><div class="text-muted" style="font-size:12px">Trên xe: {{ l.qty_planned|qty }} {{ l.so_line.product.base_uom.code }}</div></div>
+    {% for l in stop_lines %}<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="flex:1"><b>{{ l.so_line.product.code }}</b><div class="text-muted" style="font-size:12px">Trên xe: {{ l.qty_planned|qty:l.so_line.product.base_uom }} {{ l.so_line.product.base_uom.code }}</div></div>
       <input class="input num" style="width:110px;font-size:18px;padding:10px" type="number" inputmode="decimal" step="any" min="0" max="{{ l.qty_planned|qty_input }}" name="q_{{ l.pk }}" value="{{ l.qty_planned|qty_input }}"><b style="min-width:34px">{{ l.so_line.product.base_uom.code }}</b></div>{% endfor %}
   </div>
   <div class="card card-body" style="margin-bottom:12px;display:flex;flex-direction:column;gap:10px">

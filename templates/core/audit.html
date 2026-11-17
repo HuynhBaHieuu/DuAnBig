@@ -1,25 +1,26 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><h1 class="page-title">Nhật ký kiểm toán</h1><div class="page-sub">Mọi thao tác ghi đều được lưu lại.</div></div>
+  <div><div class="crumbs">Quản trị</div><h1 class="page-title">Nhật ký kiểm toán</h1><div class="page-sub">Mọi thao tác ghi đều được lưu lại.</div></div>
   <form class="toolbar">
     <input class="input" name="q" value="{{ request.GET.q|default:'' }}" placeholder="Bảng, đối tượng, người dùng" style="width:240px">
-    <select class="input" name="action" style="width:150px"><option value="">Mọi hành động</option>
-      <option {% if request.GET.action == "CREATE" %}selected{% endif %}>CREATE</option><option {% if request.GET.action == "UPDATE" %}selected{% endif %}>UPDATE</option>
-      <option {% if request.GET.action == "DELETE" %}selected{% endif %}>DELETE</option><option {% if request.GET.action == "APPROVE" %}selected{% endif %}>APPROVE</option>
-      <option {% if request.GET.action == "CANCEL" %}selected{% endif %}>CANCEL</option><option {% if request.GET.action == "POST" %}selected{% endif %}>POST</option>
-      <option {% if request.GET.action == "LOGIN" %}selected{% endif %}>LOGIN</option><option {% if request.GET.action == "LOGIN_FAIL" %}selected{% endif %}>LOGIN_FAIL</option>
+    <select class="input" name="action" style="width:160px"><option value="">Mọi hành động</option>
+      {% for k, v in actions.items %}<option value="{{ k }}" {% if request.GET.action == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
     </select>
+    <label class="text-muted" style="font-size:13px;display:flex;gap:6px;align-items:center" title="Tồn theo vị trí, tham số SS/ROP… do hệ thống tự cập nhật"><input type="checkbox" name="sys" value="1" {% if request.GET.sys %}checked{% endif %}> Hiện bảng hệ thống</label>
     <button class="btn btn-soft">Lọc</button>
   </form>
 </div>
 <div class="card"><div class="table-wrap">
   <table class="tbl">
-    <thead><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Bảng</th><th>Đối tượng</th><th>IP</th></tr></thead>
+    <thead><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Bảng</th><th>Đối tượng & thay đổi</th><th>IP</th></tr></thead>
     <tbody>{% for a in page_obj %}
-      <tr><td class="text-muted">{{ a.at|vn_dt }}</td><td>{{ a.user|default:"SYSTEM" }}</td><td>{% code_badge a.action %}</td>
-        <td><code style="font-size:12px">{{ a.model }}</code></td><td>{{ a.object_repr }} <span class="text-muted">#{{ a.object_id }}</span>{% if a.changes %}<div class="text-muted" style="font-size:11px">{{ a.changes }}</div>{% endif %}</td><td class="text-muted">{{ a.ip|default:"" }}</td></tr>
-    {% endfor %}</tbody>
+      <tr><td class="text-muted nowrap">{{ a.at|vn_dt }}</td><td>{{ a.user|default:"Hệ thống" }}</td><td><span class="badge badge-gray">{{ a.action_label }}</span></td>
+        <td class="nowrap">{{ a.model_label }}</td>
+        <td>{% if a.object_label %}<b>{{ a.object_label }}</b>{% else %}<span class="text-muted">#{{ a.object_id }}</span>{% endif %}
+          {% if a.change_rows %}<div style="font-size:12px;margin-top:2px">{% for label, old, new in a.change_rows %}<div><span class="text-muted">{{ label }}:</span> {% if old is not None %}{{ old }} → {% endif %}<b>{{ new }}</b></div>{% endfor %}</div>{% endif %}</td>
+        <td class="text-muted">{{ a.ip|default:"" }}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty">Không có bản ghi.</td></tr>{% endfor %}</tbody>
   </table>
 </div>{% include "partials/pager.html" %}</div>
 {% endblock %}

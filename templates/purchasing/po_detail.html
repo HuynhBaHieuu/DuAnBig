@@ -34,9 +34,9 @@
     <div class="card-head"><h3 class="card-title">Dòng hàng</h3></div>
     <div class="card-body" style="padding:12px 0 0"><table class="tbl">
       <thead><tr><th>Sản phẩm</th><th class="num">SL đặt</th><th class="num">Đã xếp chuyến</th><th class="num">Đã nhận</th><th class="num">Đã lập bill</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
-      <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td>
-        <td class="num">{{ l.qty_on_trips|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_billed|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
-      <tfoot><tr><td colspan="6">Tổng cộng · {{ est.ton|floatformat:2 }} tấn · <b>số chuyến ước tính: {{ est.trips }}</b> <span class="text-muted">(xe {{ est.truck|floatformat:0 }} t)</span></td><td class="num">{{ po.total_amount|vnd }}</td></tr>
+      <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> <span class="text-muted">{{ l.product.name }}</span></td><td class="num">{{ l.qty|qty:l.product.base_uom }} {{ l.product.base_uom.code }}</td>
+        <td class="num">{{ l.qty_on_trips|qty:l.product }}</td><td class="num">{{ l.qty_received|qty:l.product }}</td><td class="num">{{ l.qty_billed|qty:l.product }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><td colspan="6">Tổng cộng · {{ est.ton|num:-1 }} tấn · <b>số chuyến ước tính: {{ est.trips }}</b> <span class="text-muted">(xe {{ est.truck|num:0 }} t)</span></td><td class="num">{{ po.total_amount|vnd }}</td></tr>
         <tr><td colspan="6" class="text-muted">VAT</td><td class="num">{{ po.vat_amount|vnd }}</td></tr>
         <tr><td colspan="6"><b>Tổng gồm VAT</b></td><td class="num"><b>{{ po.total_with_vat|vnd }}</b></td></tr></tfoot>
     </table></div>

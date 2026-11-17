@@ -28,7 +28,7 @@
       <tr><td>{% if pr.status == "SUBMITTED" %}<input type="checkbox" name="pr" value="{{ pr.pk }}" @change="n += $event.target.checked ? 1 : -1">{% endif %}</td>
         <td><a class="code" href="/app/purchase/requisitions/{{ pr.pk }}">{{ pr.code }}</a></td>
         <td>{% for l in pr.line_list|slice:":2" %}<div><b>{{ l.product.code }}</b> <span class="text-muted" style="font-size:12px">{{ l.product.name|truncatechars:28 }}</span></div>{% endfor %}{% if pr.line_list|length > 2 %}<div class="text-muted" style="font-size:12px">+{{ pr.line_list|length|add:"-2" }} vật tư khác</div>{% endif %}</td>
-        <td class="num">{% for l in pr.line_list|slice:":2" %}<div>{{ l.qty|qty }} {{ l.product.base_uom.code }}</div>{% endfor %}</td>
+        <td class="num">{% for l in pr.line_list|slice:":2" %}<div>{{ l.qty|qty:l.product.base_uom }} {{ l.product.base_uom.code }}</div>{% endfor %}</td>
         <td>{% if pr.source == "AUTO" %}<span class="badge badge-info"><i data-lucide="bot" style="width:12px"></i>Tự động (ROP)</span>{% else %}<span class="badge badge-gray">Thủ công</span>{% endif %}</td>
         <td>{{ pr.event_label|default:"—" }}{% if pr.trigger_user %}<div class="text-muted" style="font-size:12px">{{ pr.trigger_user }}</div>{% endif %}</td>
         <td>{% if pr.ref_link %}<a class="code" href="{{ pr.ref_link }}">{{ pr.trigger_ref_code }}</a>{% else %}{{ pr.trigger_ref_code|default:"—" }}{% endif %}</td>

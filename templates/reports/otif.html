@@ -3,17 +3,17 @@
 {% include "reports/_nav.html" %}
 <div class="grid g-4" style="margin-bottom:20px">
   {% include "partials/kpi.html" with label="Số điểm giao" value=d.n icon="map-pin" tone="primary" %}
-  {% include "partials/kpi.html" with label="On-time" value=d.ot|floatformat:1|add:"%" icon="clock" tone="info" %}
-  {% include "partials/kpi.html" with label="In-full" value=d.if|floatformat:1|add:"%" icon="package-check" tone="warn" %}
-  {% include "partials/kpi.html" with label="OTIF" value=d.otif|floatformat:1|add:"%" icon="target" tone="success" %}
+  {% include "partials/kpi.html" with label="On-time" value=d.ot|num:1|add:"%" icon="clock" tone="info" %}
+  {% include "partials/kpi.html" with label="In-full" value=d.if|num:1|add:"%" icon="package-check" tone="warn" %}
+  {% include "partials/kpi.html" with label="OTIF" value=d.otif|num:1|add:"%" icon="target" tone="success" %}
 </div>
 <div class="card" style="margin-bottom:20px"><div class="card-head"><h3 class="card-title">OTIF theo ngày (%)</h3></div><div class="card-body"><div style="height:240px"><canvas id="otif"></canvas></div></div></div>
-<div class="card"><table class="tbl">
+<div class="card"><div class="card-head"><h3 class="card-title">Chi tiết từng điểm giao</h3><span class="text-muted" style="font-size:13px">{{ d.rows|length }} điểm · 50 dòng / trang · tải đủ bằng nút Excel</span></div><div class="table-wrap"><table class="tbl">
   <thead><tr><th>Đơn</th><th>Khách hàng / công trình</th><th>Chuyến</th><th>Ngày cần</th><th>Giao lúc</th><th>Đúng hạn</th><th>Đủ hàng</th></tr></thead>
-  <tbody>{% for r in d.rows %}<tr><td><a href="/app/sales/orders/{{ r.s.so.pk }}" class="code">{{ r.s.so.code }}</a></td><td>{{ r.s.so.customer.name }}<div class="text-muted" style="font-size:12px">{{ r.s.site.name }}</div></td><td>{{ r.s.trip.code }}</td>
+  <tbody>{% for r in page_obj %}<tr><td><a href="/app/sales/orders/{{ r.s.so.pk }}" class="code">{{ r.s.so.code }}</a></td><td>{{ r.s.so.customer.name }}<div class="text-muted" style="font-size:12px">{{ r.s.site.name }}</div></td><td>{{ r.s.trip.code }}</td>
     <td>{{ r.s.so.requested_date|vn_d }}</td><td>{{ r.s.delivered_at|vn_dt }}</td><td>{% if r.on_time %}<span class="badge badge-success">✓</span>{% elif r.s.status == "FAILED" %}<span class="badge badge-danger" title="Giao thất bại không tính là đúng hạn">Thất bại</span>{% else %}<span class="badge badge-danger">Trễ</span>{% endif %}</td><td>{% if r.in_full %}<span class="badge badge-success">✓</span>{% else %}<span class="badge badge-danger">{{ r.s.get_status_display }}</span>{% endif %}</td></tr>
   {% empty %}<tr><td colspan="7" class="empty">Không có dữ liệu giao hàng.</td></tr>{% endfor %}</tbody>
-</table></div>
+</table></div>{% include "partials/pager.html" %}</div>
 <p class="text-muted" style="font-size:12px;margin-top:10px">Quy tắc tính: {{ d.rule }}</p>
 {{ chart|json_script:"cd" }}
 {% endblock %}

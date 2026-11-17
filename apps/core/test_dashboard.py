@@ -53,7 +53,7 @@ class DashboardTest(tf.Base):
         self.assertEqual(d_kpi, r_kpi)
         self.assertIn(text, d.content.decode())
         self.assertIn(text, r.content.decode())
-        self.assertNotIn("KPI-5", d_kpi)
+        self.assertEqual(sorted(d_kpi), [f"KPI-{i}" for i in range(1, 7)])  # STT 117: đánh số liền mạch
 
     def test_queue_hides_zero_and_links_filtered(self):
         """STT 80: số 0 thì ẩn; bấm mở danh sách đã lọc."""
@@ -83,7 +83,9 @@ class DashboardTest(tf.Base):
         rows = r.context["stock"]["rows"]
         self.assertEqual(rows[0]["product"], self.product)                  # STT 82
         self.assertIn("/app/inventory/replenishment?product=", rows[0]["url"])
-        dm = r.context["demand"]                                            # STT 84
+        self.assertNotIn("demand", r.context)                              # STT 110: Giám đốc giữ 1 khối khối lượng
+        self.assertNotIn('dz-search', r.content.decode())                   # STT 110: 1 ô tìm kiếm
+        dm = self.client_for(self.purchaser).get("/app/dashboard").context["demand"]   # STT 84
         self.assertEqual(len(dm["ton"]["actual"]), len(dm["labels"]))
         self.assertTrue(dm["has_forecast"])
 

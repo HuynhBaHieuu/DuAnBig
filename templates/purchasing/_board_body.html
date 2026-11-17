@@ -22,7 +22,7 @@
         <span style="display:flex;align-items:center;gap:6px"><span class="avatar sm">{{ t.driver.name|slice:":1" }}</span>{{ t.vehicle.plate }}</span>
         <span class="text-muted" style="display:flex;gap:4px;align-items:center"><i data-lucide="clock" style="width:13px"></i>ETA {{ t.eta|hm }}</span>
       </div>
-      <div class="text-muted" style="font-size:11px;margin-top:6px">{{ t.total_ton|floatformat:2 }} tấn · <span style="color:var(--{% if t.load_pct >= 90 %}success{% elif t.load_pct >= 70 %}warn-ink{% else %}danger-ink{% endif %})">{{ t.load_pct|floatformat:0 }}% tải</span>{% if t.slot %} · Bến {{ t.slot.dock.code }} {{ t.slot.start_at|hm }}{% endif %}</div>
+      <div class="text-muted" style="font-size:11px;margin-top:6px">{{ t.total_ton|num:-1 }} tấn · <span style="color:var(--{% if t.load_pct >= 90 %}success{% elif t.load_pct >= 70 %}warn-ink{% else %}danger-ink{% endif %})">{{ t.load_pct|num:0 }}% tải</span>{% if t.slot %} · Bến {{ t.slot.dock.code }} {{ t.slot.start_at|hm }}{% endif %}</div>
     </a>
     {% empty %}<div class="text-muted" style="text-align:center;font-size:12px;padding:20px 0">Trống</div>{% endfor %}
   </div>
@@ -36,7 +36,7 @@
     <tr class="{% if t.late_active %}row-danger{% endif %}"><td><a class="code" href="/app/inbound/trips/{{ t.pk }}">{{ t.code }}</a></td>
       <td><a href="/app/purchase/orders/{{ t.po.pk }}" class="text-primary">{{ t.po.code }}</a><div class="text-muted" style="font-size:12px">{{ t.po.supplier.name }}</div></td>
       <td>{{ t.vehicle.plate }}<div class="text-muted" style="font-size:12px">{{ t.driver.name }}</div></td><td>{{ t.route.name }}</td>
-      <td class="num">{{ t.total_ton|floatformat:2 }}</td><td>{{ t.ms_done }}/{{ t.ms_total }}</td><td>{{ t.planned_departure|vn_dt }}</td><td><b>{{ t.eta|vn_dt }}</b></td>
+      <td class="num">{{ t.total_ton|num:-1 }}</td><td>{{ t.ms_done }}/{{ t.ms_total }}</td><td>{{ t.planned_departure|vn_dt }}</td><td><b>{{ t.eta|vn_dt }}</b></td>
       <td>{% status_badge t %}{% if t.late_active %} <span class="badge badge-danger">Trễ</span>{% endif %}</td></tr>
   {% empty %}<tr><td colspan="9" class="empty">Không có chuyến.</td></tr>{% endfor %}</tbody>
 </table></div></div>

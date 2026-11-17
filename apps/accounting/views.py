@@ -178,7 +178,7 @@ def bill_detail(request, pk):
             svc.three_way_match(bill)
         elif op == "accept":
             if request.user.role not in ("DIRECTOR", "ADMIN"):
-                raise BusinessError("Chỉ Director chấp nhận lệch đối chiếu.")
+                raise BusinessError("Chỉ Giám đốc chấp nhận lệch đối chiếu.")
             svc.accept_mismatch(bill, request.user, request.POST.get("reason", ""))
             messages.success(request, "Đã chấp nhận chênh lệch – kế toán có thể ghi sổ.")
         elif op == "post":

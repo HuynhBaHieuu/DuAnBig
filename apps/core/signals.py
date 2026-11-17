@@ -14,7 +14,8 @@ from django.utils import timezone
 AUDITED_APPS = {"masterdata", "inventory", "purchasing", "sales", "accounting", "core"}
 SKIP_MODELS = {"AuditLog", "DocSequence", "Alert", "Session", "StockMove", "SalesOrderHistory", "TripEtaLog",
                "ReplenishmentCheckLog", "ReplenishmentJobRun", "ReplenishmentSnapshot", "StockReservation"}
-SKIP_FIELDS = {"id", "created_at", "updated_at", "password", "last_login", "failed_login_count", "snapshot"}
+SKIP_FIELDS = {"id", "created_at", "updated_at", "password", "last_login", "failed_login_count", "snapshot",
+               "forecast_data"}  # khối JSON tính toán dự báo – không ghi nhật ký (Gà STT 109)
 
 # Dòng con -> tên FK tới chứng từ cha (lịch sử ghi vào chứng từ cha)
 DOC_PARENT = {
@@ -75,7 +76,7 @@ FIELD_LABELS = {
     "planned_at": "Kế hoạch gốc", "replanned_at": "Dự kiến lại", "actual_at": "Thực tế", "by_user": "Người cập nhật",
     "photo": "Ảnh", "start_at": "Bắt đầu", "end_at": "Kết thúc", "is_late": "Trễ mốc",
     "reserved_qty": "Đã giữ", "delivered_qty": "Đã giao", "planned_qty": "Đã xếp chuyến", "invoiced_qty": "Đã lập HĐ",
-    "atp_status": "Tình trạng ATP", "qty_received": "SL nhận", "qty_expected": "SL dự kiến", "qty_damaged": "SL hỏng",
+    "atp_status": "Tình trạng hàng", "qty_received": "SL nhận", "qty_expected": "SL dự kiến", "qty_damaged": "SL hỏng",
     "qty_loaded": "SL bốc", "qty_planned": "SL kế hoạch", "qty_on_trips": "SL đã xếp chuyến", "qty_picked": "SL đã soạn",
     "qty_to_pick": "SL cần soạn", "qty_delivered": "SL giao", "qty_billed": "SL đã lập HĐ", "qty_diff": "Chênh lệch",
     "book_qty": "Tồn sổ sách", "count1": "Đếm lần 1", "count2": "Đếm lần 2", "final_qty": "SL chốt",

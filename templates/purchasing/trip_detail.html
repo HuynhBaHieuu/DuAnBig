@@ -18,12 +18,12 @@
   {% include "partials/kpi.html" with label="ETA hiện tại" value=trip.eta|vn_dt icon="clock" tone="primary" %}
   {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|stringformat:"s"|add:" tấn" icon="truck" tone="info" %}
   {% include "partials/kpi.html" with label="Tài xế" value=trip.driver.name foot=trip.driver.phone icon="user" tone="warn" %}
-  {% include "partials/kpi.html" with label="Tổng tải" value=trip.total_ton|floatformat:2|add:" tấn" foot=trip.carrier.name|default:"Xe nội bộ" icon="weight" tone="success" %}
+  {% include "partials/kpi.html" with label="Tổng tải" value=trip.total_ton|num:-1|add:" tấn" foot=trip.carrier.name|default:"Xe nội bộ" icon="weight" tone="success" %}
 </div>
 <div class="card card-body" style="margin-bottom:20px">
   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">
-    <div><b>Hiệu suất sử dụng tải trọng</b> <span class="text-muted" style="font-size:13px">· {{ trip.total_ton|floatformat:2 }} / {{ load.cap|floatformat:2 }} tấn{% if load.free %} · còn trống {{ load.free|floatformat:2 }} tấn{% endif %}</span></div>
-    <span class="badge badge-{{ load.tone }}">{{ load.pct|floatformat:0 }}% · {{ load.label }}</span>
+    <div><b>Hiệu suất sử dụng tải trọng</b> <span class="text-muted" style="font-size:13px">· {{ trip.total_ton|num:-1 }} / {{ load.cap|num:-1 }} tấn{% if load.free %} · còn trống {{ load.free|num:-1 }} tấn{% endif %}</span></div>
+    <span class="badge badge-{{ load.tone }}">{{ load.pct|num:0 }}% · {{ load.label }}</span>
   </div>
   <div class="bar" style="height:10px"><i style="width:{{ load.pct|clamp_pct }}%;background:var(--{{ load.tone }})"></i></div>
   {% if load.pct < 70 %}<div class="text-muted" style="font-size:12px;margin-top:8px">Gợi ý: ghép thêm hàng từ PO cùng NCC / tuyến, hoặc dùng xe tải trọng nhỏ hơn để giảm cước / tấn{% if trip.carrier %} của chuyến 3PL{% endif %}.</div>{% endif %}
@@ -38,7 +38,7 @@
           <div class="circle">{% if m.actual_at %}✓{% else %}{{ m.seq }}{% endif %}</div>
           <div style="flex:1">
             <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
-              <b>{{ m.name }} {% if m.photo_required %}<span class="badge badge-gray"><i data-lucide="camera" style="width:12px"></i>Bắt buộc ảnh</span>{% endif %}</b>
+              <b>{{ m.name }} {% if m.photo_required and not m.actual_at %}<span class="badge badge-gray"><i data-lucide="camera" style="width:12px"></i>Bắt buộc ảnh</span>{% endif %}</b>
               <span class="text-muted" style="font-size:12px;text-align:right">Dự kiến {{ m.expected_at|vn_dt }}{% if m.replanned_at %}<br><span title="Mốc trước tới sớm – tính lại theo mốc thực tế">kế hoạch gốc {{ m.planned_at|vn_dt }}</span>{% endif %}
                 {% if m.overdue_min %}<br><span class="badge badge-danger">Quá hạn {{ m.overdue_min|dur }}</span>{% endif %}
                 {% if m.resched_at %}<br>Dự kiến lại <b style="color:var(--danger-ink)">{{ m.resched_at|vn_dt }}</b>{% endif %}</span>
@@ -69,7 +69,7 @@
       <div class="card-head"><h3 class="card-title">Hàng trên chuyến</h3></div>
       <div class="card-body" style="padding:12px 0 0"><table class="tbl">
         <thead><tr><th>Sản phẩm</th><th class="num">SL kế hoạch</th><th class="num">SL thực bốc</th></tr></thead>
-        <tbody>{% for l in lines %}<tr><td><b>{{ l.po_line.product.code }}</b> {{ l.po_line.product.name }}</td><td class="num">{{ l.qty_planned|qty }}</td><td class="num">{{ l.qty_loaded|qty }}</td></tr>{% endfor %}</tbody>
+        <tbody>{% for l in lines %}<tr><td><b>{{ l.po_line.product.code }}</b> {{ l.po_line.product.name }}</td><td class="num">{{ l.qty_planned|qty:l.po_line.product }}</td><td class="num">{{ l.qty_loaded|qty:l.po_line.product }}</td></tr>{% endfor %}</tbody>
       </table></div>
     </div>
   </div>

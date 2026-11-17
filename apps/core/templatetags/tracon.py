@@ -120,17 +120,28 @@ def money_short(value):
 
 
 @register.filter
-def qty(value):
-    """Số lượng: bỏ phần thập phân thừa."""
+def qty(value, unit=None):
+    """Số lượng theo đơn vị (Gà STT 92): {{ x|qty:p.base_uom }} – bao, cây, mét -> số nguyên; tấn -> 1 chữ số
+    thập phân; bỏ số 0 thừa. unit nhận mã ("CAY"), Uom hoặc Product; không có đơn vị -> tối đa 1 chữ số thập phân."""
+    from apps.core import fmt
     if value is None or value == "":
         return "—"
-    try:
-        d = Decimal(value)
-    except Exception:
+    if fmt._dec(value) is None:
         return value
-    if d == d.to_integral():
-        return _fmt(d, 0)
-    return _fmt(d, 3).rstrip("0").rstrip(",")
+    return fmt.qty(value, unit)
+
+
+@register.filter
+def num(value, decimals=0):
+    """Số hiển thị kiểu Việt Nam (Gà STT 93): {{ x|num:1 }} -> "1.234,5". Dùng thay floatformat ở chữ hiển thị;
+    floatformat (dấu ".") chỉ còn cho giá trị ô nhập / CSS / JS."""
+    from apps.core import fmt
+    if value is None or value == "":
+        return "—"
+    if fmt._dec(value) is None:
+        return value
+    d = int(decimals)
+    return fmt.num(value, abs(d), trim=d < 0)  # num:-1 = tối đa 1 chữ số thập phân, bỏ ",0"
 
 
 @register.filter
@@ -150,10 +161,10 @@ def qty_input(value):
 
 @register.filter
 def pct(value, decimals=1):
-    try:
-        return f"{float(value):.{int(decimals)}f}%".replace(".", ",")
-    except (TypeError, ValueError):
+    from apps.core import fmt
+    if value is None or value == "" or fmt._dec(value) is None:
         return "—"
+    return fmt.pct(value, decimals)
 
 
 @register.simple_tag(takes_context=True)

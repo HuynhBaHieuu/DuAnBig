@@ -1,7 +1,7 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><div class="crumbs">MH-26 · Kho</div><h1 class="page-title">Lịch hạ tải</h1>
+  <div><div class="crumbs">Kho</div><h1 class="page-title">Lịch hạ tải</h1>
     <div class="page-sub">Lưới bến × khung 15 phút · khung hạ tải {{ h0|time:"H:i" }}–{{ h1|time:"H:i" }} · kéo–thả để đổi lịch (hệ thống chặn trùng bến và ngoài khung giờ) · {{ wh.name }}</div></div>
   <div class="toolbar">
     <a href="?date={{ prev|date:'Y-m-d' }}&wh={{ wh.pk }}" class="btn btn-outline btn-sm">‹</a>

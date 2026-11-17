@@ -80,7 +80,7 @@ def so_list(request):
         qs = qs.filter(Q(code__icontains=q) | Q(customer__name__icontains=q) | Q(customer__code__icontains=q)
                        | Q(site__name__icontains=q))
     if request.GET.get("export") == "xlsx":
-        stock_lbl = {"OK": "Đủ", "SHORT": "Thiếu", "BACKORDER": "Backorder"}
+        stock_lbl = {"OK": "Đủ", "SHORT": "Thiếu", "BACKORDER": "Chờ hàng"}
         head = ["Mã SO", "Ngày đặt", "Ngày cần giao", "Khách hàng", "Công trình", "Loại", "Nguồn", "Mã SP", "Tên SP",
                 "ĐVT", "SL đặt", "Đã giữ", "Thiếu", "Đã giao", "Đơn giá", "Thành tiền", "Tình trạng hàng",
                 "Trạng thái đơn"]
@@ -136,7 +136,7 @@ def so_form(request, pk=None):
                        {"lines": [{"product": l.product.code, "qty": float(l.qty)} for l in so.lines.select_related("product")]})
         if request.POST.get("submit"):
             ok = svc.submit_so(so, request.user)
-            messages.success(request, _atp_msg(so) if ok else "Đơn cần Director duyệt: " + "; ".join(so.approval_reasons))
+            messages.success(request, _atp_msg(so) if ok else "Đơn cần Giám đốc duyệt: " + "; ".join(so.approval_reasons))
         else:
             messages.success(request, f"Đã lưu nháp {so.code}.")
         return redirect(f"/app/sales/orders/{so.pk}")
@@ -162,16 +162,16 @@ def so_detail(request, pk):
             raise BusinessError("Kế toán chỉ được xem đơn bán.")
         if op == "submit":
             ok = svc.submit_so(so, request.user)
-            messages.success(request, _atp_msg(so) if ok else "Đơn chuyển Director duyệt.")
+            messages.success(request, _atp_msg(so) if ok else "Đơn chuyển Giám đốc duyệt.")
         elif op in ("approve", "reject"):
             if request.user.role not in ("DIRECTOR", "ADMIN"):
-                raise BusinessError("Chỉ Director duyệt đơn.")
+                raise BusinessError("Chỉ Giám đốc duyệt đơn.")
             svc.approve_so(so, request.user, op == "approve", request.POST.get("reason", ""))
             messages.success(request, "Đã duyệt." if op == "approve" else "Đã từ chối.")
         elif op == "reserve":
             for l in so.lines.filter(atp_status__in=["SHORT", "BACKORDER"]):
                 svc.reserve_line(l)
-            messages.info(request, "Đã chạy lại ATP.")
+            messages.info(request, "Đã kiểm tra lại khả năng giữ hàng.")
         elif op == "cancel":
             svc.cancel_so(so, request.POST.get("reason"), request.user)
             messages.success(request, "Đã hủy đơn, nhả hàng giữ.")
@@ -245,7 +245,7 @@ def alloc_detail(request, pk):
             messages.success(request, f"Đã cập nhật mốc phạt công trình {site.name} và phân bổ lại.")
             return redirect(f"/app/sales/allocations/{new.pk}" if new else "/app/sales/allocations")
         if request.user.role not in ("DIRECTOR", "ADMIN"):
-            raise BusinessError("Chỉ Director duyệt phân bổ.")
+            raise BusinessError("Chỉ Giám đốc duyệt phân bổ.")
         if op == "approve":
             svc.approve_allocation(al, request.user, {l.pk: request.POST.get(f"a_{l.pk}") for l in al.lines.all()})
             messages.success(request, "Đã duyệt phân bổ. Phần thiếu chuyển backorder.")

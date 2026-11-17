@@ -1,7 +1,7 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><div class="crumbs">MH-22 · Mua hàng</div><h1 class="page-title">Đơn mua hàng (PO)</h1><div class="page-sub">PO ≥ 50 triệu cần Director duyệt trước khi gửi nhà cung cấp</div></div>
+  <div><div class="crumbs">Mua hàng</div><h1 class="page-title">Đơn mua hàng (PO)</h1><div class="page-sub">PO ≥ 50 triệu cần Giám đốc duyệt trước khi gửi nhà cung cấp</div></div>
   {% if user.role != "ACCOUNTANT" %}<a href="/app/purchase/orders/new" class="btn btn-primary"><i data-lucide="plus"></i>Tạo đơn mua</a>{% endif %}
 </div>
 <div class="tabs">

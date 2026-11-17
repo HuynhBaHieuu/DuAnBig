@@ -16,7 +16,7 @@
 <div class="tabs"><a class="tab" :class="tab === 'd' && 'active'" href="#" @click.prevent="tab = 'd'; history.replaceState(null, '', location.pathname + location.search)">Chi tiết</a><a class="tab" :class="tab === 'h' && 'active'" href="#lich-su" @click.prevent="tab = 'h'; history.replaceState(null, '', '#lich-su')"><i data-lucide="history" style="width:14px"></i> Lịch sử</a></div>
 <div x-show="tab === 'd'">
 {% if pr.cancel_reason %}<div class="flash flash-error">Lý do hủy: {{ pr.cancel_reason }}</div>{% endif %}
-{% if pr.status == "REJECTED" %}<div class="flash flash-error"><i data-lucide="x-circle"></i><div>Thu mua <b>{{ pr.rejected_by|default:"—" }}</b> từ chối lúc {{ pr.rejected_at|vn_dt }}{% if pr.reject_reason %}: {{ pr.reject_reason }}{% endif %}. Position lúc từ chối: <b>{{ pr.rejected_position|qty }}</b> – trong 24 giờ hệ thống chỉ tạo lại PR tự động khi position thấp hơn mức này.</div></div>{% endif %}
+{% if pr.status == "REJECTED" %}<div class="flash flash-error"><i data-lucide="x-circle"></i><div>Thu mua <b>{{ pr.rejected_by|default:"—" }}</b> từ chối lúc {{ pr.rejected_at|vn_dt }}{% if pr.reject_reason %}: {{ pr.reject_reason }}{% endif %}. Tồn + đã đề xuất lúc từ chối: <b>{{ pr.rejected_position|qty:lines.0.product }}</b> – trong 24 giờ hệ thống chỉ tạo lại PR tự động khi tồn + đã đề xuất thấp hơn mức này.</div></div>{% endif %}
 {% if pr.missing_supplier %}<div class="flash flash-warning"><i data-lucide="alert-triangle"></i>Vật tư chưa có nhà cung cấp mặc định – chọn NCC trong danh mục sản phẩm trước khi gộp thành PO.</div>{% endif %}
 
 {% if pr.source == "AUTO" and pr.trigger_event %}
@@ -30,21 +30,21 @@
   </dl>
   {% if snap %}
   <div class="table-wrap"><table class="tbl">
-    <thead><tr><th class="num">Tồn thực</th><th class="num">Đã giữ</th><th class="num">Đang về</th><th class="num">Thiếu chưa giữ</th><th class="num">Đã đề xuất</th><th class="num">Tồn dự báo</th><th class="num">Position</th><th class="num">SS</th><th class="num">ROP</th><th class="num">Q</th></tr></thead>
-    <tbody><tr><td class="num">{{ snap.on_hand|qty }}</td><td class="num">{{ snap.reserved|qty }}</td><td class="num">{{ snap.incoming|qty }}</td><td class="num">{{ snap.demand_unreserved|qty }}</td><td class="num">{{ snap.pipeline|qty }}</td>
-      <td class="num"><b>{{ snap.projected|qty }}</b></td><td class="num"><b>{{ snap.position|qty }}</b></td><td class="num">{{ snap.SS|qty }}</td><td class="num">{{ snap.ROP|qty }}</td><td class="num">{{ snap.Q|qty }}</td></tr></tbody>
+    <thead><tr><th class="num">Tồn thực</th><th class="num">Đã giữ</th><th class="num">Đang về</th><th class="num">Thiếu chưa giữ</th><th class="num">Đã đề xuất</th><th class="num">Tồn dự báo</th><th class="num">Tồn + đã đề xuất</th><th class="num">SS</th><th class="num">ROP</th><th class="num">Q</th></tr></thead>
+    <tbody><tr><td class="num">{{ snap.on_hand|qty:lines.0.product }}</td><td class="num">{{ snap.reserved|qty:lines.0.product }}</td><td class="num">{{ snap.incoming|qty:lines.0.product }}</td><td class="num">{{ snap.demand_unreserved|qty:lines.0.product }}</td><td class="num">{{ snap.pipeline|qty:lines.0.product }}</td>
+      <td class="num"><b>{{ snap.projected|qty:lines.0.product }}</b></td><td class="num"><b>{{ snap.position|qty:lines.0.product }}</b></td><td class="num">{{ snap.SS|qty:lines.0.product }}</td><td class="num">{{ snap.ROP|qty:lines.0.product }}</td><td class="num">{{ snap.Q|qty:lines.0.product }}</td></tr></tbody>
   </table></div>
   <div class="card-body" style="background:var(--input);border-radius:12px;margin-top:12px;font-size:13px;line-height:1.9">
-    <div>Tồn dự báo = Tồn thực + Đang về − Đã giữ − Thiếu chưa giữ = {{ snap.on_hand|qty }} + {{ snap.incoming|qty }} − {{ snap.reserved|qty }} − {{ snap.demand_unreserved|qty }} = <b>{{ snap.projected|qty }}</b> ≤ ROP {{ snap.ROP|qty }}</div>
-    <div>Position = Tồn dự báo + Đã đề xuất = {{ snap.projected|qty }} + {{ snap.pipeline|qty }} = <b>{{ snap.position|qty }}</b> ≤ ROP → cần đề xuất</div>
-    <div>SL = max(Q; ROP + Q − position) = max({{ snap.Q|qty }}; {{ snap.ROP|qty }} + {{ snap.Q|qty }} − {{ snap.position|qty }}) = <b>{{ snap.raw|qty }}</b>{% if snap.round_to_truck %} → làm tròn theo xe {{ snap.truck_qty|qty }} = <b>{{ snap.qty|qty }}</b>{% endif %}</div>
+    <div>Tồn dự báo = Tồn thực + Đang về − Đã giữ − Thiếu chưa giữ = {{ snap.on_hand|qty:lines.0.product }} + {{ snap.incoming|qty:lines.0.product }} − {{ snap.reserved|qty:lines.0.product }} − {{ snap.demand_unreserved|qty:lines.0.product }} = <b>{{ snap.projected|qty:lines.0.product }}</b> ≤ ROP {{ snap.ROP|qty:lines.0.product }}</div>
+    <div>Tồn + đã đề xuất = Tồn dự báo + Đã đề xuất = {{ snap.projected|qty:lines.0.product }} + {{ snap.pipeline|qty:lines.0.product }} = <b>{{ snap.position|qty:lines.0.product }}</b> ≤ ROP → cần đề xuất</div>
+    <div>SL = max(Q; ROP + Q − tồn và đã đề xuất) = max({{ snap.Q|qty:lines.0.product }}; {{ snap.ROP|qty:lines.0.product }} + {{ snap.Q|qty:lines.0.product }} − {{ snap.position|qty:lines.0.product }}) = <b>{{ snap.raw|qty:lines.0.product }}</b>{% if snap.round_to_truck %} → làm tròn theo xe {{ snap.truck_qty|qty:lines.0.product }} = <b>{{ snap.qty|qty:lines.0.product }}</b>{% endif %}</div>
   </div>
   {% endif %}
 </div>
 {% endif %}
 <div class="card"><table class="tbl">
   <thead><tr><th>Sản phẩm</th><th class="num">Số lượng</th><th>ĐVT</th><th>NCC gợi ý</th><th>Đã lập PO</th></tr></thead>
-  <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty }}</td><td>{{ l.product.base_uom.code }}</td>
+  <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty:l.product }}</td><td>{{ l.product.base_uom.code }}</td>
     <td>{{ l.suggested_supplier.name|default:"—" }}</td><td>{% if l.po_line %}<a class="code" href="/app/purchase/orders/{{ l.po_line.po.pk }}">{{ l.po_line.po.code }}</a>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>
 </div>

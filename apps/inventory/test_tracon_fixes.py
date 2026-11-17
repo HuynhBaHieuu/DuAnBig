@@ -36,7 +36,10 @@ class Stt9ConfirmTriggersPR(Base):
         pr = self.auto_prs().get()
         self.assertEqual((pr.trigger_event, pr.trigger_ref_code, pr.lines.get().qty), ("SO_CONFIRMED", so.code, D(150)))
         html = c.get(f"/app/sales/orders/{so.pk}").content.decode()
-        self.assertIn(pr.code, html)                      # thông báo + khối "Kiểm tra bổ sung tồn"
+        self.assertIn(pr.code, html)                      # thông báo có mã PR
+        self.assertNotIn("Kiểm tra bổ sung tồn (ROP)", html)  # Gà STT 115: khối ROP chỉ cho Thu mua / Giám đốc
+        c.force_login(self.director)
+        html = c.get(f"/app/sales/orders/{so.pk}").content.decode()
         self.assertIn("Kiểm tra bổ sung tồn (ROP)", html)
         self.assertIn("Tạo PR", html)
 

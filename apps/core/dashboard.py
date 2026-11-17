@@ -14,6 +14,7 @@ from decimal import Decimal
 
 from django.db.models import Count, F, Sum
 from django.utils import timezone
+from apps.core.fmt import num as _fnum
 
 D0 = Decimal(0)
 
@@ -449,7 +450,7 @@ def sales_overview(user, d_from, d_to, weeks=26):
     top = max((b["v"] for b in bars), default=0) or 1
     for b in bars:
         b["h"] = b["v"] / top * 100
-        b["v_text"] = f"{b['v'] / 1e6:,.1f} triệu ₫" if money else f"{b['v']:,.1f} tấn"
+        b["v_text"] = f"{_fnum(b['v'] / 1e6, 1)} triệu ₫" if money else f"{_fnum(b['v'], 1)} tấn"
     return {"money": money, "value": cur, "prev": prev, "growth": ((cur - prev) / prev * 100) if prev else None,
             "bars": bars, "ticks": [b["label"] for i, b in enumerate(bars) if i % 5 == 0],
             "title": "Doanh thu" if money else "Nhập kho", "url": "/app/accounting/invoices" if money else

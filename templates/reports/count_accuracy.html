@@ -2,7 +2,7 @@
 {% block content %}
 {% include "reports/_nav.html" %}
 <div class="grid g-3" style="margin-bottom:20px">
-  {% include "partials/kpi.html" with label="Độ chính xác tồn kho (lệch ≤ 1%)" value=value|floatformat:1|add:"%" icon="clipboard-check" tone="primary" %}
+  {% include "partials/kpi.html" with label="Độ chính xác tồn kho (lệch ≤ 1%)" value=value|num:1|add:"%" icon="clipboard-check" tone="primary" %}
   {% include "partials/kpi.html" with label="Số phiếu kiểm kê đã duyệt" value=counts|length icon="files" tone="info" %}
   {% include "partials/kpi.html" with label="Số dòng đã đếm" value=lines|length icon="list-checks" tone="warn" %}
 </div>
@@ -10,13 +10,13 @@
   <table class="tbl"><thead><tr><th>Phiếu</th><th>Kho</th><th>Ngày duyệt</th><th class="num">Số dòng</th><th class="num">Dòng đạt (≤ 1%)</th><th class="num">Tỷ lệ</th></tr></thead>
   <tbody>{% for c in counts %}<tr><td>{% if user|can_open:"/app/inventory/counts" %}<a class="code" href="/app/inventory/counts/{{ c.ic.pk }}">{{ c.ic.code }}</a>{% else %}<b class="code">{{ c.ic.code }}</b>{% endif %}</td>
     <td>{{ c.ic.warehouse.name }}</td><td>{{ c.ic.updated_at|vn_dt }}</td><td class="num">{{ c.n }}</td><td class="num">{{ c.ok }}</td>
-    <td class="num"><b style="color:{% if c.pct >= 98 %}var(--success-ink){% else %}var(--danger-ink){% endif %}">{{ c.pct|floatformat:1 }}%</b></td></tr>
+    <td class="num"><b style="color:{% if c.pct >= 98 %}var(--success-ink){% else %}var(--danger-ink){% endif %}">{{ c.pct|num:1 }}%</b></td></tr>
   {% empty %}<tr><td colspan="6" class="empty">Không có phiếu kiểm kê được duyệt trong kỳ.</td></tr>{% endfor %}</tbody></table></div>
 <div class="card"><div class="card-head"><h3 class="card-title">Chi tiết từng dòng</h3></div><div class="table-wrap">
   <table class="tbl"><thead><tr><th>Phiếu</th><th>Sản phẩm</th><th>Vị trí</th><th class="num">Tồn sổ</th><th class="num">Đếm (chốt)</th><th class="num">Lệch</th><th class="num">% lệch</th><th>Kết quả</th></tr></thead>
   <tbody>{% for l in lines %}<tr><td class="code">{{ l.count.code }}</td><td><b class="code">{{ l.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.product.name }}</div></td><td>{{ l.location.code }}</td>
-    <td class="num">{{ l.book_qty|qty }}</td><td class="num">{{ l.final_qty|qty }}</td><td class="num">{{ l.final_qty|sub:l.book_qty|qty }} {{ l.product.base_uom.code }}</td>
-    <td class="num">{{ l.variance_pct|floatformat:2 }}%</td><td>{% if l.variance_pct <= 1 %}<span class="badge badge-success">Đạt</span>{% else %}<span class="badge badge-danger">Lệch</span>{% endif %}</td></tr>
+    <td class="num">{{ l.book_qty|qty:l.product }}</td><td class="num">{{ l.final_qty|qty:l.product }}</td><td class="num">{{ l.final_qty|sub:l.book_qty|qty:l.product }} {{ l.product.base_uom.code }}</td>
+    <td class="num">{{ l.variance_pct|num:2 }}%</td><td>{% if l.variance_pct <= 1 %}<span class="badge badge-success">Đạt</span>{% else %}<span class="badge badge-danger">Lệch</span>{% endif %}</td></tr>
   {% empty %}<tr><td colspan="8" class="empty">Không có dữ liệu.</td></tr>{% endfor %}</tbody></table></div></div>
 <p class="text-muted" style="font-size:12px;margin-top:10px">Cách tính: số dòng kiểm kê có |đếm − tồn sổ| / tồn sổ ≤ 1% chia cho tổng số dòng của các phiếu đã được Giám đốc duyệt trong kỳ. Phiếu còn "Đang đếm" chưa được tính.</p>
 {% endblock %}

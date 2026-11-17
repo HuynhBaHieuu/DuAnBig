@@ -52,7 +52,7 @@ class InvoiceLine(models.Model):
 class Bill(TimeStamped):
     TYPES = [("GOODS", "Hóa đơn vật tư"), ("FREIGHT", "Cước vận chuyển"), ("CLAIM_CREDIT", "Giảm trừ khiếu nại")]
     STATUS = [("DRAFT", "Nháp"), ("MATCHED", "Khớp 3 bên"), ("MISMATCH", "Lệch – chờ duyệt"),
-              ("ACCEPTED", "Director chấp nhận lệch"), ("POSTED", "Đã ghi sổ"), ("PARTIAL", "Trả một phần"),
+              ("ACCEPTED", "Giám đốc chấp nhận lệch"), ("POSTED", "Đã ghi sổ"), ("PARTIAL", "Trả một phần"),
               ("PAID", "Đã trả đủ"), ("CANCELLED", "Đã hủy")]
     code = models.CharField(max_length=20, unique=True)
     bill_type = models.CharField(max_length=15, choices=TYPES, default="GOODS")

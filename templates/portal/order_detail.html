@@ -13,11 +13,11 @@
   </div>
 </div>
 <div class="grid g-main">
-  <div class="card"><table class="tbl">
+  <div class="card"><div class="table-wrap"><table class="tbl">
     <thead><tr><th>Vật tư</th><th class="num">Đặt</th><th class="num">Đã giao</th>{% if show_price %}<th class="num">Đơn giá</th><th class="num">Thành tiền</th>{% endif %}</tr></thead>
-    <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.delivered_qty|qty }}</td>{% if show_price %}<td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td>{% endif %}</tr>{% endfor %}</tbody>
+    <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td class="num">{{ l.qty|qty:l.product.base_uom }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.delivered_qty|qty:l.product }}</td>{% if show_price %}<td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td>{% endif %}</tr>{% endfor %}</tbody>
     {% if show_price %}<tfoot><tr><td colspan="4">Tổng (chưa VAT)</td><td class="num">{{ so.total_amount|vnd }}</td></tr></tfoot>{% endif %}
-  </table></div>
+  </table></div></div>
   <div class="card card-body" style="align-self:start"><h3 class="card-title" style="margin-bottom:12px">Chuyến giao & ETA</h3>
     {% for s in stops %}<div style="padding:10px 0;border-bottom:1px solid var(--line-soft)">
       <div style="display:flex;justify-content:space-between"><b>{{ s.trip.code }}</b>{% if s.status == "PENDING" %}{% status_badge s.trip %}{% else %}{% status_badge s %}{% endif %}</div>

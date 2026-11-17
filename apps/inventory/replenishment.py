@@ -28,13 +28,15 @@ from django.db import transaction
 from django.db.models import F, Sum
 from django.utils import timezone
 
+from apps.core.fmt import is_count_unit, qty_unit as _qu
+
 D0 = Decimal(0)
 log = logging.getLogger(__name__)
 
 EVENT_LABELS = {
     "SO_CONFIRMED": "Xác nhận đơn bán", "SO_APPROVED": "Giám đốc duyệt đơn", "SO_EDITED": "Sửa đơn đã xác nhận",
     "SO_CANCELLED": "Hủy đơn bán", "ALLOCATION_APPROVED": "Duyệt phân bổ", "ISSUE_POSTED": "Xuất kho",
-    "STOCK_ADJUSTED": "Điều chỉnh tồn", "COUNT_APPROVED": "Duyệt kiểm kê", "PO_APPROVED": "Duyệt PO",
+    "STOCK_ADJUSTED": "Điều chỉnh tồn", "RETURN_RECEIVED": "Nhập hàng trả", "COUNT_APPROVED": "Duyệt kiểm kê", "PO_APPROVED": "Duyệt PO",
     "PO_CANCELLED": "Hủy PO", "PO_CLOSED": "Đóng PO", "PO_RETURNED": "Trả lại PO", "GRN_POSTED": "Nhập kho",
     "PARAM_SAVED": "Lưu tham số SS/ROP", "NIGHTLY_JOB": "Tác vụ đêm",
 }
@@ -92,6 +94,7 @@ class EffectiveParams:
     truck_qty: Decimal
     round_to_truck: bool
     LT: Decimal
+    whole: bool = False  # hàng đếm theo cái (bao, cây, mét…): SL đặt là số nguyên (Gà STT 95)
 
 
 def get_param(product):
@@ -107,16 +110,19 @@ def effective_params(product, rp=None):
     rp = rp or get_param(product)
     return EffectiveParams(SS=Decimal(rp.eff_ss), ROP=Decimal(rp.eff_rop), Q=Decimal(rp.order_q),
                            truck_qty=Decimal(rp.truck_qty or 0), round_to_truck=bool(rp.round_by_truck),
-                           LT=Decimal(rp.lead_time_days or 0))
+                           LT=Decimal(rp.lead_time_days or 0), whole=is_count_unit(product))
 
 
 def calc_order_qty(p, pos):
-    """(raw, qty): raw = max(Q; ROP + Q − position); qty làm tròn lên theo xe nếu bật. Dùng chung PR tự động & gợi ý."""
+    """(raw, qty): raw = max(Q; ROP + Q − position); qty làm tròn lên theo xe nếu bật. Dùng chung PR tự động & gợi ý.
+    Hàng đếm theo cái (p.whole): qty làm tròn LÊN số nguyên – không đặt "373,396 cây" (Gà STT 95)."""
     pos = Decimal(pos)
     raw = max(p.Q, p.ROP + p.Q - pos, D0)
     qty = raw
     if p.round_to_truck and p.truck_qty > 0 and raw > 0:
         qty = Decimal(math.ceil(raw / p.truck_qty)) * p.truck_qty
+    if p.whole and qty > 0:
+        qty = Decimal(math.ceil(qty))
     return raw.quantize(Decimal("0.001")), Decimal(qty).quantize(Decimal("0.001"))
 
 
@@ -176,7 +182,7 @@ def open_alert_once(product, trigger, projected):
         ReplenishmentAlert.objects.create(product=product, alert_type="HIT_ROP", opened_at=timezone.now(),
                                           opened_event=trigger.event, opened_ref=trigger.ref_code or "",
                                           opened_projected=projected)
-    raise_alert("HIT_ROP", f"{product.code} chạm điểm đặt hàng lại", f"Tồn dự báo {projected:g} – do {trigger.label} "
+    raise_alert("HIT_ROP", f"{product.code} chạm điểm đặt hàng lại", f"Tồn dự báo {_qu(projected, product)} – do {trigger.label} "
                 f"{trigger.ref_code}", ref_type="product", ref_id=product.pk,
                 url=f"/app/inventory/replenishment?product={product.pk}", target_role="PURCHASER")
 
@@ -275,9 +281,8 @@ def check_replenishment(product_id, trigger):
         _log(product, trigger, "TAO_PR", proj, pos, p.ROP, pr=pr)
         audit("CREATE", pr, {"source": "AUTO", "event": trigger.event, "ref": trigger.ref_code, "qty": str(qty)},
               user=trigger.user_obj)
-        uom = product.base_uom.code
-        notify("PURCHASER", f"{pr.code}: {product.code} {qty:g} {uom} – do {trigger.label} {trigger.ref_code}",
-               f"Tồn dự báo {proj:g} ≤ ROP {p.ROP:g}. Đề xuất mua tự động cần lập PO.",
+        notify("PURCHASER", f"{pr.code}: {product.code} {_qu(qty, product)} – do {trigger.label} {trigger.ref_code}",
+               f"Tồn dự báo {_qu(proj, product)} ≤ ROP {_qu(p.ROP, product)}. Đề xuất mua tự động cần lập PO.",
                url=f"/app/purchase/requisitions/{pr.pk}", ref_type="pr", ref_id=pr.pk, level="WARN")
         if supplier is None:
             notify("PURCHASER", f"{pr.code}: {product.code} chưa có NCC mặc định",
@@ -342,8 +347,9 @@ def allocate_backorders(product, trigger):
         so_log(line.so, "RESERVED", trigger.user_obj, {"product": product.code, "qty": float(take),
                                                        "event": trigger.event, "ref": trigger.ref_code})
         done.append((line, take))
-        tail = "đủ hàng" if line.atp_status == "OK" else f"giữ thêm {take:g}, còn thiếu {need - take:g}"
-        notify("DISPATCHER", f"{line.so.code} đã có hàng", f"{product.code}: {tail} {product.base_uom.code} "
+        tail = (f"giữ đủ {_qu(take, product)}" if line.atp_status == "OK"
+                else f"giữ thêm {_qu(take, product)}, còn thiếu {_qu(need - take, product)}")
+        notify("DISPATCHER", f"{line.so.code} đã có hàng", f"{product.code}: {tail} "
                f"(do {trigger.label} {trigger.ref_code}).", url=f"/app/sales/orders/{line.so_id}", ref_type="so",
                ref_id=line.so_id)
     return done

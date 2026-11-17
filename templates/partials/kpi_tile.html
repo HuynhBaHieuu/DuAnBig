@@ -2,10 +2,10 @@
   <div class="kt-head"><span class="kt-code">{{ k.code }}</span>
     {% if k.ok is None %}<span class="badge badge-gray">Chưa có dữ liệu</span>{% elif k.ok %}<span class="badge badge-success"><i data-lucide="check" style="width:12px"></i>Đạt</span>{% else %}<span class="badge badge-danger"><i data-lucide="x" style="width:12px"></i>Chưa đạt</span>{% endif %}</div>
   <div class="kt-label">{{ k.label }}</div>
-  <div class="kt-value">{% if k.value is None %}—{% else %}{{ k.value|floatformat:1 }}<span class="kt-unit">{{ k.unit }}</span>{% endif %}</div>
+  <div class="kt-value">{% if k.value is None %}—{% else %}{{ k.value|num:1 }}<span class="kt-unit">{{ k.unit }}</span>{% endif %}</div>
   <div class="kt-meta">
     <span>Mục tiêu {% if k.higher %}≥{% else %}≤{% endif %} {{ k.target }}{{ k.unit }}</span>
-    {% if k.delta is not None %}<span class="kt-delta {% if k.better %}good{% elif k.better is False %}bad{% endif %}" title="So với kỳ trước {{ k.prev_period }}: {{ k.prev|floatformat:1 }}{{ k.unit }}">{% if k.delta > 0 %}▲{% elif k.delta < 0 %}▼{% else %}■{% endif %} {{ k.delta|floatformat:1|cut:"-" }}{{ k.unit }} <span class="text-muted">so kỳ trước</span></span>
+    {% if k.delta is not None %}<span class="kt-delta {% if k.better %}good{% elif k.better is False %}bad{% endif %}" title="So với kỳ trước {{ k.prev_period }}: {{ k.prev|num:1 }}{{ k.unit }}">{% if k.delta > 0 %}▲{% elif k.delta < 0 %}▼{% else %}■{% endif %} {{ k.delta|num:1|cut:"-" }}{{ k.unit }} <span class="text-muted">so kỳ trước</span></span>
     {% else %}<span class="text-muted" title="Kỳ trước {{ k.prev_period }}">Kỳ trước: chưa có số</span>{% endif %}
   </div>
   {% if k.spark %}{% with pts=k.spark|sparkline %}{% if pts %}<svg class="kt-spark" viewBox="0 0 120 32" preserveAspectRatio="none" role="img" aria-label="{{ k.label }} 8 tuần gần nhất">

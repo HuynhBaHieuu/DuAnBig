@@ -1,16 +1,15 @@
-"""MH-70 → 76: 6 KPI dự án (KPI-5 đã bỏ), Dashboard ROP, Nhập–Xuất–Tồn, OTIF, Lead time, Thời gian chờ hạ tải."""
+"""Báo cáo: 6 KPI dự án (KPI-1 → KPI-6), Nhập–Xuất–Tồn, OTIF, Lead time, Thời gian chờ hạ tải, Chính xác tồn.
+Mọi tab dùng chung một kỳ xem (resolve_period, mặc định Tháng này) – Gà STT 101."""
 from collections import defaultdict
-from datetime import timedelta
 from decimal import Decimal
 
 from django.db.models import Sum
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 
 from apps.core.permissions import role_required
-from apps.core.utils import excel_response
+from apps.core.utils import excel_response, paginate
 from apps.inventory.models import StockMove
-from apps.inventory.services import stock_summary
 from apps.masterdata.models import Product
 
 from .kpi import (PERIODS, count_accuracy, count_lines, kpi_cards, leadtime_data, otif_data, period_label,
@@ -20,23 +19,24 @@ REPORT_ROLES = ("DIRECTOR", "PURCHASER", "ACCOUNTANT", "DISPATCHER")
 D0 = Decimal(0)
 
 
-def _range(request, days=30):
-    """Kỳ báo cáo: có ?period / ?from&to (vd. bấm từ thẻ KPI trên Dashboard) -> đúng kỳ đó (resolve_period dùng chung);
-    không có -> mặc định `days` ngày gần nhất của từng báo cáo chi tiết."""
-    if request.GET.get("period") or (request.GET.get("from") and request.GET.get("to")):
-        d_from, d_to, _ = resolve_period(request)
-        return d_from, d_to
-    today = timezone.localdate()
-    return today - timedelta(days=days - 1), today
+def _range(request):
+    """Gà STT 101: mọi tab báo cáo dùng chung resolve_period (mặc định Tháng này) – cùng KPI-4 thì tab KPI và tab
+    Chờ hạ tải ra cùng một số. Trả về (d_from, d_to, ctx) – ctx cho bộ chọn kỳ và link giữ kỳ giữa các tab."""
+    d_from, d_to, key = resolve_period(request)
+    keep = {"period": key}
+    if key == "custom":
+        keep.update({"from": d_from.isoformat(), "to": d_to.isoformat()})
+    from urllib.parse import urlencode
+    return d_from, d_to, {"d_from": d_from, "d_to": d_to, "period": key, "periods": PERIODS,
+                          "period_text": period_label(d_from, d_to), "period_qs": urlencode(keep)}
 
 
 @role_required(*REPORT_ROLES)
 def index(request):
     """6 KPI dự án – cùng hàm (kpi.kpi_cards) và cùng kỳ mặc định (tháng này) với Dashboard (test Gà STT 79)."""
-    d_from, d_to, key = resolve_period(request)
+    d_from, d_to, ctx = _range(request)
     return render(request, "reports/index.html", {"title": "Báo cáo KPI dự án", "kpis": kpi_cards(d_from, d_to, request.user),
-                                                  "d_from": d_from, "d_to": d_to, "period": key, "periods": PERIODS,
-                                                  "period_text": period_label(d_from, d_to)})
+                                                  **ctx})
 
 
 def models_qty_cost():
@@ -51,19 +51,17 @@ def models_onhand_cost():
 
 @role_required(*REPORT_ROLES)
 def rop(request):
-    from apps.inventory.views import _bar
-    rows = [_bar(s) for s in stock_summary(list(Product.objects.filter(is_active=True, track_rop=True).select_related("base_uom"))).values()]
-    rows.sort(key=lambda r: (float(r["projected"]) - float(r["rop"])))
-    counts = defaultdict(int)
-    for r in rows:
-        counts[r["level"]] += 1
-    return render(request, "reports/rop.html", {"title": "Dashboard ROP", "rows": rows, "counts": dict(counts)})
+    """Gà STT 104 / 118: bỏ tab "Dashboard ROP" (trùng khối Sức khỏe tồn kho trên Dashboard; biểu đồ cộng lẫn bao, cây,
+    tấn không so sánh được) – link cũ trỏ về trang SS/ROP (Thu mua, Giám đốc) hoặc Tồn kho."""
+    if request.user.role in ("DIRECTOR", "PURCHASER", "ADMIN"):
+        return redirect("/app/inventory/replenishment")
+    return redirect("/app/inventory/stock")
 
 
 @role_required(*REPORT_ROLES)
 def nxt(request):
     """Nhập – Xuất – Tồn theo kỳ."""
-    d_from, d_to = _range(request)
+    d_from, d_to, ctx = _range(request)
     products = Product.objects.filter(is_active=True).select_related("base_uom")
     moves = StockMove.objects.filter(at__date__range=(d_from, d_to))
     opening = defaultdict(lambda: D0)
@@ -84,33 +82,42 @@ def nxt(request):
         data = [[r["p"].code, r["p"].name, r["p"].base_uom.code, r["open"], r["in"], r["out"], r["close"]]
                 + ([r["value"]] if request.user.can_see_cost else []) for r in rows]
         return excel_response(f"NXT_{d_from:%Y%m%d}_{d_to:%Y%m%d}", head, data, "NXT")
-    return render(request, "reports/nxt.html", {"title": "Báo cáo Nhập – Xuất – Tồn", "rows": rows, "d_from": d_from, "d_to": d_to})
+    return render(request, "reports/nxt.html", {"title": "Báo cáo Nhập – Xuất – Tồn", "rows": rows, "export": True, **ctx})
 
 
 @role_required(*REPORT_ROLES)
 def otif(request):
-    d_from, d_to = _range(request)
+    d_from, d_to, ctx = _range(request)
     data = otif_data(d_from, d_to)
     by_day = defaultdict(lambda: [0, 0])
     for r in data["rows"]:
-        d = timezone.localtime(r["s"].delivered_at).strftime("%d/%m")
+        d = timezone.localtime(r["s"].delivered_at).date()
         by_day[d][0] += 1
         by_day[d][1] += r["on_time"] and r["in_full"]
-    chart = {"labels": list(by_day), "values": [round(v[1] / v[0] * 100, 1) for v in by_day.values()]}
-    return render(request, "reports/otif.html", {"title": "Báo cáo OTIF", "d": data, "chart": chart, "d_from": d_from, "d_to": d_to})
+    days = sorted(by_day)  # Gà STT 99: trục ngày tăng dần (cũ bên trái, mới bên phải)
+    chart = {"labels": [f"{d:%d/%m}" for d in days], "values": [round(by_day[d][1] / by_day[d][0] * 100, 1) for d in days]}
+    if request.GET.get("export") == "xlsx":
+        return excel_response(f"OTIF_{d_from:%Y%m%d}_{d_to:%Y%m%d}",
+                              ["Đơn", "Khách hàng", "Công trình", "Chuyến", "Ngày cần", "Giao lúc", "Đúng hạn", "Đủ hàng"],
+                              [[r["s"].so.code, r["s"].so.customer.name, r["s"].site.name, r["s"].trip.code,
+                                r["s"].so.requested_date, timezone.localtime(r["s"].delivered_at).replace(tzinfo=None),
+                                "Có" if r["on_time"] else "Không", "Có" if r["in_full"] else "Không"] for r in data["rows"]],
+                              "OTIF")
+    page, qs = paginate(request, data["rows"], 50)  # Gà STT 103: 50 dòng / trang
+    return render(request, "reports/otif.html", {"title": "Báo cáo OTIF", "d": data, "chart": chart, "page_obj": page,
+                                                 "qs": qs, "export": True, **ctx})
 
 
 @role_required(*REPORT_ROLES)
 def leadtime(request):
-    d_from, d_to = _range(request, 90)
-    return render(request, "reports/leadtime.html", {"title": "Báo cáo Lead time", "d": leadtime_data(d_from, d_to),
-                                                     "d_from": d_from, "d_to": d_to})
+    d_from, d_to, ctx = _range(request)
+    return render(request, "reports/leadtime.html", {"title": "Báo cáo Lead time", "d": leadtime_data(d_from, d_to), **ctx})
 
 
 @role_required(*REPORT_ROLES)
 def count_accuracy_report(request):
     """KPI-2: từng dòng kiểm kê đã duyệt trong kỳ – tồn sổ, số đếm, % lệch (đạt khi lệch ≤ 1%)."""
-    d_from, d_to = _range(request)
+    d_from, d_to, ctx = _range(request)
     lines = count_lines(d_from, d_to)
     counts = {}
     for l in lines:
@@ -121,11 +128,10 @@ def count_accuracy_report(request):
         c["pct"] = c["ok"] / c["n"] * 100 if c["n"] else None
     return render(request, "reports/count_accuracy.html", {
         "title": "KPI-2 · Độ chính xác tồn kho", "lines": lines, "counts": list(counts.values()),
-        "value": count_accuracy(d_from, d_to), "d_from": d_from, "d_to": d_to})
+        "value": count_accuracy(d_from, d_to), **ctx})
 
 
 @role_required(*REPORT_ROLES)
 def unloading(request):
-    d_from, d_to = _range(request)
-    return render(request, "reports/unloading.html", {"title": "Thời gian chờ hạ tải", "d": wait_data(d_from, d_to),
-                                                      "d_from": d_from, "d_to": d_to})
+    d_from, d_to, ctx = _range(request)
+    return render(request, "reports/unloading.html", {"title": "Thời gian chờ hạ tải", "d": wait_data(d_from, d_to), **ctx})

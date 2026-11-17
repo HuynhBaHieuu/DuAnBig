@@ -9,7 +9,7 @@
   <div><b>Kho:</b> {{ gr.warehouse.name }}</div><div><b>Trạng thái:</b> {{ gr.get_status_display }}</div>
 </div>
 <table><thead><tr><th>#</th><th>Mã hàng</th><th>Tên hàng</th><th>Vị trí</th><th class="num">Dự kiến</th><th class="num">Thực nhận</th><th class="num">Hỏng</th><th class="num">Chênh lệch</th></tr></thead>
-<tbody>{% for l in lines %}<tr><td>{{ forloop.counter }}</td><td>{{ l.product.code }}</td><td>{{ l.product.name }}</td><td>{{ l.location.code }}</td><td class="num">{{ l.qty_expected|qty }}</td><td class="num">{{ l.qty_received|qty }}</td><td class="num">{{ l.qty_damaged|qty }}</td><td class="num">{{ l.variance|qty }}</td></tr>{% endfor %}</tbody></table>
+<tbody>{% for l in lines %}<tr><td>{{ forloop.counter }}</td><td>{{ l.product.code }}</td><td>{{ l.product.name }}</td><td>{{ l.location.code }}</td><td class="num">{{ l.qty_expected|qty:l.product }}</td><td class="num">{{ l.qty_received|qty:l.product }}</td><td class="num">{{ l.qty_damaged|qty:l.product }}</td><td class="num">{{ l.variance|qty:l.product }}</td></tr>{% endfor %}</tbody></table>
 <p>Ghi chú: {{ gr.note }}</p>
 <div class="sign"><div><b>Tài xế giao</b><br>{{ gr.trip.driver.name|default:"" }}</div><div><b>Thủ kho</b><br>{{ gr.created_by|default:"" }}</div><div><b>Giám đốc</b><br>{{ gr.approved_by|default:"" }}</div></div>
 {% endblock %}

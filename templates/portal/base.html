@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block body %}
-<header class="portal-top">
-  <div style="max-width:1200px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:28px">
-    <a href="/portal/" style="display:flex;align-items:center;gap:10px"><div class="brand-mark"><span></span><span></span><span></span><span></span></div><div class="brand-name">TRACON 80</div><span class="badge badge-primary">Cổng khách hàng</span></a>
-    <nav class="portal-nav" style="flex:1">
+{% comment %}Gà STT 91: màn < 900 px menu thu vào nút ☰ (khách thường đặt hàng bằng điện thoại).{% endcomment %}
+<header class="portal-top" x-data="{nav:false}">
+  <div class="portal-bar">
+    <a href="/portal/" class="portal-brand"><div class="brand-mark"><span></span><span></span><span></span><span></span></div><div class="brand-name">TRACON 80</div><span class="badge badge-primary">Cổng khách hàng</span></a>
+    <button type="button" class="portal-burger" @click="nav=!nav" :aria-expanded="nav" aria-label="Mở menu"><i data-lucide="menu"></i></button>
+    <nav class="portal-nav" :class="nav && 'open'">
       {% with p=request.path %}
       <a href="/portal/" class="{% if p == '/portal/' %}active{% endif %}">Tổng quan</a>
       <a href="/portal/order" class="{% if p == '/portal/order' %}active{% endif %}">Đặt hàng</a>
@@ -12,11 +14,11 @@
       <a href="/portal/debts" class="{% if p == '/portal/debts' %}active{% endif %}">Công nợ</a>
       {% endwith %}
     </nav>
-    <div class="user-chip"><div><div class="name">{{ user.display_name }}</div><div class="role">{{ user.customer.name }}</div></div>
+    <div class="user-chip"><div class="user-chip-text"><div class="name">{{ user.display_name }}</div><div class="role">{{ user.customer.name }}</div></div>
       <form method="post" action="/logout">{% csrf_token %}<button class="avatar" style="border:0;cursor:pointer" title="Đăng xuất">{{ user.initials }}</button></form></div>
   </div>
 </header>
-<main style="max-width:1200px;margin:0 auto;padding:28px 24px 60px">
+<main class="portal-main">
   {% include "partials/messages.html" %}
   {% block content %}{% endblock %}
 </main>

@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.accounting.models import Invoice
 from apps.core.services import BusinessError, next_doc_no, raise_alert, resolve_alerts
-from apps.core.utils import business_action, pdf_response
+from apps.core.utils import business_action, paginate, pdf_response
 from apps.masterdata.models import PriceListLine, Product, Site
 from apps.sales.models import DeliveryStop, SalesOrder
 from apps.sales.services import customer_debt
@@ -173,7 +173,9 @@ def orders(request):
     qs = SalesOrder.objects.filter(customer=cust, site__in=sites).select_related("site").prefetch_related("stops__trip")
     if request.GET.get("site"):
         qs = qs.filter(site_id=request.GET["site"])
-    return render(request, "portal/orders.html", {"title": "Theo dõi đơn hàng", "orders": qs[:100], "sites": sites})
+    page, qs_str = paginate(request, qs, 50)  # Gà STT 103: chia trang 50 dòng
+    return render(request, "portal/orders.html", {"title": "Theo dõi đơn hàng", "orders": page, "page_obj": page,
+                                                  "qs": qs_str, "sites": sites})
 
 
 def _order_sig(so):
@@ -224,8 +226,12 @@ def documents(request):
     cust, sites = _ctx(request)
     invoices = Invoice.objects.filter(customer=cust).exclude(status__in=["DRAFT", "CANCELLED"])
     pods = DeliveryStop.objects.filter(so__customer=cust, so__site__in=sites).exclude(delivered_at=None) \
-        .select_related("so", "site", "trip").order_by("-delivered_at")[:50]
-    return render(request, "portal/documents.html", {"title": "Chứng từ", "invoices": invoices, "pods": pods})
+        .select_related("so", "site", "trip").order_by("-delivered_at")
+    # Gà STT 103: 2 danh sách, mỗi danh sách chia trang riêng (tham số ip / pp)
+    inv_page, inv_qs = paginate(request, invoices.order_by("-invoice_date", "-pk"), 20, "ip")
+    pod_page, pod_qs = paginate(request, pods, 20, "pp")
+    return render(request, "portal/documents.html", {"title": "Chứng từ", "invoices": inv_page, "pods": pod_page,
+                                                     "inv_qs": inv_qs, "pod_qs": pod_qs})
 
 
 @login_required

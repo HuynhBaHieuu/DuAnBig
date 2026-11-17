@@ -45,7 +45,7 @@ class SalesOrder(TimeStamped):
     customer = models.ForeignKey("masterdata.Customer", on_delete=models.PROTECT, related_name="sales_orders")
     site = models.ForeignKey("masterdata.Site", on_delete=models.PROTECT, related_name="sales_orders")
     order_type = models.CharField(max_length=10, choices=TYPES, default="B2B")
-    source = models.CharField(max_length=10, choices=[("INTERNAL", "Nội bộ"), ("PORTAL", "Cổng KH")],
+    source = models.CharField(max_length=10, choices=[("INTERNAL", "Điều phối tạo"), ("PORTAL", "Cổng KH")],
                               default="INTERNAL")
     is_weekly_plan = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=STATUS, default="DRAFT")
@@ -143,7 +143,7 @@ class SalesOrderHistory(models.Model):
 
 
 class SalesOrderLine(models.Model):
-    ATP = [("OK", "Đủ hàng"), ("SHORT", "Thiếu"), ("BACKORDER", "Backorder")]
+    ATP = [("OK", "Đủ hàng"), ("SHORT", "Thiếu"), ("BACKORDER", "Chờ hàng")]
     so = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name="lines")
     product = models.ForeignKey("masterdata.Product", on_delete=models.PROTECT)
     qty = models.DecimalField(**QTY)

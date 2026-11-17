@@ -19,6 +19,7 @@ from .models import (InventoryCount, InventoryCountLine, ReplenishmentJobRun, Re
 from .services import calc_param, post_stock_move, rop_explain, run_replenishment, stock_summary, transfer
 from .simulation import SIM_CODE
 from apps.core.templatetags.tracon import qty as fmt_qty
+from apps.core.fmt import money as _money, qty_unit as _qu, qty as _q, num as _fnum
 
 INTERNAL = ("DIRECTOR", "PURCHASER", "DISPATCHER", "WAREHOUSE", "ACCOUNTANT")
 LEVEL_LABEL = {"OK": ("Bình thường", "success"), "BELOW_ROP": ("Chạm ROP", "warn"), "BELOW_SS": ("Dưới SS", "danger"),
@@ -37,7 +38,18 @@ def _bar(s):
     return s
 
 
-# ------------------------------------------------------------------ MH-10 Tồn kho
+def _mark_simulated(rows):
+    """Gà STT 102: đánh dấu mã có dữ liệu mô phỏng (SIM-PCB40) – không tính vào thẻ đếm, lọc "Cần đặt", không gợi ý PR."""
+    from .models import SimulatedDemand
+    sim_ids = set(SimulatedDemand.objects.values_list("product_id", flat=True).distinct())
+    for r in rows:
+        r["simulated"] = r["product"].pk in sim_ids
+        # Gà STT 111: "Lượng PR gợi ý" chỉ có nghĩa khi mã đã chạm ROP
+        r["show_pr"] = r["level"] != "OK" and not r["simulated"] and r["product"].track_rop
+    return rows
+
+
+# ------------------------------------------------------------------ Tồn kho
 @role_required(*INTERNAL)
 def stock(request):
     # sản phẩm ngừng kinh doanh nhưng còn tồn vẫn phải hiện (có nhãn) – không để hàng "biến mất" tới khi kiểm kê
@@ -49,11 +61,12 @@ def stock(request):
     if request.GET.get("cat"):
         products = products.filter(category_id=request.GET["cat"])
     rows = [_bar(s) for s in stock_summary(list(products)).values()]
+    _mark_simulated(rows)
     level = request.GET.get("level")
     if level == "low":
-        rows = [r for r in rows if r["level"] != "OK"]
+        rows = [r for r in rows if r["level"] != "OK" and not r["simulated"]]
     elif level:
-        rows = [r for r in rows if r["level"] == level]
+        rows = [r for r in rows if r["level"] == level and not r["simulated"]]
     rows.sort(key=lambda r: ({"STOCKOUT": 0, "BELOW_SS": 1, "BELOW_ROP": 2, "OK": 3}[r["level"]], r["product"].code))
 
     if request.GET.get("export") == "xlsx":
@@ -72,11 +85,12 @@ def stock(request):
             data.append(line)
         return excel_response(f"ton_kho_{timezone.localdate():%Y%m%d}", head, data, "Tồn kho")
 
-    totals = {k: sum((r[k] for r in rows), Decimal(0)) for k in ("on_hand", "reserved", "available", "incoming")}
-    value = sum((r["on_hand"] * r["product"].avg_cost for r in rows), Decimal(0))
-    counts = {k: sum(1 for r in rows if r["level"] == k) for k in LEVEL_LABEL}
+    # Gà STT 102 / 111: mã dữ liệu mô phỏng không vào thẻ đếm / tổng; không cộng lẫn tấn, bao, cây -> chỉ tổng giá trị
+    real = [r for r in rows if not r["simulated"]]
+    value = sum((r["on_hand"] * r["product"].avg_cost for r in real), Decimal(0))
+    counts = {k: sum(1 for r in real if r["level"] == k) for k in LEVEL_LABEL}
     return render(request, "inventory/stock.html", {
-        "title": "Tồn kho", "rows": rows, "totals": totals, "value": value, "counts": counts,
+        "title": "Tồn kho", "rows": rows, "value": value, "counts": counts,
         "categories": ProductCategory.objects.filter(is_active=True), "levels": LEVEL_LABEL,
     })
 
@@ -130,7 +144,7 @@ def stock_quant_edit(request, pk):
 
 def _adj_message(request, adj, what):
     if adj.status == "PENDING_APPROVAL":
-        messages.warning(request, f"{what}: giá trị {adj.value:,.0f} ₫ vượt ngưỡng duyệt – phiếu {adj.code} đang chờ "
+        messages.warning(request, f"{what}: giá trị {_money(adj.value)} vượt ngưỡng duyệt – phiếu {adj.code} đang chờ "
                                   "Giám đốc duyệt, CHƯA ghi sổ kho.")
     else:
         messages.success(request, f"{what} (phiếu {adj.code}, đã ghi sổ).")
@@ -211,25 +225,21 @@ def stock_transfer(request):
     if "QUARANTINE" in (src.loc_type, dst.loc_type):  # vào / ra khu cách ly làm đổi tồn dùng được -> kiểm tra ROP
         from .replenishment import Trigger, fire_checks
         fire_checks([p.pk], Trigger("STOCK_ADJUSTED", "", f"Chuyển {src.code}→{dst.code}", request.user))
-    messages.success(request, f"Đã chuyển {qty:g} {p.code} từ {src} sang {dst}.")
+    messages.success(request, f"Đã chuyển {_qu(qty, p)} {p.code} từ {src} sang {dst}.")
     return redirect(request.META.get("HTTP_REFERER") or "/app/inventory/stock")
 
 
 # ------------------------------------------------------------------ MH-12 SS/ROP
 @role_required("DIRECTOR", "PURCHASER")
 def replenishment(request):
-    from .models import SimulatedDemand
-
     products = list(Product.objects.filter(is_active=True, track_rop=True).select_related("base_uom"))
     summary = {pid: _bar(s) for pid, s in stock_summary(products).items()}
-    sim_ids = set(SimulatedDemand.objects.values_list("product_id", flat=True).distinct())
-    for pid, s in summary.items():
-        s["simulated"] = pid in sim_ids
+    _mark_simulated(summary.values())
     if request.GET.get("export") == "all":
         return _rop_report_all(summary)
     rows = list(summary.values())
     if request.GET.get("level") == "low":
-        rows = [r for r in rows if r["level"] != "OK"]
+        rows = [r for r in rows if r["level"] != "OK" and not r["simulated"]]
     rows.sort(key=lambda r: ({"STOCKOUT": 0, "BELOW_SS": 1, "BELOW_ROP": 2, "OK": 3}[r["level"]], r["product"].code))
     sel_id = int(request.GET.get("product") or (rows[0]["product"].pk if rows else 0))
     sel = summary.get(sel_id)
@@ -330,7 +340,7 @@ def replenishment_save(request, pk):
             if rp.manual_ss is None or rp.manual_rop is None or not rp.lock_reason:
                 raise BusinessError("Khóa thủ công bắt buộc nhập SS, ROP và Lý do.")
             if rp.manual_rop < rp.manual_ss:
-                raise BusinessError(f"ROP ({rp.manual_rop:g}) phải lớn hơn hoặc bằng SS ({rp.manual_ss:g}).")
+                raise BusinessError(f"ROP ({_q(rp.manual_rop, rp.product)}) phải lớn hơn hoặc bằng SS ({_q(rp.manual_ss, rp.product)}).")
         else:
             rp.manual_ss = rp.manual_rop = None
             rp.lock_reason = ""
@@ -651,7 +661,7 @@ def count_detail(request, pk):
                 if ic.status == "COUNTING" and need_recount:
                     ic.status = "RECOUNT"
                     ic.save()
-                    messages.warning(request, f"Có dòng lệch > {limit:g}% – cần đếm lại lần 2 trước khi duyệt.")
+                    messages.warning(request, f"Có dòng lệch > {_fnum(limit, 1, True)}% – cần đếm lại lần 2 trước khi duyệt.")
                 else:
                     ic.status = "PENDING_APPROVAL"
                     ic.save()
@@ -662,7 +672,7 @@ def count_detail(request, pk):
                         messages.success(request, f"Đã lưu số đếm, duyệt phiếu và ghi bút toán điều chỉnh {adj.code}.")
                     elif value < Decimal(param("ADJ_APPROVAL_THRESHOLD") or 0):
                         adj = _approve_count(ic, lines, request.user, auto=True)
-                        messages.success(request, f"Đã hoàn tất đếm. Giá trị điều chỉnh {value:,.0f} ₫ dưới ngưỡng duyệt – "
+                        messages.success(request, f"Đã hoàn tất đếm. Giá trị điều chỉnh {_money(value)} dưới ngưỡng duyệt – "
                                                   f"tự ghi sổ{f' ({adj.code})' if adj.lines.exists() else ''}.")
                     else:
                         messages.success(request, "Đã hoàn tất đếm, chờ Giám đốc duyệt.")

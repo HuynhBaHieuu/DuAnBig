@@ -4,7 +4,7 @@
 {% block content %}
 <div class="card card-body" style="margin-bottom:14px">
   <div style="display:flex;justify-content:space-between">{% status_badge trip %}<span class="text-muted">ETA <b style="color:var(--ink)">{{ trip.eta|vn_dt }}</b></span></div>
-  <div class="text-muted" style="font-size:13px;margin-top:8px">{{ trip.route.name }} · {{ trip.vehicle.plate }} · {{ trip.total_ton|floatformat:2 }} tấn</div>
+  <div class="text-muted" style="font-size:13px;margin-top:8px">{{ trip.route.name }} · {{ trip.vehicle.plate }} · {{ trip.total_ton|num:-1 }} tấn</div>
 </div>
 
 {% if trip.status == "CANCELLED" %}<div class="flash flash-error" style="margin-bottom:14px"><i data-lucide="x-circle"></i><div><b>Chuyến đã bị hủy</b>{% if trip.cancel_reason %}: {{ trip.cancel_reason }}{% endif %}.</div></div>

@@ -221,7 +221,7 @@ class PriceListLine(models.Model):
     price_list = models.ForeignKey(PriceList, on_delete=models.CASCADE, related_name="lines")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="price_lines")
     price = models.DecimalField(**MONEY)
-    floor_price = models.DecimalField(**MONEY, help_text="Giá sàn – bán dưới cần Director duyệt")
+    floor_price = models.DecimalField(**MONEY, help_text="Giá sàn – bán dưới cần Giám đốc duyệt")
 
     class Meta:
         db_table = "price_list_line"

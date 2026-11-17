@@ -17,7 +17,7 @@
         <a href="/factory/orders/{{ po.pk }}?pdf=1" target="_blank" class="btn btn-outline btn-sm"><i data-lucide="printer"></i>In / PDF</a>
         {% if po.status != "CANCELLED" and not po.supplier_ack_at %}<a href="/factory/orders/{{ po.pk }}" class="btn btn-primary btn-sm">Đã nhận đơn…</a>{% endif %}</div>
     </div>
-    <a href="/factory/orders/{{ po.pk }}" style="display:block;margin-top:8px;font-size:13px;color:var(--ink)">{% for l in po.lines.all %}<div>{{ l.product.code }} – {{ l.product.name }}: <b>{{ l.qty|qty }} {{ l.product.base_uom.code }}</b></div>{% endfor %}</a>
+    <a href="/factory/orders/{{ po.pk }}" style="display:block;margin-top:8px;font-size:13px;color:var(--ink)">{% for l in po.lines.all %}<div>{{ l.product.code }} – {{ l.product.name }}: <b>{{ l.qty|qty:l.product.base_uom }} {{ l.product.base_uom.code }}</b></div>{% endfor %}</a>
   </div>
 {% empty %}<div class="card card-body empty">Không có đơn.</div>{% endfor %}
 </div>

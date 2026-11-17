@@ -1,7 +1,6 @@
 {% extends "app/base.html" %}
 {% block content %}
 {% include "reports/_nav.html" %}
-<div class="toolbar" style="justify-content:flex-end;margin-bottom:14px">{% include "partials/period_filter.html" %}</div>
 <div class="grid g-3 kpi-grid">
   {% for k in kpis %}{% include "partials/kpi_tile.html" %}{% endfor %}
 </div>

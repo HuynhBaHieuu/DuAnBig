@@ -1,6 +1,6 @@
 {% extends "portal/base.html" %}
 {% block content %}
-<div class="page-head"><div><div class="crumbs">MH-91{% if so %} · <a href="/portal/orders/{{ so.pk }}">{{ so.code }}</a>{% endif %}</div><h1 class="page-title">{{ title }}</h1>
+<div class="page-head"><div><div class="crumbs">Cổng khách hàng{% if so %} · <a href="/portal/orders/{{ so.pk }}">{{ so.code }}</a>{% endif %}</div><h1 class="page-title">{{ title }}</h1>
   <div class="page-sub">{% if so %}Đơn chưa được xác nhận nên còn sửa được. Sau khi TRACON 80 xác nhận, đơn sẽ khóa.{% else %}Mỗi dòng chọn ngày cần giao riêng – giao nhiều ngày thì hệ thống tách thành nhiều đơn. Bấm “Gửi đơn” là đơn được gửi ngay cho TRACON 80.{% endif %}</div></div></div>
 {{ rows_json|json_script:"rows-init" }}
 <form method="post" class="card card-body" x-data="{rows: JSON.parse(document.getElementById('rows-init').textContent)}">{% csrf_token %}
@@ -9,14 +9,14 @@
     <div class="field"><label>Ghi chú</label><input name="note" value="{{ note|default:'' }}" placeholder="Giờ nhận, người liên hệ..."></div>
     {% if so %}<div class="field"><label>Ngày cần giao *</label><input type="date" name="date" value="{{ so.requested_date|date:'Y-m-d' }}" min="{{ today|date:'Y-m-d' }}" required></div>{% endif %}
   </div>
-  <div class="table-wrap"><table class="tbl">
+  <div class="table-wrap"><table class="tbl stack-mobile">
     <thead><tr><th>Vật tư</th>{% if show_price %}<th class="num" style="width:140px">Đơn giá</th>{% endif %}<th class="num" style="width:140px">Số lượng</th>{% if not so %}<th style="width:170px">Ngày cần giao *</th>{% endif %}<th style="width:50px"></th></tr></thead>
     <tbody><template x-for="(r,i) in rows" :key="i"><tr>
-      <td><select class="input" name="product" x-model="r.p" required><option value="">— Chọn vật tư —</option>{% for p in products %}<option value="{{ p.pk }}" data-price="{{ p.sell_price|default:'' }}">{{ p.code }} – {{ p.name }} ({{ p.base_uom.code }})</option>{% endfor %}</select></td>
-      {% if show_price %}<td class="num text-muted" x-text="(document.querySelector(`option[value='${r.p}']`)?.dataset.price || '') ? Number(document.querySelector(`option[value='${r.p}']`).dataset.price).toLocaleString('vi-VN') + ' ₫' : '—'"></td>{% endif %}
-      <td><input class="input num" type="number" step="0.001" min="0.001" name="qty" x-model="r.q" required></td>
-      {% if not so %}<td><input class="input" type="date" name="date" x-model="r.d" min="{{ today|date:'Y-m-d' }}" required></td>{% endif %}
-      <td><button type="button" class="btn btn-outline btn-sm" @click="rows.splice(i,1)" x-show="rows.length>1">✕</button></td>
+      <td data-label="Vật tư"><select class="input" name="product" x-model="r.p" required><option value="">— Chọn vật tư —</option>{% for p in products %}<option value="{{ p.pk }}" data-price="{{ p.sell_price|default:'' }}">{{ p.code }} – {{ p.name }} ({{ p.base_uom.code }})</option>{% endfor %}</select></td>
+      {% if show_price %}<td data-label="Đơn giá" class="num text-muted" x-text="(document.querySelector(`option[value='${r.p}']`)?.dataset.price || '') ? Number(document.querySelector(`option[value='${r.p}']`).dataset.price).toLocaleString('vi-VN') + ' ₫' : '—'"></td>{% endif %}
+      <td data-label="Số lượng"><input class="input num" type="number" step="0.001" min="0.001" name="qty" x-model="r.q" required></td>
+      {% if not so %}<td data-label="Ngày cần giao *"><input class="input" type="date" name="date" x-model="r.d" min="{{ today|date:'Y-m-d' }}" required></td>{% endif %}
+      <td class="stack-act"><button type="button" class="btn btn-outline btn-sm" @click="rows.splice(i,1)" x-show="rows.length>1">✕</button></td>
     </tr></template></tbody>
   </table></div>
   <div class="toolbar" style="margin-top:16px;justify-content:space-between">

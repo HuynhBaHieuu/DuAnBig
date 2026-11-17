@@ -85,8 +85,10 @@ def profile(request):
 # Khối hiển thị theo vai trò (STT 87). Mọi khối lấy dữ liệu từ apps/core/dashboard.py, KPI từ apps/reports/kpi.py
 # (dùng chung với trang Báo cáo). Một bộ chọn kỳ duy nhất cho cả trang (STT 88).
 DASH_BLOCKS = {
-    "DIRECTOR": ["stock", "aging", "demand", "arrivals", "trends", "alerts"],
-    "ADMIN": ["stock", "aging", "demand", "arrivals", "trends", "alerts"],
+    # Gà STT 110: Giám đốc / Admin đã có "Khối lượng đơn hàng" ở đầu trang -> bỏ khối nhu cầu 12 tháng trùng nội dung
+    # (dự báo nhu cầu từng mã vẫn xem ở trang SS/ROP)
+    "DIRECTOR": ["stock", "aging", "arrivals", "trends", "alerts"],
+    "ADMIN": ["stock", "aging", "arrivals", "trends", "alerts"],
     "PURCHASER": ["stock", "arrivals", "demand", "alerts"],
     "WAREHOUSE": ["arrivals", "trends", "alerts"],
     "DISPATCHER": ["trends", "demand", "alerts"],
@@ -206,7 +208,8 @@ def alerts(request):
     page, qs_str = paginate(request, qs, 30)
     for a in page:
         a.type_label = ALERT_LABELS.get(a.alert_type, a.alert_type)
-    return render(request, "core/alerts.html", {"title": "Cảnh báo", "page_obj": page, "qs": qs_str,
+    show_type = len({a.alert_type for a in page}) > 1  # Gà STT 112: ẩn cột "Loại" khi mọi dòng cùng loại
+    return render(request, "core/alerts.html", {"title": "Cảnh báo", "page_obj": page, "qs": qs_str, "show_type": show_type,
                                                 "groups": alert_groups(request.user), "type": typ,
                                                 "type_label": ALERT_LABELS.get(typ, typ) if typ else None})
 
@@ -339,20 +342,36 @@ def params(request):
                 SystemParam.objects.update_or_create(key=key, defaults={"value": v})
         messages.success(request, "Đã lưu tham số hệ thống.")
         return redirect("/app/admin/params")
-    rows = [{"key": k, "default": v, "value": param(k, str)} for k, v in settings.BUSINESS.items()]
-    return render(request, "core/params.html", {"title": "Tham số hệ thống", "rows": rows})
+    from .fmt import num
+    from .param_meta import grouped
+
+    def show(v):  # Gà STT 108: số có dấu phân cách ("50.000.000"), chữ giữ nguyên
+        try:
+            return num(v, 2, trim=True) if str(v).replace(".", "", 1).lstrip("-").isdigit() else v
+        except Exception:  # noqa: BLE001
+            return v
+    rows = [{"key": k, "default": show(v), "value": param(k, str), "value_text": show(param(k, str))}
+            for k, v in settings.BUSINESS.items()]
+    return render(request, "core/params.html", {"title": "Tham số hệ thống", "groups": grouped(rows)})
 
 
 @role_required("ADMIN")
 def audit_log(request):
+    from .audit_view import ACTION_LABELS, MODEL_LABELS, SYSTEM_MODELS, decorate
     qs = AuditLog.objects.select_related("user")
+    if not request.GET.get("sys"):  # Gà STT 109: ẩn bảng hệ thống tự tính
+        qs = qs.exclude(model__in=SYSTEM_MODELS)
     if request.GET.get("q"):
         q = request.GET["q"]
-        qs = qs.filter(Q(model__icontains=q) | Q(object_repr__icontains=q) | Q(user__username__icontains=q))
+        models_vi = [k for k, v in MODEL_LABELS.items() if q.lower() in v.lower()]
+        qs = qs.filter(Q(model__icontains=q) | Q(model__in=models_vi) | Q(object_repr__icontains=q)
+                       | Q(user__username__icontains=q) | Q(user__full_name__icontains=q))
     if request.GET.get("action"):
         qs = qs.filter(action=request.GET["action"])
     page, qs_str = paginate(request, qs, 40)
-    return render(request, "core/audit.html", {"title": "Nhật ký kiểm toán", "page_obj": page, "qs": qs_str})
+    decorate(page.object_list)
+    return render(request, "core/audit.html", {"title": "Nhật ký kiểm toán", "page_obj": page, "qs": qs_str,
+                                               "actions": ACTION_LABELS})
 
 
 # ------------------------------------------------------------------ Vercel Cron (thay Celery beat)

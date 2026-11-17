@@ -15,6 +15,7 @@ from apps.masterdata.models import CarrierRate, Dock, Location, SupplierPrice
 
 from .models import (Claim, GoodsReceipt, GoodsReceiptLine, InboundTrip, InboundTripLine, PurchaseOrder, PurchaseRequisition,
                      PurchaseRequisitionLine, PurchaseOrderLine, TripEtaLog, TripIncident, TripMilestone, UnloadingSlot)
+from apps.core.fmt import money as _money, qty_unit as _qu, num as _fnum
 
 D0 = Decimal(0)
 SLOT_STEP = 15  # phút
@@ -112,14 +113,14 @@ def submit_po(po, user):
     if po.total_with_vat >= param("PO_APPROVAL_THRESHOLD"):
         po.status = "PENDING_APPROVAL"
         po.save()
-        raise_alert("PO_APPROVAL", f"PO {po.code} chờ duyệt", f"Giá trị {po.total_with_vat:,.0f} ₫ (gồm VAT)",
+        raise_alert("PO_APPROVAL", f"PO {po.code} chờ duyệt", f"Giá trị {_money(po.total_with_vat)} (gồm VAT)",
                     ref_type="po", ref_id=po.pk, url=f"/app/purchase/orders/{po.pk}", target_role="DIRECTOR")
         audit("SUBMIT", po)
         return
     po.status, po.approved_at, po.auto_approved = "APPROVED", timezone.now(), True
     po.approved_by = None
     po.save()
-    audit("APPROVE", po, {"auto": f"Tự động – dưới ngưỡng duyệt {param('PO_APPROVAL_THRESHOLD'):,.0f} ₫"})
+    audit("APPROVE", po, {"auto": f"Tự động – dưới ngưỡng duyệt {_money(param('PO_APPROVAL_THRESHOLD'))}"})
     _po_trigger(po, "PO_APPROVED", user)
 
 
@@ -215,7 +216,7 @@ def create_inbound_trip(po, route, vehicle, driver, planned_departure, qty_by_li
         raise BusinessError("Chưa chọn hàng cho chuyến.")
     total_ton = total_kg / 1000
     if total_ton > vehicle.capacity_ton:
-        raise BusinessError(f"Tổng {total_ton:.2f} tấn vượt tải trọng xe {vehicle.plate} ({vehicle.capacity_ton} tấn).")
+        raise BusinessError(f"Tổng {_fnum(total_ton, 1, True)} tấn vượt tải trọng xe {vehicle.plate} ({vehicle.capacity_ton} tấn).")
 
     carrier = carrier or vehicle.carrier
     freight = D0
@@ -785,8 +786,8 @@ def post_grn(gr, user, shortage_action="CLOSE"):
     for line in gr.lines.select_related("po_line"):  # G4: chặn nhập vượt SL còn lại của PO
         pol = PurchaseOrderLine.objects.select_for_update().get(pk=line.po_line_id)
         if line.qty_good > pol.qty_open:
-            raise BusinessError(f"{line.product.code}: nhập {line.qty_good:g} vượt SL còn lại của PO "
-                                f"({pol.qty_open:g}). Thu mua cần sửa PO trước.")
+            raise BusinessError(f"{line.product.code}: nhập {_qu(line.qty_good, line.product)} vượt SL còn lại của PO "
+                                f"({_qu(pol.qty_open, line.product)}). Thu mua cần sửa PO trước.")
     for line in gr.lines.select_related("po_line", "product", "location"):
         if line.qty_good > 0:
             post_stock_move(line.product, line.location, line.qty_good, "IN_PURCHASE", "GRN", gr.pk,
@@ -816,7 +817,7 @@ def post_grn(gr, user, shortage_action="CLOSE"):
     lt_min = Decimal(str(param("LEADTIME_MIN_DAYS") or 0))
     if gr.lead_time_days < lt_min and not gr.exclude_from_stats:
         gr.exclude_from_stats = True
-        gr.exclude_reason = f"Tự động: lead time {gr.lead_time_days:g} ngày < tối thiểu {lt_min:g} ngày"
+        gr.exclude_reason = f"Tự động: lead time {_fnum(gr.lead_time_days, 2, True)} ngày < tối thiểu {_fnum(lt_min, 2, True)} ngày"
     gr.status, gr.posted_at = "POSTED", now
     gr.save()
 
@@ -828,9 +829,9 @@ def post_grn(gr, user, shortage_action="CLOSE"):
     for ctype, against, prod, q, cost in claims:
         Claim.objects.create(code=next_doc_no("CL"), gr=gr, claim_type=ctype, against=against, product=prod, qty=q,
                              amount=(q * cost).quantize(Decimal(1)),
-                             description=(f"Thiếu {q:g} {prod.base_uom.code} {prod.code} khi kiểm nhận (dự kiến − thực nhận)"
+                             description=(f"Thiếu {_qu(q, prod)} {prod.code} khi kiểm nhận (dự kiến − thực nhận)"
                                           if ctype == "SHORTAGE" else
-                                          f"Hư hỏng {q:g} {prod.base_uom.code} {prod.code} – đưa vào khu cách ly"))
+                                          f"Hư hỏng {_qu(q, prod)} {prod.code} – đưa vào khu cách ly"))
     if claims:
         raise_alert("CLAIM_OPEN", f"{gr.code}: {len(claims)} khiếu nại chờ Giám đốc duyệt", ref_type="grn", ref_id=gr.pk,
                     url="/app/warehouse/claims?status=OPEN", target_role="DIRECTOR")

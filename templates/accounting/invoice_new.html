@@ -9,7 +9,7 @@
   <div class="card-body" style="padding:12px 0 0"><table class="tbl">
     <thead><tr><th style="width:36px"></th><th>Đơn</th><th>Chuyến / điểm giao</th><th>Ngày giao</th><th>Sản phẩm</th><th class="num">SL giao</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
     <tbody>{% for dl in g.lines %}<tr><td><input type="checkbox" name="dl" value="{{ dl.pk }}" checked></td><td>{{ dl.stop.so.code }}</td><td>{{ dl.stop.trip.code }}<div class="text-muted" style="font-size:12px">{{ dl.stop.site.name }}</div></td>
-      <td>{{ dl.stop.delivered_at|vn_dt }}</td><td>{{ dl.so_line.product.code }}</td><td class="num">{{ dl.qty_delivered|qty }}</td><td class="num">{{ dl.so_line.unit_price|vnd }}</td><td class="num">{{ dl.qty_delivered|mul:dl.so_line.unit_price|vnd }}</td></tr>{% endfor %}</tbody>
+      <td>{{ dl.stop.delivered_at|vn_dt }}</td><td>{{ dl.so_line.product.code }}</td><td class="num">{{ dl.qty_delivered|qty:dl.so_line.product }}</td><td class="num">{{ dl.so_line.unit_price|vnd }}</td><td class="num">{{ dl.qty_delivered|mul:dl.so_line.unit_price|vnd }}</td></tr>{% endfor %}</tbody>
   </table></div>
 </form>
 {% empty %}<div class="card card-body empty">Không có điểm giao nào chờ lập hóa đơn.</div>{% endfor %}

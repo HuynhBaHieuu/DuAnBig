@@ -19,14 +19,14 @@
   </div>
   <div class="toolbar" style="margin-top:12px">
     <button name="op" value="approve" class="btn btn-primary"><i data-lucide="check"></i>Duyệt khiếu nại</button>
-    {% if c.claim_type == "SHORTAGE" or c.claim_type == "DAMAGE" %}<button name="op" value="backfill" class="btn btn-outline" data-confirm="NCC sẽ giao bù {{ c.qty|qty }} {{ c.product.base_uom.code }}? Khiếu nại bị hủy, phần này trên PO quay lại &quot;Đang về&quot;." data-confirm-ok="NCC giao bù">NCC giao bù (không khiếu nại)</button>{% endif %}
+    {% if c.claim_type == "SHORTAGE" or c.claim_type == "DAMAGE" %}<button name="op" value="backfill" class="btn btn-outline" data-confirm="NCC sẽ giao bù {{ c.qty|qty:c.product.base_uom }} {{ c.product.base_uom.code }}? Khiếu nại bị hủy, phần này trên PO quay lại &quot;Đang về&quot;." data-confirm-ok="NCC giao bù">NCC giao bù (không khiếu nại)</button>{% endif %}
   </div>
 </form>{% else %}<div class="flash flash-warning" style="margin-bottom:16px">Khiếu nại chờ Giám đốc duyệt (đòi ai, bao nhiêu) trước khi gửi.</div>{% endif %}{% endif %}
 <div class="grid g-stack" style="grid-template-columns:1fr 360px">
   <div class="card card-body">
     <dl class="dl">
       <dt>Sản phẩm</dt><dd>{% if c.product %}{{ c.product.code }} – {{ c.product.name }}{% else %}—{% endif %}</dd>
-      <dt>Số lượng</dt><dd>{{ c.qty|qty }} {{ c.product.base_uom.code }}</dd>
+      <dt>Số lượng</dt><dd>{{ c.qty|qty:c.product.base_uom }} {{ c.product.base_uom.code }}</dd>
       {% if user.can_see_price %}<dt>Số tiền khiếu nại</dt><dd><b>{{ c.amount|vnd }}</b></dd>{% endif %}
       <dt>Mô tả</dt><dd>{{ c.description|default:"—" }}</dd>
       <dt>Ngày lập</dt><dd>{{ c.created_at|vn_dt }}</dd>

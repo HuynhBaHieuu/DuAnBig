@@ -14,7 +14,7 @@
   <div class="card"><div class="table-wrap"><table class="tbl">
     <thead><tr><th>Sản phẩm</th><th>Vị trí</th><th class="num">SL lệch</th>{% if user.can_see_cost %}<th class="num">Đơn giá vốn</th><th class="num">Giá trị</th>{% endif %}</tr></thead>
     <tbody>{% for l in lines %}<tr><td><b class="code">{{ l.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.product.name }}</div></td><td>{{ l.location.code }}</td>
-      <td class="num"><b style="color:{% if l.qty_diff < 0 %}var(--danger-ink){% else %}var(--success-ink){% endif %}">{% if l.qty_diff > 0 %}+{% endif %}{{ l.qty_diff|qty }}</b> {{ l.product.base_uom.code }}</td>
+      <td class="num"><b style="color:{% if l.qty_diff < 0 %}var(--danger-ink){% else %}var(--success-ink){% endif %}">{% if l.qty_diff > 0 %}+{% endif %}{{ l.qty_diff|qty:l.product }}</b> {{ l.product.base_uom.code }}</td>
       {% if user.can_see_cost %}<td class="num">{{ l.unit_cost|vnd }}</td><td class="num">{{ l.qty_diff|mul:l.unit_cost|vnd }}</td>{% endif %}</tr>{% endfor %}</tbody>
   </table></div></div>
   <div class="card card-body"><dl class="dl">

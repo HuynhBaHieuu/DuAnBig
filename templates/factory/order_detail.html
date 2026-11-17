@@ -15,7 +15,7 @@
 </dl></div>
 <div class="card" style="margin-bottom:14px"><div class="table-wrap"><table class="tbl">
   <thead><tr><th>Sản phẩm</th><th class="num">Số lượng</th><th class="num">Đã nhận</th></tr></thead>
-  <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.product.name }}</div></td><td class="num">{{ l.qty|qty }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.qty_received|qty }}</td></tr>{% endfor %}</tbody>
+  <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b><div class="text-muted" style="font-size:12px">{{ l.product.name }}</div></td><td class="num">{{ l.qty|qty:l.product.base_uom }} {{ l.product.base_uom.code }}</td><td class="num">{{ l.qty_received|qty:l.product }}</td></tr>{% endfor %}</tbody>
 </table></div></div>
 {% if po.supplier_ack_at %}
 <div class="card card-body"><b>Đã xác nhận nhận đơn</b> · {{ po.supplier_ack_by }} · {{ po.supplier_ack_at|vn_dt }}{% if po.supplier_ack_note %}<div class="text-muted" style="margin-top:4px">Ghi chú: {{ po.supplier_ack_note }}</div>{% endif %}</div>

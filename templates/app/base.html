@@ -18,12 +18,6 @@
         {% endfor %}
       {% endfor %}
     </nav>
-    <div class="sidebar-card">
-      <div class="bulb"><i data-lucide="lightbulb"></i></div>
-      <div style="font-weight:600">Không dùng GPS</div>
-      <div class="text-muted" style="font-size:12px;margin:6px 0 12px">Inbound theo dõi bằng mốc hành trình + ảnh xác thực của tài xế.</div>
-      {% if user|can_open:"/app/inbound/board" %}<a href="/app/inbound/board" class="btn btn-primary btn-sm" style="width:100%">Mở bảng điều phối</a>{% endif %}
-    </div>
   </aside>
   <div class="main">
     <header class="topbar">

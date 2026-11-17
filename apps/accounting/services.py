@@ -161,7 +161,7 @@ def post_bill(bill, user=None):
     if user is not None and user.role not in ("ACCOUNTANT", "ADMIN"):
         raise BusinessError("Chỉ Kế toán được ghi sổ hóa đơn mua.")
     if bill.status == "MISMATCH":
-        raise BusinessError("Hóa đơn lệch đối chiếu 3 bên – cần Director chấp nhận trước khi ghi sổ.")
+        raise BusinessError("Hóa đơn lệch đối chiếu 3 bên – cần Giám đốc chấp nhận trước khi ghi sổ.")
     if bill.status not in ("MATCHED", "ACCEPTED"):
         raise BusinessError("Hóa đơn chưa đối chiếu.")
     for bl in bill.lines.select_related("po_line"):

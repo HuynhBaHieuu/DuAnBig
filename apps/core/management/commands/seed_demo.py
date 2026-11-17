@@ -345,7 +345,7 @@ class Command(BaseCommand):
             UnloadingSlot.objects.filter(pk=slot.pk).update(done_at=slot.checked_in_at + timedelta(minutes=50))
             self.hist_pos.append(po)
 
-        # 2) PO lớn chờ Director duyệt (≥ 50 triệu)
+        # 2) PO lớn chờ Giám đốc duyệt (≥ 50 triệu)
         po = self.make_po(self.s_xm, [("XM-PCB40", 800), ("XM-PC50", 300)], "Dự trữ mùa xây dựng")
         ps.submit_po(po, self.u_pur)
 
@@ -377,7 +377,7 @@ class Command(BaseCommand):
         ps.gate_arrive(t)
         InboundTrip.objects.filter(pk=t.pk).update(arrived_at=now - timedelta(minutes=20))
 
-        # 8) GRN lệch > 2% chờ Director duyệt
+        # 8) GRN lệch > 2% chờ Giám đốc duyệt
         po = self.make_po(self.s_ong, [("ONG-PVC90", 200)])
         self.approve_send(po, sent_days_ago=2.5)
         t = self.trip(po, "61C-444.44", "TX04", -5)
@@ -470,7 +470,7 @@ class Command(BaseCommand):
         so = self.make_so(self.k2, self.site["ND01"], [("XM-PCB40", 200), ("THEP-D10", 100, 120000)], days=3)
         ss.submit_so(so, self.u_dis)  # -> PENDING_APPROVAL (quá hạn + dưới giá sàn)
 
-        # Thiếu hàng D16: 2 đơn tranh chấp -> đề xuất phân bổ cho Director
+        # Thiếu hàng D16: 2 đơn tranh chấp -> đề xuất phân bổ cho Giám đốc
         avail = ss.available_qty(self.prod["THEP-D16"])
         so = self.make_so(self.k1, self.site["HT01"], [("THEP-D16", int(avail * Decimal("0.7")) + 40)], days=2)
         ss.submit_so(so, self.u_dis)

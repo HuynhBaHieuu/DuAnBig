@@ -2,18 +2,18 @@
 {% block content %}
 {% include "reports/_nav.html" %}
 <div class="grid g-3" style="margin-bottom:20px">
-  {% include "partials/kpi.html" with label="Lead time TB toàn bộ" value=d.avg|floatformat:2|add:" ngày" icon="hourglass" tone="primary" %}
+  {% include "partials/kpi.html" with label="Lead time TB toàn bộ" value=d.avg|num:2|add:" ngày" icon="hourglass" tone="primary" %}
   {% include "partials/kpi.html" with label="Số phiếu nhập" value=d.grs|length icon="package-check" tone="info" %}
   {% include "partials/kpi.html" with label="Số nhà cung cấp" value=d.rows|length icon="factory" tone="warn" %}
 </div>
 <div class="card"><table class="tbl">
   <thead><tr><th>Nhà cung cấp</th><th class="num">Số GRN</th><th class="num">TB (ngày)</th><th class="num">Độ lệch chuẩn</th><th class="num">Nhanh nhất</th><th class="num">Chậm nhất</th><th style="width:200px"></th></tr></thead>
-  <tbody>{% for r in d.rows %}<tr><td><b>{{ r.supplier.name }}</b></td><td class="num">{{ r.n }}</td><td class="num"><b>{{ r.avg|floatformat:2 }}</b></td><td class="num">{{ r.std|floatformat:2 }}</td><td class="num">{{ r.min|floatformat:2 }}</td><td class="num">{{ r.max|floatformat:2 }}</td>
+  <tbody>{% for r in d.rows %}<tr><td><b>{{ r.supplier.name }}</b></td><td class="num">{{ r.n }}</td><td class="num"><b>{{ r.avg|num:2 }}</b></td><td class="num">{{ r.std|num:2 }}</td><td class="num">{{ r.min|num:2 }}</td><td class="num">{{ r.max|num:2 }}</td>
     <td><div class="bar"><i style="width:{% widthratio r.avg 10 100 %}%"></i></div></td></tr>
   {% empty %}<tr><td colspan="7" class="empty">Chưa có phiếu nhập trong kỳ.</td></tr>{% endfor %}</tbody>
 </table></div>
 {% if d.excluded %}<div class="card" style="margin-top:20px"><div class="card-head"><h3 class="card-title">Phiếu nhập bị loại khỏi thống kê ({{ d.excluded|length }})</h3></div>
   <table class="tbl"><thead><tr><th>GRN</th><th>Nhà cung cấp</th><th class="num">Lead time (ngày)</th><th>Lý do loại</th></tr></thead>
-  <tbody>{% for g in d.excluded %}<tr><td><a class="code" href="/app/warehouse/receipts/{{ g.pk }}">{{ g.code }}</a></td><td>{{ g.po.supplier.name }}</td><td class="num">{{ g.lead_time_days|floatformat:2 }}</td><td class="text-muted">{{ g.exclude_reason }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
-<p class="text-muted" style="font-size:12px;margin-top:10px">Phiếu có lead time ngắn bất thường (&lt; tham số LEADTIME_MIN_DAYS) hoặc được đánh dấu "Chuyến test" ở trang phiếu nhập bị loại khỏi báo cáo này và khỏi tác vụ đêm tính SS/ROP.</p>
+  <tbody>{% for g in d.excluded %}<tr><td><a class="code" href="/app/warehouse/receipts/{{ g.pk }}">{{ g.code }}</a></td><td>{{ g.po.supplier.name }}</td><td class="num">{{ g.lead_time_days|num:2 }}</td><td class="text-muted">{{ g.exclude_reason }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<p class="text-muted" style="font-size:12px;margin-top:10px">Phiếu có lead time ngắn bất thường (dưới số ngày tối thiểu trong Tham số hệ thống) hoặc được đánh dấu "Chuyến test" ở trang phiếu nhập bị loại khỏi báo cáo này và khỏi tác vụ đêm tính SS/ROP.</p>
 {% endblock %}

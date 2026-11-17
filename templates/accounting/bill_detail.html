@@ -20,7 +20,7 @@
 <div x-data="{tab: location.hash === '#lich-su' ? 'h' : 'd'}">
 <div class="tabs"><a class="tab" :class="tab === 'd' && 'active'" href="#" @click.prevent="tab = 'd'; history.replaceState(null, '', location.pathname + location.search)">Chi tiết</a><a class="tab" :class="tab === 'h' && 'active'" href="#lich-su" @click.prevent="tab = 'h'; history.replaceState(null, '', '#lich-su')"><i data-lucide="history" style="width:14px"></i> Lịch sử</a></div>
 <div x-show="tab === 'd'">
-{% if bill.status == "MISMATCH" %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i>Hóa đơn lệch đối chiếu 3 bên – bị chặn ghi sổ cho tới khi Director chấp nhận.</div>{% endif %}
+{% if bill.status == "MISMATCH" %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i>Hóa đơn lệch đối chiếu 3 bên – bị chặn ghi sổ cho tới khi Giám đốc chấp nhận.</div>{% endif %}
 {% if bill.accepted_by %}<div class="flash flash-warning"><i data-lucide="shield-check"></i>Chênh lệch đã được {{ bill.accepted_by }} chấp nhận{% if bill.accept_reason %} – lý do: {{ bill.accept_reason }}{% endif %}.</div>{% endif %}
 <div class="card">
   <div class="card-head"><h3 class="card-title">Đối chiếu 3 bên: PO – GRN – Bill</h3></div>
@@ -29,10 +29,10 @@
       <tr><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Đã nhận chưa lập bill</th><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
     <tbody>{% for r in rows %}<tr class="{% if r.bl.match_status and r.bl.match_status != 'MATCH' %}row-danger{% endif %}">
       <td>{% if r.bl.po_line %}<b>{{ r.bl.po_line.po.code }}</b> · {{ r.bl.po_line.product.code }}{% else %}{{ r.bl.description }}{% endif %}</td>
-      <td class="num">{{ r.po_qty|qty }}</td><td class="num">{{ r.po_price|vnd }}</td><td class="num">{% if r.open_qty is not None %}{{ r.open_qty|qty }}{% else %}{% if r.grn_qty %}✓ đã nhận{% else %}✗ chưa nhận{% endif %}{% endif %}</td>
-      <td class="num">{{ r.bl.qty|qty }}</td><td class="num" {% if r.bl.match_status == "PRICE_DIFF" %}style="color:var(--danger-ink);font-weight:700"{% endif %}>{{ r.bl.unit_price|vnd }}</td><td class="num">{{ r.bl.amount|vnd }}</td>
+      <td class="num">{{ r.po_qty|qty:r.bl.po_line.product }}</td><td class="num">{{ r.po_price|vnd }}</td><td class="num">{% if r.open_qty is not None %}{{ r.open_qty|qty:r.bl.po_line.product }}{% else %}{% if r.grn_qty %}✓ đã nhận{% else %}✗ chưa nhận{% endif %}{% endif %}</td>
+      <td class="num">{{ r.bl.qty|qty:r.bl.po_line.product }}</td><td class="num" {% if r.bl.match_status == "PRICE_DIFF" %}style="color:var(--danger-ink);font-weight:700"{% endif %}>{{ r.bl.unit_price|vnd }}</td><td class="num">{{ r.bl.amount|vnd }}</td>
       <td>{% if r.bl.match_status == "MATCH" %}<span class="badge badge-success">Khớp</span>{% elif r.bl.match_status %}<span class="badge badge-danger">{{ r.bl.get_match_status_display }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ bill.subtotal|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">VAT {{ bill.vat_rate|floatformat:'-1' }}%{% if po_rates %} <span class="text-muted">(PO: {{ po_rates|join:", " }}%)</span>{% endif %}</td><td class="num">{{ bill.vat_amount|vnd }}</td><td>{% if bill.bill_type == "GOODS" and po_rates and bill.vat_rate|stringformat:"s" not in po_rates %}<span class="badge badge-danger">Lệch thuế suất</span>{% endif %}</td></tr><tr><td colspan="6" class="num">Tổng</td><td class="num">{{ bill.total|vnd }}</td><td></td></tr></tfoot>
+    <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ bill.subtotal|vnd }}</td><td></td></tr><tr><td colspan="6" class="num">VAT {{ bill.vat_rate|num:-1 }}%{% if po_rates %} <span class="text-muted">(PO: {{ po_rates|join:", " }}%)</span>{% endif %}</td><td class="num">{{ bill.vat_amount|vnd }}</td><td>{% if bill.bill_type == "GOODS" and po_rates and bill.vat_rate|stringformat:"s" not in po_rates %}<span class="badge badge-danger">Lệch thuế suất</span>{% endif %}</td></tr><tr><td colspan="6" class="num">Tổng</td><td class="num">{{ bill.total|vnd }}</td><td></td></tr></tfoot>
   </table></div></div>
 </div>
 <div class="card card-body" style="margin-top:20px;max-width:520px"><dl class="dl"><dt>Đã trả</dt><dd>{{ bill.paid_amount|vnd }}</dd><dt>Còn phải trả</dt><dd><b>{{ bill.balance|vnd }}</b></dd><dt>Hạn thanh toán</dt><dd>{{ bill.due_date|vn_d }}</dd></dl>

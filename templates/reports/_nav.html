@@ -1,16 +1,16 @@
 <div class="page-head">
-  <div><div class="crumbs">MH-70 → 76 · Báo cáo</div><h1 class="page-title">{{ title }}</h1>{% if d_from %}<div class="page-sub">Kỳ báo cáo {{ d_from|vn_d }} – {{ d_to|vn_d }}</div>{% endif %}</div>
-  {% if d_from and not periods %}<form class="toolbar"><input type="date" class="input" name="from" value="{{ d_from|date:'Y-m-d' }}" style="width:160px"><input type="date" class="input" name="to" value="{{ d_to|date:'Y-m-d' }}" style="width:160px"><button class="btn btn-soft">Xem</button>
-    {% if export %}<a class="btn btn-outline" href="?from={{ d_from|date:'Y-m-d' }}&to={{ d_to|date:'Y-m-d' }}&export=xlsx"><i data-lucide="file-spreadsheet"></i>Excel</a>{% endif %}</form>{% endif %}
+  <div><div class="crumbs">Báo cáo</div><h1 class="page-title">{{ title }}</h1>{% if d_from %}<div class="page-sub">Kỳ báo cáo {{ d_from|vn_d }} – {{ d_to|vn_d }}</div>{% endif %}</div>
+  {% comment %}Gà STT 101: một bộ chọn kỳ chung (mặc định Tháng này) cho mọi tab; chuyển tab giữ nguyên kỳ đang xem.{% endcomment %}
+  {% if periods %}<div class="toolbar">{% include "partials/period_filter.html" %}
+    {% if export %}<a class="btn btn-outline" href="?{{ period_qs }}&export=xlsx"><i data-lucide="file-spreadsheet"></i>Excel</a>{% endif %}</div>{% endif %}
 </div>
 <div class="tabs">
-  {% with p=request.path %}
-  <a class="tab {% if p == '/app/reports/' %}active{% endif %}" href="/app/reports/">6 KPI dự án</a>
-  <a class="tab {% if p == '/app/reports/rop' %}active{% endif %}" href="/app/reports/rop">Dashboard ROP</a>
-  <a class="tab {% if p == '/app/reports/nxt' %}active{% endif %}" href="/app/reports/nxt">Nhập – Xuất – Tồn</a>
-  <a class="tab {% if p == '/app/reports/otif' %}active{% endif %}" href="/app/reports/otif">OTIF</a>
-  <a class="tab {% if p == '/app/reports/leadtime' %}active{% endif %}" href="/app/reports/leadtime">Lead time</a>
-  <a class="tab {% if p == '/app/reports/unloading' %}active{% endif %}" href="/app/reports/unloading">Chờ hạ tải</a>
-  <a class="tab {% if p == '/app/reports/count-accuracy' %}active{% endif %}" href="/app/reports/count-accuracy">Chính xác tồn</a>
+  {% with p=request.path q=period_qs %}
+  <a class="tab {% if p == '/app/reports/' %}active{% endif %}" href="/app/reports/?{{ q }}">6 KPI dự án</a>
+  <a class="tab {% if p == '/app/reports/nxt' %}active{% endif %}" href="/app/reports/nxt?{{ q }}">Nhập – Xuất – Tồn</a>
+  <a class="tab {% if p == '/app/reports/otif' %}active{% endif %}" href="/app/reports/otif?{{ q }}">OTIF</a>
+  <a class="tab {% if p == '/app/reports/leadtime' %}active{% endif %}" href="/app/reports/leadtime?{{ q }}">Lead time</a>
+  <a class="tab {% if p == '/app/reports/unloading' %}active{% endif %}" href="/app/reports/unloading?{{ q }}">Chờ hạ tải</a>
+  <a class="tab {% if p == '/app/reports/count-accuracy' %}active{% endif %}" href="/app/reports/count-accuracy?{{ q }}">Chính xác tồn</a>
   {% endwith %}
 </div>

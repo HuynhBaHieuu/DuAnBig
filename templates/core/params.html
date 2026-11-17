@@ -1,13 +1,20 @@
 {% extends "app/base.html" %}
 {% block content %}
-<div class="page-head"><div><h1 class="page-title">Tham số hệ thống</h1><div class="page-sub">Ngưỡng duyệt, cảnh báo và tham số tính toán. Giá trị trong bảng ghi đè mặc định.</div></div></div>
-<form method="post" class="card">{% csrf_token %}
-  <table class="tbl">
-    <thead><tr><th>Mã tham số</th><th>Mặc định</th><th style="width:260px">Giá trị hiện hành</th></tr></thead>
-    <tbody>{% for r in rows %}
-      <tr><td><code>{{ r.key }}</code></td><td class="text-muted">{{ r.default }}</td><td><input class="input input-sm" name="{{ r.key }}" value="{{ r.value }}"></td></tr>
-    {% endfor %}</tbody>
-  </table>
-  <div class="card-body"><button class="btn btn-primary">Lưu tham số</button></div>
+<div class="page-head"><div><div class="crumbs">Quản trị</div><h1 class="page-title">Tham số hệ thống</h1><div class="page-sub">Ngưỡng duyệt, cảnh báo và tham số tính toán. Giá trị hiện hành ghi đè mặc định.</div></div></div>
+<form method="post">{% csrf_token %}
+  {% for name, rows in groups %}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-head"><h3 class="card-title">{{ name }}</h3></div>
+    <div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Tham số</th><th class="num" style="width:160px">Mặc định</th><th style="width:240px">Giá trị hiện hành</th></tr></thead>
+      <tbody>{% for r in rows %}
+        <tr><td>{{ r.label }}<div class="text-muted" style="font-size:11px">{{ r.key }}</div></td>
+          <td class="num text-muted nowrap">{{ r.default }}{% if r.unit %} {{ r.unit }}{% endif %}</td>
+          <td><div class="toolbar" style="flex-wrap:nowrap;gap:6px"><input class="input input-sm" name="{{ r.key }}" value="{{ r.value }}" style="width:150px" title="Hiện hành: {{ r.value_text }}{% if r.unit %} {{ r.unit }}{% endif %}">{% if r.unit %}<span class="text-muted" style="font-size:12px">{{ r.unit }}</span>{% endif %}</div></td></tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </div>
+  {% endfor %}
+  <button class="btn btn-primary">Lưu tham số</button>
 </form>
 {% endblock %}

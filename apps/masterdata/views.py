@@ -17,6 +17,7 @@ from apps.core.services import audit, raise_alert, resolve_alerts
 from apps.core.utils import paginate
 
 from . import models as m
+from apps.core.fmt import money as _money, qty_unit as _qu
 
 P, D, DIR, ACC = "PURCHASER", "DISPATCHER", "DIRECTOR", "ACCOUNTANT"
 VIEWERS = (P, D, DIR, ACC)
@@ -175,7 +176,7 @@ def _price_decision(request, sp, approve):
     if not m.SupplierPrice.objects.filter(status="PENDING").exists():
         resolve_alerts("PRICE_APPROVAL", "supplier_price", 0)
     messages.success(request, f"Đã {'duyệt' if approve else 'từ chối'} giá mua {sp.product} – {sp.supplier}: "
-                              f"{sp.price:,.0f} ₫.")
+                              f"{_money(sp.price)}.")
 
 
 @role_required(*VIEWERS)
@@ -211,7 +212,7 @@ def entity_form(request, slug, pk=None):
             if slug == "products" and obj.is_active:
                 left = _stock_of(obj)
                 if left:  # STT 53: ngừng KD khi còn tồn -> hàng bị ẩn khỏi danh sách tồn, chỉ lộ ra khi kiểm kê
-                    messages.error(request, f"Không ngừng kinh doanh được {obj.code}: còn tồn {left:g} "
+                    messages.error(request, f"Không ngừng kinh doanh được {obj.code}: còn tồn {_qu(left, obj)} "
                                             f"{obj.base_uom.code}. Xuất / điều chỉnh hết tồn trước.")
                     return redirect(request.path)
             obj.is_active = not obj.is_active
@@ -242,7 +243,7 @@ def entity_form(request, slug, pk=None):
                 fire_checks([o.pk], Trigger("PARAM_SAVED", "", o.code, request.user))
             if pending_price:
                 raise_alert("PRICE_APPROVAL", "Giá mua chờ duyệt",
-                            f"{o.product} – {o.supplier}: {o.price:,.0f} ₫ (do {request.user} nhập)",
+                            f"{o.product} – {o.supplier}: {_money(o.price)} (do {request.user} nhập)",
                             ref_type="supplier_price", ref_id=0, url="/app/master/supplier-prices/?status=PENDING",
                             target_role="DIRECTOR")
                 messages.success(request, f"Đã gửi giá mua {o.product} – {o.supplier} chờ Giám đốc duyệt. "

@@ -22,7 +22,7 @@
     <tfoot><tr><td colspan="3"><button type="button" class="btn btn-soft btn-sm" @click="rows.push({product:'',qty:0,price:0})"><i data-lucide="plus"></i>Thêm dòng</button></td><td class="num" x-text="fmt(total())"></td><td></td></tr>
       <tr><td colspan="5" class="text-muted">Tổng <b x-text="ton().toFixed(2)"></b> tấn · số chuyến ước tính <b x-text="trips()"></b> (xe <span x-text="truck()"></span> t)</td></tr></tfoot>
   </table>
-  <div class="flash flash-warning" style="margin-top:14px" x-show="total() >= {{ threshold }}"><i data-lucide="shield-alert"></i>Giá trị ≥ {{ threshold|money_short }} – PO sẽ cần Director duyệt.</div>
+  <div class="flash flash-warning" style="margin-top:14px" x-show="total() >= {{ threshold }}"><i data-lucide="shield-alert"></i>Giá trị ≥ {{ threshold|money_short }} – PO sẽ cần Giám đốc duyệt.</div>
   <div class="toolbar" style="margin-top:16px;justify-content:flex-end"><a href="/app/purchase/orders" class="btn btn-outline">Hủy</a><button class="btn btn-primary">Lưu đơn mua (nháp)</button></div>
 </form>
 {{ prices|json_script:"prices" }}{{ weights|json_script:"weights" }}{{ lines_json|json_script:"lines" }}

@@ -18,8 +18,8 @@
 <div class="grid g-main">
   <div class="card"><table class="tbl">
     <thead><tr><th>Sản phẩm</th><th>Điểm giao</th><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
-    <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td>{{ l.delivery_line.stop.trip.code|default:"" }}<div class="text-muted" style="font-size:12px">{{ l.delivery_line.stop.site.name|default:"" }}</div></td><td class="num">{{ l.qty|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td colspan="4" class="num">Cộng tiền hàng</td><td class="num">{{ inv.subtotal|vnd }}</td></tr><tr><td colspan="4" class="num">VAT {{ inv.vat_rate|floatformat:0 }}%</td><td class="num">{{ inv.vat_amount|vnd }}</td></tr><tr><td colspan="4" class="num">Tổng thanh toán</td><td class="num">{{ inv.total|vnd }}</td></tr></tfoot>
+    <tbody>{% for l in lines %}<tr><td><b>{{ l.product.code }}</b> {{ l.product.name }}</td><td>{{ l.delivery_line.stop.trip.code|default:"" }}<div class="text-muted" style="font-size:12px">{{ l.delivery_line.stop.site.name|default:"" }}</div></td><td class="num">{{ l.qty|qty:l.product }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td colspan="4" class="num">Cộng tiền hàng</td><td class="num">{{ inv.subtotal|vnd }}</td></tr><tr><td colspan="4" class="num">VAT {{ inv.vat_rate|num:0 }}%</td><td class="num">{{ inv.vat_amount|vnd }}</td></tr><tr><td colspan="4" class="num">Tổng thanh toán</td><td class="num">{{ inv.total|vnd }}</td></tr></tfoot>
   </table></div>
   <div class="card card-body" style="align-self:start"><dl class="dl"><dt>Tổng</dt><dd>{{ inv.total|vnd }}</dd><dt>Đã thu</dt><dd>{{ inv.paid_amount|vnd }}</dd><dt>Còn lại</dt><dd><b>{{ inv.balance|vnd }}</b></dd></dl>
     <div class="divider"></div><div class="lbl" style="margin-bottom:8px">Phiếu thu phân bổ</div>

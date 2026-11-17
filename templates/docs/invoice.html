@@ -9,9 +9,9 @@
   <div><b>Địa chỉ:</b> {{ inv.customer.address }}</div><div><b>Điện thoại:</b> {{ inv.customer.phone }}</div>
 </div>
 <table><thead><tr><th>#</th><th>Mã hàng</th><th>Tên hàng</th><th>Điểm giao</th><th class="num">SL</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th></tr></thead>
-<tbody>{% for l in inv.lines.all %}<tr><td>{{ forloop.counter }}</td><td>{{ l.product.code }}</td><td>{{ l.product.name }}</td><td>{{ l.delivery_line.stop.site.name|default:"" }}</td><td class="num">{{ l.qty|qty }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
+<tbody>{% for l in inv.lines.all %}<tr><td>{{ forloop.counter }}</td><td>{{ l.product.code }}</td><td>{{ l.product.name }}</td><td>{{ l.delivery_line.stop.site.name|default:"" }}</td><td class="num">{{ l.qty|qty:l.product }}</td><td class="num">{{ l.unit_price|vnd }}</td><td class="num">{{ l.amount|vnd }}</td></tr>{% endfor %}</tbody>
 <tfoot><tr><td colspan="6" class="num">Cộng tiền hàng</td><td class="num">{{ inv.subtotal|vnd }}</td></tr>
-<tr><td colspan="6" class="num">Thuế GTGT {{ inv.vat_rate|floatformat:0 }}%</td><td class="num">{{ inv.vat_amount|vnd }}</td></tr>
+<tr><td colspan="6" class="num">Thuế GTGT {{ inv.vat_rate|num:0 }}%</td><td class="num">{{ inv.vat_amount|vnd }}</td></tr>
 <tr><td colspan="6" class="num">Tổng thanh toán</td><td class="num">{{ inv.total|vnd }}</td></tr></tfoot></table>
 <div style="margin:10px 0"><b>Số tiền viết bằng chữ:</b> <i>{{ inv.total|vnd_words }}.</i></div>
 <div class="sign"><div><b>Người mua hàng</b></div><div></div><div><b>Người bán hàng</b><br>TRACON 80</div></div>

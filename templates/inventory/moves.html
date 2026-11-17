@@ -1,7 +1,7 @@
 {% extends "app/base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><h1 class="page-title">Sổ kho</h1><div class="page-sub">Bất biến – mọi biến động đi qua post_stock_move()</div></div>
+  <div><h1 class="page-title">Sổ kho</h1><div class="page-sub">Không sửa / xóa được – mọi nhập, xuất, điều chỉnh tồn đều ghi một dòng tại đây</div></div>
   <a href="?{{ qs }}&export=xlsx" class="btn btn-outline"><i data-lucide="file-spreadsheet"></i>Xuất Excel</a>
 </div>
 <div class="card">
@@ -17,8 +17,8 @@
     <tbody>{% for m in page_obj %}
       <tr><td class="text-muted">{{ m.at|vn_dt }}</td><td><b>{{ m.product.code }}</b> <span class="text-muted">{{ m.product.name|truncatechars:30 }}</span></td><td>{{ m.location.code }}</td>
         <td>{% if m.qty > 0 %}<span class="badge badge-success">{{ m.get_move_type_display }}</span>{% else %}<span class="badge badge-warn">{{ m.get_move_type_display }}</span>{% endif %}</td>
-        <td>{{ m.note }}</td><td class="num" style="color:{% if m.qty > 0 %}var(--success-ink){% else %}var(--danger-ink){% endif %};font-weight:600">{% if m.qty > 0 %}+{% endif %}{{ m.qty|qty }}</td>
-        <td class="num">{{ m.balance_after|qty }}</td>{% if user.can_see_cost %}<td class="num">{{ m.unit_cost|vnd }}</td>{% endif %}<td class="text-muted">{{ m.user|default:"SYSTEM" }}</td></tr>
+        <td>{{ m.note }}</td><td class="num" style="color:{% if m.qty > 0 %}var(--success-ink){% else %}var(--danger-ink){% endif %};font-weight:600">{% if m.qty > 0 %}+{% endif %}{{ m.qty|qty:m.product }}</td>
+        <td class="num">{{ m.balance_after|qty:m.product }}</td>{% if user.can_see_cost %}<td class="num">{{ m.unit_cost|vnd }}</td>{% endif %}<td class="text-muted">{{ m.user|default:"SYSTEM" }}</td></tr>
     {% empty %}<tr><td colspan="9" class="empty">Chưa có bút toán.</td></tr>{% endfor %}</tbody>
   </table></div>{% include "partials/pager.html" %}</div>
 </div>

@@ -23,10 +23,10 @@
     <tfoot><tr><td colspan="5"><button type="button" class="btn btn-soft btn-sm" @click="rows.push({product:'',qty:0,price:0})"><i data-lucide="plus"></i>Thêm dòng</button></td><td class="num" x-text="fmt(total())"></td><td></td></tr></tfoot>
   </table>
   <div class="flash flash-info" style="margin-top:14px" x-show="internal()"><i data-lucide="info"></i>Đơn nội bộ công trình: dùng giá vốn, không tính hạn mức, không xuất hóa đơn.</div>
-  <div class="flash flash-warning" style="margin-top:14px" x-show="rows.some(r => belowFloor(r))"><i data-lucide="shield-alert"></i>Có dòng dưới giá sàn – đơn sẽ cần Director duyệt.</div>
+  <div class="flash flash-warning" style="margin-top:14px" x-show="rows.some(r => belowFloor(r))"><i data-lucide="shield-alert"></i>Có dòng dưới giá sàn – đơn sẽ cần Giám đốc duyệt.</div>
   <div class="toolbar" style="margin-top:16px;justify-content:flex-end">
     <button class="btn btn-outline">Lưu nháp</button>
-    <button class="btn btn-primary" name="submit" value="1"><i data-lucide="check"></i>Lưu & xác nhận (ATP + giữ hàng)</button>
+    <button class="btn btn-primary" name="submit" value="1"><i data-lucide="check"></i>Lưu & xác nhận (kiểm tra & giữ hàng)</button>
   </div>
 </form>
 {{ prices|json_script:"prices" }}{{ sites|json_script:"sites" }}{{ avail|json_script:"avail" }}{{ lines_json|json_script:"lines" }}

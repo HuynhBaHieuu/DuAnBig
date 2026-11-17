@@ -12,13 +12,13 @@
 </div>{% endif %}
 <div class="card">
   <div class="table-wrap"><table class="tbl">
-    <thead><tr><th>Thời gian</th><th>Mức</th><th>Loại</th><th>Nội dung</th><th></th></tr></thead>
+    <thead><tr><th>Thời gian</th><th>Mức</th>{% if show_type %}<th>Loại</th>{% endif %}<th>Nội dung</th><th></th></tr></thead>
     <tbody>
     {% for a in page_obj %}
       <tr>
         <td class="text-muted">{{ a.created_at|vn_dt }}</td>
         <td>{% if a.level == "CRIT" %}<span class="badge badge-danger">Nghiêm trọng</span>{% elif a.level == "WARN" %}<span class="badge badge-warn">Cảnh báo</span>{% else %}<span class="badge badge-primary">Thông tin</span>{% endif %}</td>
-        <td><a href="?type={{ a.alert_type }}" style="font-size:12px">{{ a.type_label }}</a></td>
+        {% if show_type %}<td><a href="?type={{ a.alert_type }}" style="font-size:12px">{{ a.type_label }}</a></td>{% endif %}
         <td><a href="{{ a.url|default:'#' }}" style="font-weight:500">{{ a.title }}</a><div class="text-muted" style="font-size:12px">{{ a.message }}</div></td>
         <td class="num">{% if not a.is_resolved %}<form method="post" action="/app/alerts/{{ a.pk }}/resolve">{% csrf_token %}<button class="btn btn-soft btn-sm">Đã xử lý</button></form>{% else %}<span class="badge badge-success">Đã xử lý</span>{% endif %}</td>
       </tr>

@@ -18,10 +18,10 @@ def fold(text):
     return "".join(c for c in text if unicodedata.category(c) != "Mn").casefold().strip()
 
 
-def paginate(request, qs, per_page=20):
-    page = Paginator(qs, per_page).get_page(request.GET.get("page"))
+def paginate(request, qs, per_page=20, param="page"):
+    page = Paginator(qs, per_page).get_page(request.GET.get(param))
     params = request.GET.copy()
-    params.pop("page", None)
+    params.pop(param, None)
     return page, params.urlencode()
 
 

@@ -18,6 +18,7 @@ from apps.masterdata.models import Location, PriceListLine, Product
 from .models import (Allocation, AllocationLine, DeliveryLine, DeliveryStop, DeliveryTrip, GoodsIssue,
                      GoodsIssueLine, Picking, PickingLine, SalesOrder, SalesOrderLine, SalesReturn, SalesReturnLine,
                      StockReservation)
+from apps.core.fmt import money as _money, qty_unit as _qu, num as _fnum
 
 D0 = Decimal(0)
 
@@ -49,20 +50,20 @@ def customer_debt(customer):
 
 
 def approval_reasons(so):
-    """Lý do cần Director duyệt (chỉ áp dụng B2B)."""
+    """Lý do cần Giám đốc duyệt (chỉ áp dụng B2B)."""
     if so.order_type != "B2B":
         return []
     reasons = []
     debt, overdue = customer_debt(so.customer)
     if so.customer.credit_limit and debt + so.total_amount > so.customer.credit_limit:
-        reasons.append(f"Vượt hạn mức: nợ {debt:,.0f} + đơn {so.total_amount:,.0f} > hạn mức "
-                       f"{so.customer.credit_limit:,.0f}")
+        reasons.append(f"Vượt hạn mức: nợ {_money(debt)} + đơn {_money(so.total_amount)} > hạn mức "
+                       f"{_money(so.customer.credit_limit)}")
     if overdue > 0:
-        reasons.append(f"Có nợ quá hạn > {param('OVERDUE_DAYS_BLOCK'):g} ngày: {overdue:,.0f} ₫")
+        reasons.append(f"Có nợ quá hạn > {_fnum(param('OVERDUE_DAYS_BLOCK'))} ngày: {_money(overdue)}")
     for line in so.lines.select_related("product"):
         pl = price_line(so.customer, line.product)
         if pl and pl.floor_price and line.unit_price < pl.floor_price:
-            reasons.append(f"{line.product.code} bán {line.unit_price:,.0f} < giá sàn {pl.floor_price:,.0f}")
+            reasons.append(f"{line.product.code} bán {_money(line.unit_price)} < giá sàn {_money(pl.floor_price)}")
     return reasons
 
 
@@ -110,7 +111,7 @@ def auto_submit_portal(so, user):
         return "DIRECTOR"
     short = [l for l in atp_preview(so.lines.select_related("product")) if l.short_qty > 0]
     if short:
-        detail = ", ".join(f"{l.product.code} thiếu {l.short_qty:g}" for l in short)
+        detail = ", ".join(f"{l.product.code} thiếu {_qu(l.short_qty, l.product)}" for l in short)
         raise_alert("PORTAL_ORDER", f"Đơn cổng KH {so.code} thiếu hàng – chờ điều phối",
                     f"{so.customer.name} – {so.site.name} – cần {so.requested_date:%d/%m}: {detail}", level="WARN",
                     ref_type="so", ref_id=so.pk, url=f"/app/sales/orders/{so.pk}", target_role="DISPATCHER")
@@ -152,7 +153,7 @@ def approve_so(so, user, approve=True, reason=""):
         raise BusinessError("Đơn không chờ duyệt.")
     resolve_alerts("SO_APPROVAL", "so", so.pk)
     if not approve:
-        so.status, so.cancel_reason = "CANCELLED", reason or "Director từ chối"
+        so.status, so.cancel_reason = "CANCELLED", reason or "Giám đốc từ chối"
         so.cancelled_at, so.cancelled_by = timezone.now(), user
         so.save()
         so_log(so, "REJECTED", user, {"reason": so.cancel_reason})
@@ -196,7 +197,7 @@ def reserve_line(line):
     - Đủ hàng -> giữ đủ.
     - SL đặt > Khả dụng -> giữ NGAY toàn bộ lượng khả dụng (Đã giữ = Khả dụng), chỉ báo
       Thiếu = SL đặt − Khả dụng. Không để "Đã giữ = 0" làm đóng băng tồn kho.
-    - Phần thiếu: nếu đang có đơn khác cùng thiếu sản phẩm này -> đưa vào đề xuất phân bổ cho Director (SHORT),
+    - Phần thiếu: nếu đang có đơn khác cùng thiếu sản phẩm này -> đưa vào đề xuất phân bổ cho Giám đốc (SHORT),
       ngược lại là backorder (tự giữ tiếp khi có hàng về).
     """
     Product.objects.select_for_update().get(pk=line.product_id)  # tuần tự hóa giữ hàng theo sản phẩm
@@ -320,8 +321,9 @@ def propose_allocation(product, rule="PENALTY"):
         AllocationLine.objects.create(allocation=alloc, so_line=l, demand_qty=need[l.pk], proposed_qty=p,
                                       held_qty=l.movable, rank=i)
     raise_alert("ALLOCATION", f"Phân bổ thiếu hàng {product.code}",
-                f"Khả dụng {avail:g}" + (f" + đang giữ của đơn ưu tiên thấp {pool - avail:g}" if pool > avail else "")
-                + f" / nhu cầu {demand:g}",
+                f"Khả dụng {_qu(avail, product)}" + (f" + đang giữ của đơn ưu tiên thấp {_qu(pool - avail, product)}"
+                                       if pool > avail else "")
+                + f" / nhu cầu {_qu(demand, product)}",
                 ref_type="allocation", ref_id=alloc.pk, url=f"/app/sales/allocations/{alloc.pk}",
                 target_role="DIRECTOR")
     return alloc
@@ -362,7 +364,7 @@ def approve_allocation(alloc, user, approved):
         qs[al.pk] = min(q, al.demand_qty)
     total = sum(qs.values(), D0)
     if total > avail:
-        raise BusinessError(f"Tổng phân bổ {total:g} vượt lượng khả dụng hiện tại {avail:g}.")
+        raise BusinessError(f"Tổng phân bổ {_fnum(total, 3, True)} vượt lượng khả dụng hiện tại {_fnum(avail, 3, True)}.")
     for al in als:  # nhả trước, giữ sau
         if qs[al.pk] < held_now[al.pk]:
             _release(al.so_line, held_now[al.pk] - qs[al.pk])
@@ -387,7 +389,7 @@ def approve_allocation(alloc, user, approved):
 def retry_backorders(product_id, trigger=None):
     """Có hàng về / vừa nhả hàng: giữ cho các dòng đang thiếu theo thứ tự ưu tiên (đặc tả mục 5).
 
-    Nếu đang có đề xuất phân bổ chờ Director duyệt cho vật tư này -> chỉ tính lại đề xuất theo lượng khả dụng mới."""
+    Nếu đang có đề xuất phân bổ chờ Giám đốc duyệt cho vật tư này -> chỉ tính lại đề xuất theo lượng khả dụng mới."""
     from apps.inventory.replenishment import Trigger, allocate_backorders
 
     product = Product.objects.get(pk=product_id)
@@ -459,7 +461,7 @@ def release_picking(trip, user):
         for dl in stop.lines.select_related("so_line__product"):
             plan, remain = fifo_quants(dl.so_line.product, dl.qty_planned)
             if remain > 0:
-                raise BusinessError(f"Tồn kho vật lý không đủ cho {dl.so_line.product.code} (thiếu {remain:g}).")
+                raise BusinessError(f"Tồn kho vật lý không đủ cho {dl.so_line.product.code} (thiếu {_qu(remain, dl.so_line.product)}).")
             for loc, q in plan:
                 PickingLine.objects.create(picking=pk, so_line=dl.so_line, product=dl.so_line.product, location=loc,
                                            qty_to_pick=q)
@@ -614,7 +616,7 @@ def confirm_pod(stop, user, delivered, receiver_name, photo=None, signature_data
     if failed or returns:  # STT 30: báo Điều phối NGAY khi tài xế báo thất bại / giao thiếu (không đợi nhập lại kho)
         from apps.inventory.replenishment import notify
         what = "Giao thất bại" if failed else "Giao thiếu"
-        detail = ", ".join(f"{sl.product.code} thiếu {q:g}" for sl, q in returns)
+        detail = ", ".join(f"{sl.product.code} thiếu {_qu(q, sl.product)}" for sl, q in returns)
         notify("DISPATCHER", f"{what}: {stop.so.code} – {stop.so.customer.name}",
                f"Chuyến {stop.trip.code}, điểm {stop.seq} ({stop.site.name}). {detail}. "
                f"Lý do: {note or 'tài xế không ghi lý do'}.", url=f"/app/sales/orders/{stop.so_id}",
@@ -655,7 +657,7 @@ def post_sales_return(ret, user):
     ret.status = "POSTED"
     ret.save()
     from apps.inventory.replenishment import Trigger, fire_checks
-    trig = Trigger("STOCK_ADJUSTED", "RT", ret.code, user)
+    trig = Trigger("RETURN_RECEIVED", "RT", ret.code, user)
     pids = set(ret.lines.values_list("product_id", flat=True))
     for pid in pids:
         retry_backorders(pid, trig)
