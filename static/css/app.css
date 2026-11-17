@@ -457,3 +457,112 @@ table.tbl { width: 100%; border-collapse: collapse; }
   color: var(--ink); font-size: 13px; }
 .alert-chip b { background: var(--surface); border-radius: 999px; padding: 1px 8px; }
 .alert-chip.active, .alert-chip:hover { background: var(--primary-50); }
+
+/* ---------- Dashboard theo mẫu (ArgoLogics) – giữ tông cam #E65F2B & đen #060606 ---------- */
+.dz-hero { position: relative; height: 360px; border-radius: var(--radius); overflow: hidden; background: #060606;
+  margin-bottom: 20px; color: #fff; }
+.dz-hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.dz-hero-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(6,6,6,.35) 0%, rgba(6,6,6,0) 35%,
+  rgba(6,6,6,.15) 55%, rgba(6,6,6,.82) 100%); pointer-events: none; }
+.dz-hero.has-photo .dz-hero-shade { background: linear-gradient(180deg, rgba(6,6,6,.45) 0%, rgba(6,6,6,.05) 40%, rgba(6,6,6,.85) 100%); }
+.dz-hero-top { position: absolute; top: 18px; left: 18px; right: 18px; display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; z-index: 2; }
+.dz-pill { background: #fff; color: var(--ink); border-radius: 999px; height: 46px; display: flex; align-items: center;
+  padding: 0 18px; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.dz-search { gap: 10px; width: 300px; max-width: 100%; }
+.dz-search svg { width: 18px; height: 18px; color: var(--ink); flex-shrink: 0; }
+.dz-search input { border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; flex: 1; min-width: 0; }
+.dz-period { padding: 0 6px 0 16px; }
+.dz-period .period-filter { flex-wrap: nowrap; gap: 6px; }
+.dz-period .period-filter .input { height: 34px; border: 0; background: transparent; padding: 0 6px; font-weight: 600; }
+.dz-period .badge { white-space: nowrap; }
+.dz-hero-tools { margin-left: auto; position: relative; }
+.dz-round { width: 46px; height: 46px; border-radius: 50%; background: #fff; color: var(--ink); border: 0; cursor: pointer;
+  display: grid; place-items: center; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+.dz-round svg { width: 20px; height: 20px; }
+.dz-round.sm { width: 40px; height: 40px; box-shadow: none; border: 1px solid var(--line); background: #fff; }
+.dz-round.sm svg { width: 17px; height: 17px; }
+.dz-round:hover { background: var(--primary); color: #fff; }
+.dz-hero-pop { position: absolute; right: 0; top: 54px; width: 300px; display: flex; flex-direction: column; gap: 10px;
+  color: var(--ink); z-index: 5; box-shadow: 0 12px 30px rgba(0,0,0,.25); }
+.dz-hero-bottom { position: absolute; left: 22px; right: 22px; bottom: 20px; z-index: 2; display: flex; flex-direction: column; gap: 12px; }
+.dz-hello h1 { margin: 2px 0 0; font-size: 28px; letter-spacing: -.02em; }
+.dz-date { font-size: 13px; opacity: .8; }
+.dz-queue { display: flex; flex-wrap: wrap; gap: 8px; }
+.dz-pin { display: inline-flex; align-items: center; gap: 8px; background: rgba(255,255,255,.96); color: var(--ink);
+  border-radius: 999px; padding: 5px 14px 5px 5px; font-size: 13px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.dz-pin b { font-size: 16px; }
+.dz-pin-ico { width: 30px; height: 30px; border-radius: 50%; background: var(--primary); color: #fff; display: grid; place-items: center; }
+.dz-pin-ico svg { width: 16px; height: 16px; }
+a.dz-pin:hover { transform: translateY(-1px); }
+.dz-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.dz-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.dz-card { background: var(--surface); border-radius: 22px; padding: 18px 20px; position: relative; color: var(--ink); min-width: 0; }
+a.dz-card:hover { box-shadow: 0 0 0 2px var(--primary-100); }
+.dz-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.dz-title { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+.dz-ico { width: 28px; height: 28px; border-radius: 8px; background: var(--ink); color: #fff; display: grid; place-items: center; }
+.dz-ico svg { width: 15px; height: 15px; }
+.dz-volume { padding-bottom: 16px; overflow: hidden; }
+.dz-volume-chart { height: 130px; margin: 0 -20px; }
+.dz-volume-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; font-size: 13px; }
+.dz-big { font-size: 34px; font-weight: 700; letter-spacing: -.03em; line-height: 1.1; }
+.dz-big small { font-size: 15px; font-weight: 600; color: var(--muted); }
+.dz-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dz-mini { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; }
+.dz-mini-label { font-size: 13px; font-weight: 600; line-height: 1.3; min-height: 34px; }
+.dz-mini-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
+.dz-mini-val { font-size: 26px; font-weight: 700; letter-spacing: -.02em; white-space: nowrap; }
+.dz-mini-val small { font-size: 13px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+.dz-mini-spark { width: 64px; height: 28px; flex-shrink: 0; }
+.dz-mini-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.dz-chip { display: inline-flex; align-items: center; border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 600; }
+.dz-chip.good { background: var(--success); color: #fff; }
+.dz-chip.bad { background: var(--danger-bg); color: var(--danger-ink); }
+.dz-chip.gray { background: rgba(6,6,6,.07); color: var(--muted); }
+.dz-chip.orange { background: var(--primary); color: #fff; }
+.dz-fleet { display: flex; flex-direction: column; overflow: hidden; }
+.dz-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.dz-stat { background: #fff; border-radius: 16px; padding: 18px 8px; text-align: center; display: flex; flex-direction: column; gap: 4px; }
+.dz-stat b { font-size: 30px; letter-spacing: -.02em; line-height: 1; }
+.dz-stat span { font-size: 12px; color: var(--muted); }
+.dz-truck { margin: 18px auto 4px; width: 100%; max-width: 360px; }
+.dz-truck svg { width: 100%; height: auto; display: block; }
+.dz-truck-cap { text-align: center; font-size: 13px; margin-bottom: 16px; }
+.dz-driver { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line-soft); padding-top: 14px; margin-top: auto; }
+.dz-driver b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dz-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.dz-latest { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 4px 14px; }
+.dz-latest > .dz-head { grid-column: 1 / -1; margin-bottom: 6px; }
+.dz-latest .dz-title { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dz-all { font-size: 13px; white-space: nowrap; flex-shrink: 0; }
+.dz-latest-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.dz-latest-body .dz-head { margin-bottom: 4px; }
+.dz-latest-code { display: flex; align-items: center; gap: 8px; font-size: 18px; color: var(--ink); flex-wrap: wrap; }
+.dz-latest-code b { white-space: nowrap; }
+.dz-progress { position: relative; height: 4px; background: rgba(6,6,6,.1); border-radius: 99px; margin-top: 8px; }
+.dz-progress span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--primary); border-radius: 99px; }
+.dz-progress i { position: absolute; top: 50%; width: 0; height: 0; border-left: 10px solid var(--ink);
+  border-top: 7px solid transparent; border-bottom: 7px solid transparent; transform: translate(-4px, -50%); }
+.dz-steps { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); gap: 4px; }
+.dz-steps .on { color: var(--ink); font-weight: 600; }
+.dz-latest-thumb { position: relative; border-radius: 16px; overflow: hidden; background: #060606 radial-gradient(circle at 70% 30%, rgba(230,95,43,.45), transparent 60%);
+  min-height: 110px; display: grid; place-items: center; }
+.dz-latest-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .7; }
+.dz-thumb-pin { position: relative; width: 40px; height: 40px; border-radius: 50%; background: var(--primary); color: #fff;
+  display: grid; place-items: center; box-shadow: 0 0 0 6px rgba(230,95,43,.25); }
+.dz-thumb-pin svg { width: 20px; height: 20px; }
+.dz-range { display: inline-flex; align-items: center; gap: 6px; background: #fff; border-radius: 10px; padding: 6px 10px; font-size: 12px; font-weight: 600; }
+.dz-range svg { width: 14px; height: 14px; }
+.dz-sales-num { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 14px; }
+.dz-hero-num { font-size: 34px; font-weight: 700; letter-spacing: -.03em; }
+.dz-bars { height: 120px; display: flex; align-items: flex-end; gap: 2px; }
+.dz-bar { flex: 1; min-width: 3px; max-width: 12px; background: rgba(6,6,6,.14); border-radius: 3px 3px 0 0; min-height: 3px; }
+.dz-bar.on { background: var(--primary); }
+.dz-bar:hover { background: var(--ink); }
+.dz-bars-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+@media (max-width: 1300px) { .dz-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .dz-grid > .dz-col:first-child { grid-column: 1 / -1; }
+  .dz-grid > .dz-col:first-child { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (max-width: 900px) { .dz-grid, .dz-grid > .dz-col:first-child { grid-template-columns: minmax(0, 1fr); } .dz-hero { height: auto; min-height: 380px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 110px; } .dz-hero-top, .dz-hero-bottom { position: relative; inset: auto; left: auto; right: auto; top: auto; bottom: auto; } .dz-period { width: 100%; } .dz-period .period-filter { flex: 1; min-width: 0; } .dz-hero-tools { position: absolute; right: 0; top: 0; } .dz-search { width: calc(100% - 56px); } .dz-hero .dz-hero-shade, .dz-hero.has-photo .dz-hero-shade { background: linear-gradient(180deg, rgba(6,6,6,.25) 0%, rgba(6,6,6,.6) 38%, rgba(6,6,6,.92) 62%); }
+  .dz-hello h1 { font-size: 22px; } .dz-latest { grid-template-columns: 1fr; } .dz-latest-thumb { min-height: 90px; } }
+@media (max-width: 480px) { .dz-mini-grid { grid-template-columns: 1fr; } .dz-pin span:last-child { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }

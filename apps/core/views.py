@@ -114,7 +114,11 @@ def dashboard(request):
     blocks = DASH_BLOCKS.get(role, ["alerts"])
     ctx = {"title": "Dashboard", "today": today, "d_from": d_from, "d_to": d_to, "period": period, "periods": PERIODS,
            "period_text": period_label(d_from, d_to), "pq": period_qs(d_from, d_to), "blocks": blocks,
-           "queue": dash.queue(u, today), "kpis": kpi_cards(d_from, d_to, u)}
+           "queue": dash.queue(u, today), "kpis": kpi_cards(d_from, d_to, u),
+           # bố cục theo mẫu (ảnh doanh nghiệp, khối lượng đơn, đội xe, mới nhất, doanh thu)
+           "hero_url": dash.hero_image_url(), "can_hero": role in ("DIRECTOR", "ADMIN"),
+           "volume": dash.volume(d_from, d_to), "fleet": dash.fleet(today), "latest": dash.latest(u),
+           "sales": dash.sales_overview(u, d_from, d_to)}
     if "stock" in blocks:
         ctx["stock"] = dash.stock_health()
         ctx["stock_url"] = "/app/inventory/replenishment?level=low" if can_open(u, "/app/inventory/replenishment") else None
@@ -132,11 +136,45 @@ def dashboard(request):
         ctx["trends"] = dash.weekly_trends(d_to)
     if "alerts" in blocks:
         ctx["alert_groups"] = dash.alert_groups(u)
-    ctx["charts"] = {k: ctx[k] for k in ("demand", "trends") if k in ctx}
+    ctx["charts"] = {k: ctx[k] for k in ("demand", "trends", "volume") if k in ctx}
     ctx["links"] = {url: can_open(u, url) for url in ("/app/reports/otif", "/app/reports/unloading",
                                                          "/app/accounting/debts", "/app/warehouse/slots",
-                                                         "/app/accounting/invoices", "/app/sales/orders")}
+                                                         "/app/accounting/invoices", "/app/sales/orders",
+                                                         "/app/warehouse/receipts", "/app/inbound/board",
+                                                         "/app/fulfillment/planning")}
     return render(request, "core/dashboard.html", ctx)
+
+
+@role_required("DIRECTOR")
+@require_POST
+def dashboard_hero(request):
+    """Giám đốc / Admin đổi ảnh doanh nghiệp đầu Dashboard (thay chỗ bản đồ GPS của mẫu). Ảnh lưu như ảnh nghiệp vụ
+    (bucket private, xem qua /files/ khi đã đăng nhập); op=reset quay lại hình minh họa mặc định."""
+    from django.core.files.storage import default_storage
+
+    from apps.sales.services import check_image
+
+    from .services import BusinessError
+    row = SystemParam.objects.filter(key="DASHBOARD_HERO_IMAGE").first()
+    if request.POST.get("op") == "reset":
+        if row:
+            row.delete()
+        messages.success(request, "Đã quay lại hình minh họa mặc định.")
+        return redirect("/app/dashboard")
+    f = request.FILES.get("image")
+    try:
+        if not f:
+            raise BusinessError("Chọn ảnh doanh nghiệp (JPG / PNG).")
+        check_image(f, "Ảnh doanh nghiệp")
+    except BusinessError as e:
+        messages.error(request, str(e))
+        return redirect("/app/dashboard")
+    name = default_storage.save(f"branding/{f.name}", f)
+    SystemParam.objects.update_or_create(key="DASHBOARD_HERO_IMAGE",
+                                         defaults={"value": name, "description": "Ảnh doanh nghiệp đầu Dashboard"})
+    audit("UPDATE", None, {"Ảnh Dashboard": name}, model="SystemParam")
+    messages.success(request, "Đã cập nhật ảnh doanh nghiệp trên Dashboard.")
+    return redirect("/app/dashboard")
 
 
 # ------------------------------------------------------------------ Cảnh báo / tìm kiếm

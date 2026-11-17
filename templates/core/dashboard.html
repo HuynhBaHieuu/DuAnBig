@@ -1,29 +1,119 @@
 {% extends "app/base.html" %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <div class="crumbs">{{ today|date:"l, d/m/Y" }}</div>
-    <h1 class="page-title">Xin chào, {{ user.display_name }} 👋</h1>
-    <div class="page-sub">Tổng quan dành cho vai trò <b class="text-primary">{{ user.get_role_display }}</b></div>
+{# ===== Ảnh doanh nghiệp (thay bản đồ GPS của mẫu) + tìm kiếm, kỳ xem, việc chờ bạn ===== #}
+<section class="dz-hero{% if hero_url %} has-photo{% endif %}" aria-label="TRACON 80">
+  {% if hero_url %}<img class="dz-hero-img" src="{{ hero_url }}" alt="Ảnh doanh nghiệp TRACON 80">
+  {% else %}{% include "core/_hero_art.svg" %}{% endif %}
+  <div class="dz-hero-shade"></div>
+  <div class="dz-hero-top">
+    <form class="dz-pill dz-search" action="/app/search" method="get"><i data-lucide="search"></i><input name="q" placeholder="Tìm mã đơn, chuyến, sản phẩm…" aria-label="Tìm kiếm"></form>
+    <div class="dz-pill dz-period">{% include "partials/period_filter.html" %}</div>
+    {% if can_hero %}<div class="dz-hero-tools" x-data="{o:false}">
+      <button type="button" class="dz-round" @click="o=!o" title="Đổi ảnh doanh nghiệp"><i data-lucide="image-plus"></i></button>
+      <form x-show="o" x-cloak @click.outside="o=false" method="post" action="/app/dashboard/hero" enctype="multipart/form-data" class="dz-hero-pop card card-body">{% csrf_token %}
+        <b>Ảnh doanh nghiệp</b><span class="text-muted" style="font-size:12px">Ảnh ngang, nên ≥ 1600 × 500 px (kho, bãi xe, nhà máy…)</span>
+        <input type="file" name="image" accept="image/*" required>
+        <div class="toolbar"><button class="btn btn-primary btn-sm">Tải lên</button>
+          {% if hero_url %}<button name="op" value="reset" formnovalidate class="btn btn-outline btn-sm">Dùng hình mặc định</button>{% endif %}</div>
+      </form></div>{% endif %}
   </div>
-  {% include "partials/period_filter.html" %}
-</div>
-
-{# STT 80: Việc chờ bạn – số 0 thì ẩn, bấm mở đúng danh sách đã lọc #}
-<section class="dash-queue" aria-label="Việc chờ bạn">
-  <div class="dq-title">Việc chờ bạn <span class="text-muted">· hiện tại</span></div>
-  {% for q in queue %}
-  <a href="{{ q.url }}" class="dq-item tone-{{ q.tone }}"><i data-lucide="{{ q.icon }}"></i><span class="dq-n">{{ q.count }}</span><span class="dq-l">{{ q.label }}</span></a>
-  {% empty %}<span class="dq-empty"><i data-lucide="party-popper"></i> Không có việc tồn đọng.</span>{% endfor %}
+  <div class="dz-hero-bottom">
+    <div class="dz-hello"><div class="dz-date">{{ today|date:"l, d/m/Y" }} · {{ user.get_role_display }}</div>
+      <h1>Xin chào, {{ user.display_name }}</h1></div>
+    <div class="dz-queue" aria-label="Việc chờ bạn">
+      {% for q in queue %}<a href="{{ q.url }}" class="dz-pin" title="{{ q.label }}"><span class="dz-pin-ico"><i data-lucide="{{ q.icon }}"></i></span><b>{{ q.count }}</b><span>{{ q.label }}</span></a>
+      {% empty %}<span class="dz-pin"><span class="dz-pin-ico"><i data-lucide="check"></i></span><span>Không có việc chờ bạn</span></span>{% endfor %}
+    </div>
+  </div>
 </section>
 
-{# STT 81: 6 KPI dự án – cùng hàm & cùng kỳ với trang Báo cáo #}
-<div class="grid g-3 kpi-grid" style="margin-bottom:20px">
-  {% for k in kpis %}{% include "partials/kpi_tile.html" %}{% endfor %}
+<div class="dz-grid">
+  {# ===== Cột 1: Khối lượng đơn hàng + 6 thẻ KPI nhỏ ===== #}
+  <div class="dz-col">
+    <section class="dz-card dz-volume">
+      <div class="dz-head"><span class="dz-title"><span class="dz-ico"><i data-lucide="trending-up"></i></span>Khối lượng đơn hàng</span>
+        <span class="text-muted" style="font-size:12px">26 tuần · tấn</span></div>
+      <div class="dz-volume-chart"><canvas id="ch-volume" aria-label="Khối lượng đơn đã xác nhận theo tuần"></canvas></div>
+      <div class="dz-volume-nums">
+        <div><div class="dz-big">{{ volume.period_ton|floatformat:0 }}<small> tấn</small></div><div class="text-muted">Đơn xác nhận kỳ này</div></div>
+        <div><div class="dz-big">{% if volume.success_pct is None %}—{% else %}{{ volume.success_pct|floatformat:0 }}%{% endif %}</div><div class="text-muted">Giao thành công ({{ volume.stops }} điểm)</div></div>
+      </div>
+    </section>
+    <div class="dz-mini-grid">
+      {% for k in kpis %}
+      <a {% if k.url %}href="{{ k.url }}"{% endif %} class="dz-card dz-mini" title="{{ k.label }} · kỳ {{ k.period }} · mục tiêu {% if k.higher %}≥{% else %}≤{% endif %} {{ k.target }}{{ k.unit }}">
+        <div class="dz-mini-label"><span class="kt-code">{{ k.code }}</span><br>{{ k.label }}</div>
+        <div class="dz-mini-row">
+          <div class="dz-mini-val">{% if k.value is None %}—{% else %}{{ k.value|floatformat:1 }}<small>{{ k.unit }}</small>{% endif %}</div>
+          {% with pts=k.spark|sparkline %}{% if pts %}<svg class="dz-mini-spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ pts }}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>{% endif %}{% endwith %}
+        </div>
+        <div class="dz-mini-foot">
+          {% if k.ok is None %}<span class="dz-chip gray">Chưa có dữ liệu</span>{% elif k.ok %}<span class="dz-chip good">Đạt mục tiêu</span>{% else %}<span class="dz-chip bad">Chưa đạt · mục tiêu {{ k.target }}{{ k.unit }}</span>{% endif %}
+          {% if k.delta is not None %}<span class="kt-delta {% if k.better %}good{% elif k.better is False %}bad{% endif %}">{% if k.delta > 0 %}▲{% elif k.delta < 0 %}▼{% else %}■{% endif %} {{ k.delta|floatformat:1|cut:"-" }}</span>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ===== Cột 2: Đội xe ===== #}
+  <section class="dz-card dz-fleet">
+    <div class="dz-head"><span class="dz-title"><span class="dz-ico"><i data-lucide="truck"></i></span>Đội xe</span>
+      <span class="text-muted">{{ fleet.total }} xe</span></div>
+    <div class="dz-stats">
+      <div class="dz-stat"><b>{{ fleet.out_now }}</b><span>Đang giao</span></div>
+      <div class="dz-stat"><b>{{ fleet.in_now }}</b><span>Xe đang về</span></div>
+      <div class="dz-stat"><b>{{ fleet.today }}</b><span>Chuyến giao hôm nay</span></div>
+    </div>
+    <div class="dz-truck">{% include "core/_truck.svg" %}</div>
+    {% if fleet.trip %}
+    <div class="dz-truck-cap">{{ fleet.trip.plate }} · <span class="text-primary">{{ fleet.trip.status }}</span> <span class="text-muted">· {{ fleet.trip.kind }} {{ fleet.trip.code }}</span></div>
+    <div class="dz-driver">
+      <span class="dz-avatar">{{ fleet.trip.initials }}</span>
+      <div style="flex:1;min-width:0"><b>{{ fleet.trip.driver }}</b><div class="text-muted" style="font-size:12px">Tài xế</div></div>
+      <a class="dz-round sm" href="{{ fleet.trip.url }}" title="Xem chuyến"><i data-lucide="map-pin"></i></a>
+      {% if fleet.trip.phone %}<a class="dz-round sm" href="tel:{{ fleet.trip.phone }}" title="Gọi {{ fleet.trip.phone }}"><i data-lucide="phone"></i></a>{% endif %}
+      {% if links|get_item:"/app/fulfillment/planning" %}<a class="dz-round sm" href="/app/fulfillment/planning" title="Kế hoạch giao"><i data-lucide="route"></i></a>{% endif %}
+    </div>
+    {% else %}<div class="dz-truck-cap text-muted">Hiện không có chuyến nào đang chạy.</div>{% endif %}
+  </section>
+
+  {# ===== Cột 3: Mới nhất + Doanh thu ===== #}
+  <div class="dz-col">
+    {% if latest %}
+    <section class="dz-card dz-latest">
+      <div class="dz-head"><span class="dz-title"><span class="dz-ico"><i data-lucide="package"></i></span>{{ latest.title }}</span>
+        <a href="{{ latest.all_url }}" class="text-muted dz-all">Xem tất cả</a></div>
+      <div class="dz-latest-body">
+        <a href="{{ latest.url }}" class="dz-latest-code"><b>{{ latest.code }}</b><span class="dz-chip orange">{{ latest.status }}</span></a>
+        <div class="text-muted" style="font-size:13px">{{ latest.line1 }}<br>{{ latest.line2 }}</div>
+        <div class="dz-progress" title="{{ latest.steps|join:' → ' }}"><span style="width:{{ latest.pct|floatformat:0 }}%"></span><i style="left:{{ latest.pct|floatformat:0 }}%"></i></div>
+        <div class="dz-steps">{% for s in latest.steps %}<span class="{% if forloop.counter0 <= latest.step %}on{% endif %}">{{ s }}</span>{% endfor %}</div>
+      </div>
+      <a href="{{ latest.url }}" class="dz-latest-thumb">{% if hero_url %}<img src="{{ hero_url }}" alt="">{% endif %}<span class="dz-thumb-pin"><i data-lucide="map-pin"></i></span></a>
+    </section>
+    {% endif %}
+    <section class="dz-card dz-sales">
+      <div class="dz-head"><span class="dz-title"><span class="dz-ico"><i data-lucide="{% if sales.money %}badge-dollar-sign{% else %}package-check{% endif %}"></i></span>{{ sales.title }}</span>
+        <span class="dz-range"><i data-lucide="calendar"></i>{{ period_text }}</span></div>
+      <div class="dz-sales-num">
+        <span class="dz-hero-num">{% if sales.money %}{{ sales.value|vnd }}{% else %}{{ sales.value|floatformat:1 }} tấn{% endif %}</span>
+        {% if sales.growth is not None %}<span class="dz-chip {% if sales.growth >= 0 %}good{% else %}bad{% endif %}" title="So với kỳ trước cùng độ dài">{% if sales.growth >= 0 %}+{% endif %}{{ sales.growth|floatformat:1 }}%</span>{% endif %}
+      </div>
+      <div class="dz-bars" role="img" aria-label="{{ sales.title }} theo tuần, {{ sales.range }}">
+        {% for b in sales.bars %}<span class="dz-bar{% if b.on %} on{% endif %}" style="height:{{ b.h|floatformat:1 }}%" title="Tuần {{ b.label }}: {{ b.v_text }}"></span>{% endfor %}
+      </div>
+      <div class="dz-bars-axis">{% for t in sales.ticks %}<span>{{ t }}</span>{% endfor %}</div>
+      <div class="text-muted" style="font-size:12px;margin-top:6px">{% if sales.money %}Doanh thu hóa đơn bán (chưa VAT){% else %}Khối lượng nhập kho{% endif %} theo tuần · cột cam = tuần thuộc kỳ đang xem{% if links|get_item:sales.url %} · <a class="text-primary" href="{{ sales.url }}">chi tiết</a>{% endif %}</div>
+      <details class="table-view"><summary>Xem dạng bảng</summary><table class="tbl"><thead><tr><th>Tuần</th><th class="num">{{ sales.title }}</th></tr></thead>
+        <tbody>{% for b in sales.bars %}<tr><td>{{ b.label }}</td><td class="num">{{ b.v_text }}</td></tr>{% endfor %}</tbody></table></details>
+    </section>
+  </div>
 </div>
 
-<div class="dash-grid">
-  {% if stock %}{# STT 82 #}
+{# ===== Phân tích chi tiết theo vai trò ===== #}
+<div class="dash-grid" style="margin-top:20px">
+  {% if stock %}
   <section class="card dash-card">
     <div class="card-head"><div><h3 class="card-title">Sức khỏe tồn kho</h3>
       <div class="text-muted" style="font-size:12px">{{ stock.n_risk }}/{{ stock.n }} mã dưới ROP · giá trị tồn {{ stock.stock_value|money_short }} ₫ · hiện tại</div></div>
@@ -45,7 +135,7 @@
   </section>
   {% endif %}
 
-  {% if aging %}{# STT 83 #}
+  {% if aging %}
   <section class="card dash-card">
     <div class="card-head"><div><h3 class="card-title">Công nợ phải thu theo tuổi nợ</h3>
       <div class="text-muted" style="font-size:12px">Tổng phải thu {{ aging.total|money_short }} ₫ · hiện tại</div></div>
@@ -66,7 +156,7 @@
   </section>
   {% endif %}
 
-  {% if demand %}{# STT 84 #}
+  {% if demand %}
   <section class="card dash-card dash-wide" x-data="{unit: '{{ demand_unit }}'}">
     <div class="card-head"><div><h3 class="card-title">Nhu cầu & doanh thu 12 tháng</h3>
       <div class="text-muted" style="font-size:12px">Cột = đơn đã xác nhận theo tháng · đường nét đứt = dự báo (module dự báo nhu cầu){% if revenue %} · doanh thu hóa đơn kỳ {{ period_text }}: <b>{{ revenue|money_short }} ₫</b>{% endif %}</div></div>
@@ -81,7 +171,7 @@
   </section>
   {% endif %}
 
-  {% if arrivals %}{# STT 85 #}
+  {% if arrivals %}
   <section class="card dash-card dash-wide">
     <div class="card-head"><div><h3 class="card-title">Hàng về hôm nay – mai</h3>
       <div class="text-muted" style="font-size:12px">Mỗi dòng một bến · thanh = chuyến theo lịch hạ tải / ETA · {{ arrivals.rows|length }} chuyến</div></div>
@@ -104,7 +194,7 @@
   </section>
   {% endif %}
 
-  {% if trends %}{# STT 85: xu hướng theo tuần, có vạch mục tiêu – mỗi biểu đồ một trục #}
+  {% if trends %}
   <section class="card dash-card">
     <div class="card-head"><div><h3 class="card-title">OTIF theo tuần</h3><div class="text-muted" style="font-size:12px">12 tuần tới {{ d_to|vn_d }} · mục tiêu 95%</div></div>
       {% if links|get_item:"/app/reports/otif" %}<a href="/app/reports/otif?{{ pq }}" class="btn btn-soft btn-sm">Báo cáo OTIF</a>{% endif %}</div>
@@ -120,7 +210,7 @@
   </section>
   {% endif %}
 
-  {% if "alerts" in blocks %}{# STT 86 #}
+  {% if "alerts" in blocks %}
   <section class="card dash-card">
     <div class="card-head"><h3 class="card-title">Cảnh báo theo loại</h3><a href="/app/alerts" class="btn btn-soft btn-sm">Tất cả cảnh báo</a></div>
     <div class="card-body"><div class="alert-groups">
@@ -136,6 +226,17 @@
   const DD = JSON.parse(document.getElementById("dash-data").textContent);
   const ACTUAL = TONE.primary, FORECAST = "#3F7FD0";  // cặp màu đã kiểm định (validate_palette) trên nền thẻ
   const axis = { grid: { color: TONE.line }, border: { display: false }, ticks: { color: TONE.muted } };
+  // Khối lượng đơn hàng: đường cam 2px + nền cam ~10% (một chuỗi – tiêu đề đã nói chuỗi gì)
+  if (DD.volume) {
+    new Chart(document.getElementById("ch-volume"), { type: "line",
+      data: { labels: DD.volume.labels, datasets: [{ label: "Tấn / tuần", data: DD.volume.values, borderColor: ACTUAL, borderWidth: 2,
+        backgroundColor: "rgba(230,95,43,.10)", fill: "start", tension: .25, pointRadius: 0, pointHoverRadius: 5,
+        pointHoverBackgroundColor: ACTUAL, pointHoverBorderColor: "#F2EAE5", pointHoverBorderWidth: 2 }] },
+      options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        layout: { padding: { top: 8 } },
+        plugins: { legend: { display: false }, tooltip: { callbacks: { title: i => "Tuần " + i[0].label, label: c => `${c.raw.toLocaleString("vi-VN")} tấn` } } },
+        scales: { x: { display: false }, y: { display: false, beginAtZero: true } } } });
+  }
   let demandChart = null;
   function dashDemand(unit) {
     if (!DD.demand) return;

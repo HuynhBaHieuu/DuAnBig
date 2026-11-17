@@ -125,3 +125,26 @@ class DashboardTest(tf.Base):
         ag = self.client_for(acc).get("/app/dashboard").context["aging"]
         row = ag["rows"][0]
         self.assertEqual((row["bands"]["current"], row["bands"]["d60"], row["blocked"]), (50.0, 100.0, True))
+
+    def test_template_layout_and_hero_image(self):
+        """Dashboard theo mẫu: hero ảnh doanh nghiệp (chỉ Giám đốc/Admin đổi), đội xe, đơn mới nhất, doanh thu."""
+        import io
+        from django.core.files.storage import default_storage
+        from PIL import Image
+        from apps.core.models import SystemParam
+        c = self.client_for(self.director)
+        html = c.get("/app/dashboard").content.decode()
+        for cls in ("dz-hero", "dz-volume", "dz-fleet", "dz-sales"):
+            self.assertIn(cls, html)
+        self.assertNotIn("has-photo", html)                                 # chưa có ảnh -> hình minh họa
+        b = io.BytesIO(); Image.new("RGB", (40, 20), (230, 95, 43)).save(b, "PNG"); b.seek(0); b.name = "hero.png"
+        self.assertEqual(c.post("/app/dashboard/hero", {"image": b}).status_code, 302)
+        name = SystemParam.objects.get(key="DASHBOARD_HERO_IMAGE").value
+        try:
+            self.assertIn("has-photo", c.get("/app/dashboard").content.decode())
+            self.assertEqual(self.client_for(self.purchaser).post("/app/dashboard/hero", {"op": "reset"}).status_code, 403)
+            c.post("/app/dashboard/hero", {"op": "reset"})
+            self.assertFalse(SystemParam.objects.filter(key="DASHBOARD_HERO_IMAGE").exists())
+        finally:
+            if default_storage.exists(name):
+                default_storage.delete(name)

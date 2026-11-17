@@ -15,6 +15,7 @@ from apps.sales import views as sal
 
 app_patterns = [
     path("dashboard", core.dashboard),                                     # MH-03
+    path("dashboard/hero", core.dashboard_hero),                           # ảnh doanh nghiệp đầu Dashboard
     path("alerts", core.alerts),
     path("alerts/<int:pk>/resolve", core.alert_resolve),
     path("search", core.search),

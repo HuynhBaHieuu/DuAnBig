@@ -1,0 +1,51 @@
+<svg class="dz-hero-img" viewBox="0 0 1600 420" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Kho bãi TRACON 80 (hình minh họa – Giám đốc có thể thay bằng ảnh thật của doanh nghiệp)" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="hz-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#060606"/><stop offset=".72" stop-color="#1A120D"/><stop offset="1" stop-color="#2A1A11"/></linearGradient>
+    <radialGradient id="hz-sun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#E65F2B" stop-opacity=".95"/><stop offset=".6" stop-color="#E65F2B" stop-opacity=".35"/><stop offset="1" stop-color="#E65F2B" stop-opacity="0"/></radialGradient>
+    <linearGradient id="hz-silo" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2B2522"/><stop offset=".55" stop-color="#3A322D"/><stop offset="1" stop-color="#1E1A18"/></linearGradient>
+    <pattern id="hz-dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.2" fill="#E65F2B" opacity=".18"/></pattern>
+  </defs>
+  <rect width="1600" height="420" fill="url(#hz-sky)"/>
+  <rect width="1600" height="420" fill="url(#hz-dots)"/>
+  <circle cx="1230" cy="150" r="230" fill="url(#hz-sun)"/>
+  <circle cx="1230" cy="150" r="92" fill="#E65F2B"/>
+  <!-- dãy nhà xa -->
+  <path d="M0 300 L0 250 L60 250 L60 230 L130 230 L130 260 L210 260 L210 220 L260 220 L260 245 L340 245 L340 270 L420 270 L420 238 L470 238 L470 262 L560 262 L560 300 Z" fill="#141010"/>
+  <path d="M980 300 L980 262 L1040 262 L1040 236 L1110 236 L1110 258 L1180 258 L1180 226 L1220 226 L1220 250 L1330 250 L1330 232 L1400 232 L1400 260 L1480 260 L1480 240 L1600 240 L1600 300 Z" fill="#141010"/>
+  <!-- silo xi măng + băng tải -->
+  <g transform="translate(150 96)">
+    <rect x="0" y="40" width="74" height="190" rx="6" fill="url(#hz-silo)"/><ellipse cx="37" cy="40" rx="37" ry="12" fill="#3F3631"/>
+    <rect x="90" y="20" width="74" height="210" rx="6" fill="url(#hz-silo)"/><ellipse cx="127" cy="20" rx="37" ry="12" fill="#3F3631"/>
+    <rect x="180" y="58" width="64" height="172" rx="6" fill="url(#hz-silo)"/><ellipse cx="212" cy="58" rx="32" ry="10" fill="#3F3631"/>
+    <rect x="0" y="120" width="74" height="10" fill="#E65F2B"/><rect x="90" y="110" width="74" height="10" fill="#E65F2B"/><rect x="180" y="130" width="64" height="10" fill="#E65F2B"/>
+    <path d="M244 92 L420 -10" stroke="#3A322D" stroke-width="12" stroke-linecap="round"/>
+    <path d="M244 92 L420 -10" stroke="#E65F2B" stroke-width="2" stroke-dasharray="10 14"/>
+    <rect x="60" y="0" width="12" height="44" fill="#2B2522"/><rect x="150" y="-24" width="12" height="44" fill="#2B2522"/>
+  </g>
+  <!-- nhà kho mái răng cưa -->
+  <g transform="translate(560 150)">
+    <path d="M0 150 L0 40 L80 0 L80 40 L160 0 L160 40 L240 0 L240 40 L320 0 L320 40 L400 0 L400 150 Z" fill="#221B17"/>
+    <path d="M0 40 L80 0 M80 40 L160 0 M160 40 L240 0 M240 40 L320 0 M320 40 L400 0" stroke="#E65F2B" stroke-width="3"/>
+    <rect x="28" y="70" width="70" height="80" rx="3" fill="#E65F2B"/><rect x="118" y="70" width="70" height="80" rx="3" fill="#E65F2B" opacity=".85"/>
+    <rect x="208" y="70" width="70" height="80" rx="3" fill="#3A322D"/><rect x="298" y="70" width="70" height="80" rx="3" fill="#E65F2B" opacity=".7"/>
+    <g stroke="#060606" stroke-opacity=".35" stroke-width="2"><path d="M28 86h70M28 102h70M28 118h70M28 134h70M118 86h70M118 102h70M118 118h70M118 134h70M298 86h70M298 102h70M298 118h70M298 134h70"/></g>
+    <text x="200" y="58" text-anchor="middle" font-family="Inter, sans-serif" font-size="20" font-weight="700" fill="#F2EAE5" letter-spacing="4">TRACON 80</text>
+  </g>
+  <!-- cần cẩu -->
+  <g stroke="#3A322D" stroke-width="6" fill="none"><path d="M1060 300 V110 M1060 110 H1250 M1060 140 L1110 110 M1250 110 V160"/></g>
+  <rect x="1236" y="160" width="28" height="22" fill="#E65F2B"/>
+  <!-- mặt đất + đường -->
+  <rect x="0" y="300" width="1600" height="120" fill="#0E0B09"/>
+  <path d="M0 352 H1600" stroke="#F2EAE5" stroke-opacity=".25" stroke-width="3" stroke-dasharray="36 28"/>
+  <!-- xe tải -->
+  <g transform="translate(300 300)">
+    <rect x="0" y="-62" width="150" height="62" rx="6" fill="#F2EAE5"/><rect x="0" y="-22" width="150" height="6" fill="#E65F2B"/>
+    <path d="M152 -48 H190 L214 -24 V0 H152 Z" fill="#E65F2B"/><path d="M162 -42 H186 L202 -26 H162 Z" fill="#1A120D"/>
+    <circle cx="34" cy="2" r="13" fill="#060606" stroke="#3A322D" stroke-width="4"/><circle cx="118" cy="2" r="13" fill="#060606" stroke="#3A322D" stroke-width="4"/><circle cx="188" cy="2" r="13" fill="#060606" stroke="#3A322D" stroke-width="4"/>
+  </g>
+  <g transform="translate(1280 300) scale(.8)">
+    <rect x="0" y="-62" width="150" height="62" rx="6" fill="#2B2522"/><rect x="0" y="-22" width="150" height="6" fill="#E65F2B"/>
+    <path d="M152 -48 H190 L214 -24 V0 H152 Z" fill="#F2EAE5"/><path d="M162 -42 H186 L202 -26 H162 Z" fill="#1A120D"/>
+    <circle cx="34" cy="2" r="13" fill="#060606" stroke="#3A322D" stroke-width="4"/><circle cx="118" cy="2" r="13" fill="#060606" stroke="#3A322D" stroke-width="4"/><circle cx="188" cy="2" r="13" fill="#060606" stroke="#3A322D" stroke-width="4"/>
+  </g>
+</svg>

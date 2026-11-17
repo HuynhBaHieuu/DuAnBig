@@ -317,3 +317,149 @@ def alert_groups(user):
     rows = list(alerts_for(user).values("alert_type").annotate(n=Count("id")).order_by("-n"))
     return [{"type": r["alert_type"], "label": ALERT_LABELS.get(r["alert_type"], r["alert_type"]), "n": r["n"],
              "url": f"/app/alerts?type={r['alert_type']}"} for r in rows]
+
+
+# ================================================================== Bố cục mới (theo mẫu ArgoLogics, tông cam – đen)
+def _weeks_back(d_to, n):
+    """n tuần (thứ Hai) kết thúc ở tuần chứa d_to."""
+    from apps.inventory.forecast import monday
+    last = monday(d_to)
+    return [last - timedelta(days=7 * k) for k in range(n - 1, -1, -1)]
+
+
+def volume(d_from, d_to, weeks=26):
+    """Khối "Khối lượng đơn hàng": đường nhu cầu theo tuần (tấn, đơn đã xác nhận theo ngày đặt) + 2 số lớn của kỳ:
+    tấn đã xác nhận và tỷ lệ giao thành công (điểm giao Đã giao / Giao một phần trên tổng điểm giao đã xử lý)."""
+    from django.db.models.functions import Coalesce
+
+    from apps.inventory.forecast import monday
+    from apps.inventory.models import SimulatedDemand
+    from apps.inventory.services import ORDER_STATUSES
+    from apps.masterdata.models import Product
+    from apps.sales.models import DeliveryStop, SalesOrderLine
+
+    wk = _weeks_back(d_to, weeks)
+    start = timezone.make_aware(datetime.combine(min(wk[0], d_from), datetime.min.time()))
+    weight = {pk: (float(w) / 1000 if w else 1.0) for pk, w in Product.objects.values_list("pk", "unit_weight_kg")}
+    sim = SimulatedDemand.objects.values("product_id")
+    by_week, period_ton = defaultdict(float), 0.0
+    for pid, q, dt in SalesOrderLine.objects.filter(so__status__in=ORDER_STATUSES).exclude(product_id__in=sim) \
+            .annotate(dt=Coalesce("so__confirmed_at", "so__approved_at", "so__created_at")) \
+            .filter(dt__gte=start).values_list("product_id", "qty", "dt"):
+        d = timezone.localtime(dt).date()
+        t = float(q) * weight.get(pid, 1.0)
+        by_week[monday(d)] += t
+        if d_from <= d <= d_to:
+            period_ton += t
+    stops = DeliveryStop.objects.filter(delivered_at__date__range=(d_from, d_to))
+    n = stops.count()
+    ok = stops.filter(status__in=["DELIVERED", "PARTIAL"]).count()
+    return {"labels": [f"{w:%d/%m}" for w in wk], "values": [round(by_week.get(w, 0.0), 1) for w in wk],
+            "period_ton": period_ton, "success_pct": (ok / n * 100) if n else None, "stops": n}
+
+
+def fleet(today=None):
+    """Khối "Đội xe": 3 ô số + 1 chuyến đang chạy nổi bật (xe, tài xế, liên hệ)."""
+    from apps.masterdata.models import Vehicle
+    from apps.purchasing.models import InboundTrip
+    from apps.sales.models import DeliveryTrip
+
+    today = today or timezone.localdate()
+    out_now = DeliveryTrip.objects.filter(status="IN_TRANSIT")
+    in_now = InboundTrip.objects.filter(status__in=["LOADED", "IN_TRANSIT", "ARRIVED"])
+    feat = out_now.select_related("vehicle", "driver").order_by("departed_at").first()
+    kind = "out"
+    if feat is None:
+        feat = DeliveryTrip.objects.filter(planned_date=today).exclude(status__in=["CANCELLED", "COMPLETED"]) \
+            .select_related("vehicle", "driver").first()
+    if feat is None:
+        feat, kind = in_now.select_related("vehicle", "driver", "po__supplier").order_by("eta").first(), "in"
+    trip = None
+    if feat is not None:
+        trip = {"code": feat.code, "plate": feat.vehicle.plate, "status": feat.get_status_display(),
+                "driver": feat.driver.name, "phone": feat.driver.phone,
+                "initials": "".join(w[0] for w in feat.driver.name.split()[-2:]).upper(),
+                "url": f"/app/inbound/trips/{feat.pk}" if kind == "in" else "/app/fulfillment/planning",
+                "kind": "Inbound" if kind == "in" else "Giao hàng"}
+    return {"total": Vehicle.objects.filter(is_active=True).count(), "out_now": out_now.count(), "in_now": in_now.count(),
+            "today": DeliveryTrip.objects.filter(planned_date=today).exclude(status="CANCELLED").count(), "trip": trip}
+
+
+SO_STEPS = ["Đã gửi", "Đã xác nhận", "Đang giao", "Đã giao"]
+IB_STEPS = [("Chờ bốc", ("PLANNED", "AT_FACTORY")), ("Đang về", ("LOADED", "IN_TRANSIT")),
+            ("Tới kho", ("ARRIVED", "UNLOADING")), ("Đã nhập", ("RECEIVED",))]
+
+
+def latest(user):
+    """Khối "mới nhất": đơn bán mới nhất (Giám đốc / Điều phối / Kế toán) hoặc chuyến Inbound mới nhất (Thu mua /
+    Thủ kho) – mã, trạng thái, địa chỉ, thanh tiến trình theo bước."""
+    from apps.purchasing.models import InboundTrip
+    from apps.sales.models import SalesOrder
+
+    if user.role in ("PURCHASER", "WAREHOUSE"):
+        t = InboundTrip.objects.exclude(status="CANCELLED").select_related("po__supplier", "po__warehouse", "vehicle") \
+            .order_by("-id").first()
+        if t is None:
+            return None
+        step = next((i for i, (_, sts) in enumerate(IB_STEPS) if t.status in sts), 0)
+        return {"title": "Chuyến Inbound mới nhất", "code": t.code, "status": t.get_status_display(),
+                "line1": t.po.supplier.name, "line2": f"Xe {t.vehicle.plate} · về {t.po.warehouse.name}",
+                "steps": [s for s, _ in IB_STEPS], "step": step, "pct": (step + 1) / len(IB_STEPS) * 100,
+                "url": f"/app/inbound/trips/{t.pk}", "all_url": "/app/inbound/board"}
+    so = SalesOrder.objects.exclude(status="CANCELLED").select_related("customer", "site").order_by("-id").first()
+    if so is None:
+        return None
+    _, _, reached = so.customer_status
+    return {"title": "Đơn bán mới nhất", "code": so.code, "status": so.get_status_display(),
+            "line1": so.customer.name, "line2": so.site.address or so.site.name, "steps": SO_STEPS,
+            "step": max(reached - 1, 0), "pct": max(reached, 1) / len(SO_STEPS) * 100,
+            "url": f"/app/sales/orders/{so.pk}", "all_url": "/app/sales/orders"}
+
+
+def sales_overview(user, d_from, d_to, weeks=26):
+    """Khối "Doanh thu": doanh thu hóa đơn bán (chưa VAT) của kỳ, % tăng / giảm so với kỳ trước cùng độ dài, cột theo
+    tuần (26 tuần gần nhất) – tuần thuộc kỳ đang xem tô màu nhấn. Vai trò không được xem giá (Thủ kho) thấy khối
+    lượng nhập kho theo tuần thay cho tiền."""
+    from apps.accounting.models import Invoice
+    from apps.inventory.forecast import monday
+    from apps.purchasing.models import GoodsReceiptLine
+
+    wk = _weeks_back(d_to, weeks)
+    span = (d_to - d_from).days + 1
+    p_to = d_from - timedelta(days=1)
+    p_from = p_to - timedelta(days=span - 1)
+    money = user.can_see_price
+    if money:
+        rows = Invoice.objects.filter(invoice_type="SALE", invoice_date__gte=min(wk[0], p_from)) \
+            .exclude(status__in=["DRAFT", "CANCELLED"]).values_list("invoice_date", "subtotal")
+        pts = [(d, float(v)) for d, v in rows]
+    else:
+        rows = GoodsReceiptLine.objects.filter(gr__status="POSTED", gr__posted_at__date__gte=min(wk[0], p_from)) \
+            .values_list("gr__posted_at", "qty_received", "product__unit_weight_kg")
+        pts = [(timezone.localtime(d).date(), float(q) * (float(w) / 1000 if w else 1.0)) for d, q, w in rows]
+    by_week = defaultdict(float)
+    cur = prev = 0.0
+    for d, v in pts:
+        by_week[monday(d)] += v
+        if d_from <= d <= d_to:
+            cur += v
+        elif p_from <= d <= p_to:
+            prev += v
+    bars = [{"label": f"{w:%d/%m}", "v": by_week.get(w, 0.0), "on": monday(d_from) <= w <= d_to} for w in wk]
+    top = max((b["v"] for b in bars), default=0) or 1
+    for b in bars:
+        b["h"] = b["v"] / top * 100
+        b["v_text"] = f"{b['v'] / 1e6:,.1f} triệu ₫" if money else f"{b['v']:,.1f} tấn"
+    return {"money": money, "value": cur, "prev": prev, "growth": ((cur - prev) / prev * 100) if prev else None,
+            "bars": bars, "ticks": [b["label"] for i, b in enumerate(bars) if i % 5 == 0],
+            "title": "Doanh thu" if money else "Nhập kho", "url": "/app/accounting/invoices" if money else
+            "/app/warehouse/receipts", "range": f"{wk[0]:%d/%m} – {d_to:%d/%m/%Y}"}
+
+
+def hero_image_url():
+    """Ảnh doanh nghiệp đầu Dashboard (Giám đốc / Admin tải lên) – None thì dùng hình minh họa mặc định."""
+    from django.core.files.storage import default_storage
+
+    from .models import SystemParam
+    row = SystemParam.objects.filter(key="DASHBOARD_HERO_IMAGE").first()
+    return default_storage.url(row.value) if row and row.value else None
