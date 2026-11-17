@@ -58,6 +58,20 @@ Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME
 python manage.py copy_to_db seed.sqlite3
 ```
 
+**Dữ liệu demo Kho Đà Nẵng (thay cho seed_demo):** ~26 tuần lịch sử theo quy trình mới, kết thúc ở trạng thái sẵn sàng
+cho kịch bản demo 18 bước. `load_demo` xóa chứng từ + danh mục trên database đích, **giữ tài khoản** (mật khẩu không đổi),
+dời ngày theo hôm nạp; chạy lại bao nhiêu lần cũng về cùng trạng thái (dùng sau mỗi lần diễn tập).
+
+```powershell
+# 1) Dựng file demo trên máy (không cần mạng, ~4 phút) – bỏ qua nếu đã có sẵn demo.sqlite3
+$env:USE_SQLITE="1"; $env:SQLITE_NAME="demo.sqlite3"; $env:SUPABASE_URL=""
+python manage.py migrate; python manage.py build_demo
+Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME, Env:SUPABASE_URL
+# 2) Nạp lên Supabase (sao lưu database trước; chạy sau 07:30 trong ngày)
+python manage.py migrate
+python manage.py load_demo demo.sqlite3 --yes
+```
+
 `vercel.json` đặt function ở region **dub1 (Dublin)** cho gần Supabase `eu-west-1`. Nếu project Supabase ở khu vực khác, đổi `regions` cho tương ứng (vd. Singapore `ap-southeast-1` → `sin1`).
 
 **2. Đẩy code lên GitHub**, rồi vào vercel.com → *Add New Project* → chọn repo. File `vercel.json` đã cấu hình sẵn.

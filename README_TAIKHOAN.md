@@ -4,7 +4,7 @@
 >
 > (Chú ý chữ **T** viết hoa, có ký tự **@**)
 
-Các tài khoản này được tạo khi chạy lệnh `python manage.py seed_demo`.
+Các tài khoản này được tạo khi chạy `python manage.py build_demo` (bộ dữ liệu Kho Đà Nẵng). `load_demo` giữ nguyên tài khoản đã có trên database, chỉ tạo thêm tài khoản còn thiếu.
 
 ---
 
@@ -34,7 +34,10 @@ Nếu dùng bản đã deploy lên Vercel thì thay `http://127.0.0.1:8000` bằ
 | 6 | `accountant` | `Tracon@123` | Lý Thị Kế | 💰 **Kế toán** | Hóa đơn, thu chi, công nợ | `/app/` |
 | 7 | `taixe` | `Tracon@123` | Nguyễn Văn An | 🚛 **Tài xế 1** | Bấm mốc hành trình, chụp ảnh, xác nhận giao hàng *(không thấy giá tiền)* | `/m/` |
 | 8 | `taixe2` | `Tracon@123` | Trần Văn Bình | 🚛 **Tài xế 2** | Giống tài xế 1 | `/m/` |
-| 9 | `khachhang` | `Tracon@123` | Anh Tuấn – Hưng Thịnh | 🏢 **Khách hàng** | Đặt hàng, xem đơn, xem công nợ của công trình Hưng Thịnh | `/portal/` |
+| 9 | `khachhang` | `Tracon@123` | Anh Tuấn – Sông Hàn | 🏢 **Khách hàng** | Đặt hàng, xem đơn, xem công nợ của 2 công trình Sông Hàn (KH-001) | `/portal/` |
+| 10 | `nhamay` | `Tracon@123` | Vicem Hoàng Mai | 🏭 **Nhà máy** | Xem PO của Vicem Hoàng Mai, bấm "Đã nhận đơn" | `/factory/` |
+| 11 | `nhamay_ns` | `Tracon@123` | Xi măng Nghi Sơn | 🏭 **Nhà máy** | Như trên, cho Xi măng Nghi Sơn | `/factory/` |
+| 12 | `nhamay_hs` | `Tracon@123` | Hoa Sen Home | 🏭 **Nhà máy** | Như trên, cho Hoa Sen Home | `/factory/` |
 
 ---
 
