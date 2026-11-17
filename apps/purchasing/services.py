@@ -856,7 +856,7 @@ def claim_action(claim, user, op, amount=None, note="", against=None):
     trên PO (lại thành "Đang về"). Bồi thường: lập chứng từ giảm trừ công nợ phải trả của NCC / nhà xe."""
     from apps.accounting.models import Bill
 
-    claim = Claim.objects.select_for_update().select_related("gr__po__supplier", "gr__trip__carrier").get(pk=claim.pk)
+    claim = Claim.objects.select_for_update(of=("self",)).select_related("gr__po__supplier", "gr__trip__carrier").get(pk=claim.pk)
     if op not in CLAIM_FLOW:
         raise BusinessError("Thao tác không hợp lệ.")
     if op in DIRECTOR_OPS and user.role not in ("DIRECTOR", "ADMIN"):

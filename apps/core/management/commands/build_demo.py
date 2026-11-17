@@ -822,8 +822,10 @@ class Command(BaseCommand):
                   self.arrive, trip.pk)
 
     def arrive(self, trip_id):
+        from apps.purchasing import services as ps
         from apps.purchasing.models import InboundTrip
-        InboundTrip.objects.filter(pk=trip_id).update(arrived_at=self.now)  # giờ xe tới cổng
+        self.as_user(self.u["warehouse"])
+        ps.gate_arrive(InboundTrip.objects.get(pk=trip_id))  # bấm "Xe tới cổng": ghi giờ tới cổng (STT 89)
         self.gate(trip_id, 0)
 
     def gate(self, trip_id, attempt):
@@ -967,8 +969,8 @@ class Command(BaseCommand):
             diff = D0
             if q.product.code == DEMO_CODE and self.today >= self.END_DAY - timedelta(days=5):
                 x = 1  # sát hôm demo: không điều chỉnh mã demo (giữ đúng 100 t)
-            if x < 0.12:  # ~1/2 lệch nhỏ (≤ 1%: đạt), ~1/2 lệch 1,2–3% (không đạt KPI-2)
-                pct = self.r.uniform(0.001, 0.008) if x < 0.06 else self.r.uniform(0.012, 0.03)
+            if x < 0.08:  # ~5% dòng lệch nhỏ (≤ 1%: đạt), ~3% dòng lệch 1,2–3% (không đạt KPI-2) -> KPI-2 quanh 97%
+                pct = self.r.uniform(0.001, 0.008) if x < 0.05 else self.r.uniform(0.012, 0.03)
                 step = Decimal("0.1") if q.product.base_uom.code == "TAN" else Decimal(1)
                 diff = max(step, (q.on_hand * Decimal(pct)).quantize(step)) * self.r.choice([-1, -1, 1])
                 if q.on_hand + diff < 0:
@@ -985,8 +987,12 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------ tác vụ nền
     def nightly(self):
+        from apps.inventory.models import ReplenishmentJobRun
         from apps.inventory.services import run_replenishment
-        run_replenishment(self.today)
+        self.now = self.T(self.today, 1, 0) + timedelta(minutes=self.r.randint(2, 40))  # Vercel Cron chạy trong khung 01:00–02:00
+        res = run_replenishment(self.today)
+        ReplenishmentJobRun.objects.filter(pk=res["run_id"]).update(
+            finished_at=self.now + timedelta(seconds=self.r.uniform(3, 9)))
 
     def unlock_params(self):
         from apps.inventory.models import ReplenishmentParam
@@ -1047,7 +1053,7 @@ class Command(BaseCommand):
 
     def finish(self):
         from apps.core.models import Alert, SystemParam
-        from apps.inventory.services import calc_param, run_replenishment
+        from apps.inventory.services import calc_param
         from apps.inventory.simulation import create_sim_product
         from apps.purchasing.models import GoodsReceipt
         self.now = self.END
@@ -1059,7 +1065,6 @@ class Command(BaseCommand):
         p = create_sim_product()
         calc_param(p)
         self.as_user(None)
-        run_replenishment(self.END_DAY)
         SystemParam.objects.update_or_create(key="DEMO_BUILD_DATE", defaults={
             "value": self.END_DAY.isoformat(), "description": "Ngày dựng dữ liệu demo (load_demo dời ngày theo mốc này)"})
 
