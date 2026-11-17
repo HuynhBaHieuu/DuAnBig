@@ -8,6 +8,22 @@ from django.utils.html import format_html
 register = template.Library()
 
 
+@register.filter
+def get_item_idx(seq, i):
+    """seq[i] – None nếu ngoài phạm vi."""
+    try:
+        return seq[int(i)]
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+@register.filter
+def sparkline(values):
+    """Toạ độ polyline SVG (viewBox 120×32) cho chuỗi 8 tuần của thẻ KPI – rỗng nếu < 2 điểm có dữ liệu."""
+    from apps.reports.kpi import sparkline_points
+    return sparkline_points(values or [])
+
+
 def _fmt(n, decimals=0):
     try:
         n = Decimal(n)

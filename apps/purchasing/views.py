@@ -120,6 +120,8 @@ def po_list(request):
     st = request.GET.get("status")
     if st:
         qs = qs.filter(status=st)
+    if request.GET.get("ack") == "pending":  # Dashboard: PO đã gửi mà nhà máy chưa bấm "Đã nhận đơn"
+        qs = qs.filter(status="SENT", supplier_ack_at__isnull=True)
     q = request.GET.get("q", "").strip()
     if q:
         qs = qs.filter(Q(code__icontains=q) | Q(supplier__name__icontains=q) | Q(supplier__code__icontains=q))

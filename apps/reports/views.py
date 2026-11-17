@@ -1,126 +1,42 @@
 """MH-70 → 76: 6 KPI dự án (KPI-5 đã bỏ), Dashboard ROP, Nhập–Xuất–Tồn, OTIF, Lead time, Thời gian chờ hạ tải."""
-import statistics
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Q, Sum
+from django.db.models import Sum
 from django.shortcuts import render
 from django.utils import timezone
 
 from apps.core.permissions import role_required
-from apps.core.services import param
 from apps.core.utils import excel_response
-from apps.inventory.models import InventoryCount, InventoryCountLine, StockMove, StockQuant
+from apps.inventory.models import StockMove
 from apps.inventory.services import stock_summary
 from apps.masterdata.models import Product
-from apps.purchasing.models import GoodsReceipt, InboundTrip, UnloadingSlot
-from apps.sales.models import DeliveryStop
+
+from .kpi import (PERIODS, count_accuracy, count_lines, kpi_cards, leadtime_data, otif_data, period_label,
+                  resolve_period, wait_data)
 
 REPORT_ROLES = ("DIRECTOR", "PURCHASER", "ACCOUNTANT", "DISPATCHER")
 D0 = Decimal(0)
 
 
 def _range(request, days=30):
+    """Kỳ báo cáo: có ?period / ?from&to (vd. bấm từ thẻ KPI trên Dashboard) -> đúng kỳ đó (resolve_period dùng chung);
+    không có -> mặc định `days` ngày gần nhất của từng báo cáo chi tiết."""
+    if request.GET.get("period") or (request.GET.get("from") and request.GET.get("to")):
+        d_from, d_to, _ = resolve_period(request)
+        return d_from, d_to
     today = timezone.localdate()
-    f = request.GET.get("from")
-    t = request.GET.get("to")
-    d_from = datetime.strptime(f, "%Y-%m-%d").date() if f else today - timedelta(days=days - 1)
-    d_to = datetime.strptime(t, "%Y-%m-%d").date() if t else today
-    return d_from, d_to
-
-
-OTIF_RULE = ("On-time: điểm giao có giao hàng (Đã giao / Giao một phần) và ngày giao ≤ ngày khách cần. "
-             "In-full: giao đủ số lượng trên xe. Điểm giao THẤT BẠI (khách vắng, từ chối…) tính là KHÔNG đúng hạn và "
-             "KHÔNG đủ; lần giao lại thành công được tính là một điểm giao riêng.")
-
-
-def otif_data(d_from, d_to):
-    stops = DeliveryStop.objects.filter(delivered_at__date__range=(d_from, d_to)).select_related("so__customer", "trip")
-    rows, ot, inf, both = [], 0, 0, 0
-    for s in stops:
-        delivered = s.status in ("DELIVERED", "PARTIAL")  # giao thất bại không bao giờ là "đúng hạn" (STT 46)
-        on_time = delivered and timezone.localtime(s.delivered_at).date() <= s.so.requested_date
-        in_full = s.status == "DELIVERED"
-        ot += on_time
-        inf += in_full
-        both += on_time and in_full
-        rows.append({"s": s, "on_time": on_time, "in_full": in_full})
-    n = len(rows)
-    pct = lambda x: (x / n * 100) if n else None  # noqa: E731
-    return {"rows": rows, "n": n, "ot": pct(ot), "if": pct(inf), "otif": pct(both), "rule": OTIF_RULE}
-
-
-def leadtime_data(d_from, d_to):
-    all_grs = GoodsReceipt.objects.filter(status="POSTED", posted_at__date__range=(d_from, d_to),
-                                          lead_time_days__isnull=False).select_related("po__supplier")
-    excluded = [g for g in all_grs if g.exclude_from_stats]
-    grs = [g for g in all_grs if not g.exclude_from_stats]
-    by_sup = defaultdict(list)
-    for g in grs:
-        by_sup[g.po.supplier].append(float(g.lead_time_days))
-    rows = [{"supplier": s, "n": len(v), "avg": statistics.fmean(v), "std": statistics.pstdev(v) if len(v) > 1 else 0,
-             "min": min(v), "max": max(v)} for s, v in by_sup.items()]
-    rows.sort(key=lambda r: -r["avg"])
-    allv = [x for v in by_sup.values() for x in v]
-    return {"rows": rows, "avg": statistics.fmean(allv) if allv else None, "grs": grs, "excluded": excluded}
-
-
-def wait_data(d_from, d_to):
-    slots = UnloadingSlot.objects.filter(checked_in_at__date__range=(d_from, d_to)).select_related("trip__vehicle", "dock", "trip__po__supplier")
-    rows = []
-    for s in slots:
-        w = s.wait_minutes
-        if w is not None:
-            unload = int((s.done_at - s.checked_in_at).total_seconds() // 60) if s.done_at else None
-            rows.append({"s": s, "wait": w, "unload": unload})
-    waits = [r["wait"] for r in rows]
-    return {"rows": rows, "avg": statistics.fmean(waits) if waits else None, "max": max(waits) if waits else None,
-            "over30": sum(1 for w in waits if w > 30)}
-
-
-def count_lines(d_from, d_to):
-    return list(InventoryCountLine.objects.filter(count__status="APPROVED", count__updated_at__date__range=(d_from, d_to),
-                                                  final_qty__isnull=False)
-                .select_related("count__warehouse", "product__base_uom", "location").order_by("-count_id", "location__code"))
-
-
-def count_accuracy(d_from, d_to):
-    lines = count_lines(d_from, d_to)
-    n = len(lines)
-    ok = sum(1 for l in lines if (l.variance_pct or 0) <= 1)
-    return (ok / n * 100) if n else None
+    return today - timedelta(days=days - 1), today
 
 
 @role_required(*REPORT_ROLES)
 def index(request):
-    d_from, d_to = _range(request)
-    otif = otif_data(d_from, d_to)
-    lt = leadtime_data(d_from, d_to)
-    wait = wait_data(d_from, d_to)
-    summ = stock_summary(list(Product.objects.filter(is_active=True, track_rop=True)))
-    stockout = (sum(1 for s in summ.values() if s["available"] <= 0) / len(summ) * 100) if summ else None
-    days = (d_to - d_from).days + 1
-    cogs = -(StockMove.objects.filter(move_type__in=["OUT_SALE", "OUT_INTERNAL"], at__date__range=(d_from, d_to))
-             .aggregate(s=Sum(models_qty_cost()))["s"] or D0)
-    stock_val = StockQuant.objects.aggregate(s=Sum(models_onhand_cost()))["s"] or D0
-    doi = (float(stock_val) / (float(cogs) / days)) if cogs else None
-    kpis = [
-        {"code": "KPI-1", "label": "OTIF (giao đúng hạn & đủ)", "value": otif["otif"], "unit": "%", "target": 95, "higher": True, "url": "/app/reports/otif"},
-        {"code": "KPI-2", "label": "Độ chính xác tồn kho (kiểm kê)", "value": count_accuracy(d_from, d_to), "unit": "%", "target": 98, "higher": True, "url": "/app/reports/count-accuracy"},
-        {"code": "KPI-3", "label": "Lead time Inbound TB", "value": lt["avg"], "unit": " ngày", "target": 3, "higher": False, "url": "/app/reports/leadtime"},
-        {"code": "KPI-4", "label": "Thời gian chờ hạ tải TB", "value": wait["avg"], "unit": " phút", "target": 30, "higher": False, "url": "/app/reports/unloading"},
-        # KPI-5 (mốc hành trình đúng giờ) đã bỏ – STT 73: không dẫn tới hành động nào sau khi rút mốc còn 2
-        {"code": "KPI-6", "label": "Tỷ lệ mã hàng hết hàng", "value": stockout, "unit": "%", "target": 2, "higher": False, "url": "/app/reports/rop"},
-        {"code": "KPI-7", "label": "Số ngày tồn kho (DOI)", "value": doi, "unit": " ngày", "target": 30, "higher": False, "url": "/app/reports/nxt"},
-    ]
-    from apps.core.permissions import can_open
-    for k in kpis:
-        if not can_open(request.user, k["url"]):
-            k["url"] = None  # vai trò không có quyền mở trang chi tiết -> thẻ KPI không có link
-        v = k["value"]
-        k["ok"] = None if v is None else (v >= k["target"] if k["higher"] else v <= k["target"])
-    return render(request, "reports/index.html", {"title": "Báo cáo KPI dự án", "kpis": kpis, "d_from": d_from, "d_to": d_to})
+    """6 KPI dự án – cùng hàm (kpi.kpi_cards) và cùng kỳ mặc định (tháng này) với Dashboard (test Gà STT 79)."""
+    d_from, d_to, key = resolve_period(request)
+    return render(request, "reports/index.html", {"title": "Báo cáo KPI dự án", "kpis": kpi_cards(d_from, d_to, request.user),
+                                                  "d_from": d_from, "d_to": d_to, "period": key, "periods": PERIODS,
+                                                  "period_text": period_label(d_from, d_to)})
 
 
 def models_qty_cost():

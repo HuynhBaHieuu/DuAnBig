@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, Sum, When
+from django.db.models import Case, IntegerField, Q, When
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -570,7 +570,13 @@ def counts(request):
                                                   book_qty=qt.on_hand)
         messages.success(request, f"Đã tạo phiếu kiểm kê {ic.code}.")
         return redirect(f"/app/inventory/counts/{ic.pk}")
-    page, qs_str = paginate(request, InventoryCount.objects.select_related("warehouse", "created_by"))
+    qs = InventoryCount.objects.select_related("warehouse", "created_by")
+    st = request.GET.get("status")
+    if st == "OPEN":  # Dashboard: phiếu đang dở (Đang đếm / Đếm lại)
+        qs = qs.filter(status__in=["COUNTING", "RECOUNT"])
+    elif st:
+        qs = qs.filter(status=st)
+    page, qs_str = paginate(request, qs)
     return render(request, "inventory/counts.html", {"title": "Kiểm kê", "page_obj": page, "qs": qs_str,
                                                      "warehouses": Warehouse.objects.filter(is_active=True)})
 

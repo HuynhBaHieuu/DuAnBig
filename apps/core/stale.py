@@ -80,8 +80,17 @@ def scan_stale(now=None):
 
     h = float(param("PO_ACK_HOURS") or 4)
     stale = {}
-    for po in PurchaseOrder.objects.filter(status="SENT", supplier_ack_at__isnull=True,
-                                           sent_at__lt=now - timedelta(hours=h)).select_related("supplier"):
+    # STT 86: chỉ cảnh báo PO mà nhà máy CÓ THỂ xác nhận: NCC đã có tài khoản nhà máy, PO gửi SAU khi tài khoản đó
+    # được tạo, và chưa có hàng về / nhập kho (đã có chuyến hay phiếu nhập thì rõ ràng nhà máy đã nhận đơn).
+    from apps.core.models import User
+    from django.db.models import Min
+    factory_since = dict(User.objects.filter(role="SUPPLIER", supplier__isnull=False, is_active=True)
+                         .values_list("supplier_id").annotate(t=Min("date_joined")))
+    for po in PurchaseOrder.objects.filter(status="SENT", supplier_ack_at__isnull=True, supplier_id__in=list(factory_since),
+                                           sent_at__lt=now - timedelta(hours=h)) \
+            .exclude(trips__isnull=False).exclude(receipts__isnull=False).select_related("supplier").distinct():
+        if po.sent_at < factory_since[po.supplier_id]:
+            continue
         stale[po.pk] = (f"{po.code}: nhà máy chưa xác nhận nhận đơn",
                         f"Gửi {po.supplier.name} lúc {timezone.localtime(po.sent_at):%d/%m %H:%M} ({_dur(mins(po.sent_at))}) "
                         "– gọi điện cho nhà máy.", f"/app/purchase/orders/{po.pk}", "PURCHASER")

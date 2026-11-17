@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from django import forms
@@ -6,8 +6,7 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
-from django.db.models import Count, F, Q, Sum
-from django.db.models.functions import TruncDate, TruncMonth
+from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -82,263 +81,80 @@ def profile(request):
     return render(request, "core/profile.html", {"form": form, "title": "Tài khoản của tôi"})
 
 
-# ------------------------------------------------------------------ Dashboard (MH-03)
-def _month_start():
-    return timezone.localdate().replace(day=1)
-
-
-def _otif(since, until=None):
-    from apps.sales.models import DeliveryStop
-    stops = DeliveryStop.objects.filter(delivered_at__date__gte=since).select_related("so")
-    if until:
-        stops = stops.filter(delivered_at__date__lte=until)
-    total = ok = 0
-    for s in stops:
-        total += 1
-        on_time = timezone.localtime(s.delivered_at).date() <= s.so.requested_date
-        if on_time and s.status == "DELIVERED":
-            ok += 1
-    return (ok / total * 100) if total else None
-
-
-def _series_by_day(qs, field, value_expr, days=14):
-    start = timezone.localdate() - timedelta(days=days - 1)
-    data = {r["d"]: r["v"] for r in qs.filter(**{f"{field}__date__gte": start})
-            .annotate(d=TruncDate(field)).values("d").annotate(v=value_expr)}
-    labels, values = [], []
-    for i in range(days):
-        d = start + timedelta(days=i)
-        labels.append(d.strftime("%d/%m"))
-        values.append(float(data.get(d) or 0))
-    return labels, values
+# ------------------------------------------------------------------ Dashboard (MH-03) – test Gà STT 79–88
+# Khối hiển thị theo vai trò (STT 87). Mọi khối lấy dữ liệu từ apps/core/dashboard.py, KPI từ apps/reports/kpi.py
+# (dùng chung với trang Báo cáo). Một bộ chọn kỳ duy nhất cho cả trang (STT 88).
+DASH_BLOCKS = {
+    "DIRECTOR": ["stock", "aging", "demand", "arrivals", "trends", "alerts"],
+    "ADMIN": ["stock", "aging", "demand", "arrivals", "trends", "alerts"],
+    "PURCHASER": ["stock", "arrivals", "demand", "alerts"],
+    "WAREHOUSE": ["arrivals", "trends", "alerts"],
+    "DISPATCHER": ["trends", "demand", "alerts"],
+    "ACCOUNTANT": ["aging", "demand", "alerts"],
+}
+DEMAND_UNIT = {"ACCOUNTANT": "money"}  # mặc định xem theo tấn; kế toán mặc định theo tiền
 
 
 @login_required
 def dashboard(request):
-    from apps.accounting.models import Bill, Invoice
-    from apps.accounting.services import aging, invoiceable_lines
-    from apps.inventory.models import InventoryCount, StockMove, StockQuant
-    from apps.inventory.services import stock_summary
-    from apps.purchasing.models import GoodsReceipt, InboundTrip, PurchaseOrder, PurchaseRequisition, UnloadingSlot
-    from apps.sales.models import Allocation, DeliveryTrip, Picking, SalesOrder, SalesOrderLine, SalesReturn
-    from apps.sales.services import orders_waiting_delivery
-
+    from apps.accounting.models import Invoice
     from apps.purchasing.services import maybe_scan_inbound
+    from apps.reports.kpi import PERIODS, kpi_cards, period_label, period_qs, resolve_period
+
+    from . import dashboard as dash
+    from .permissions import can_open
     from .stale import maybe_scan_stale
+
     maybe_scan_inbound()
     maybe_scan_stale()
     u = request.user
     role = u.role
     today = timezone.localdate()
-    ms = _month_start()
-    # Bộ lọc tháng cho KPI (mặc định tháng hiện tại): ?month=YYYY-MM
-    sel_ms = ms
-    try:
-        y, m = map(int, (request.GET.get("month") or "").split("-"))
-        sel_ms = date(y, m, 1)
-    except (ValueError, TypeError):
-        pass
-    if sel_ms > ms:
-        sel_ms = ms
-    sel_me = (sel_ms + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    month_opts = []
-    d = ms
-    for _ in range(12):
-        month_opts.append({"v": d.strftime("%Y-%m"), "l": f"Tháng {d:%m/%Y}" + (" (hiện tại)" if d == ms else "")})
-        d = (d - timedelta(days=1)).replace(day=1)
-    is_cur = sel_ms == ms
-    mlabel = "tháng này" if is_cur else f"tháng {sel_ms:%m/%Y}"
-
-    def otif_kpi():
-        v = _otif(sel_ms, sel_me)
-        if v is None:
-            return {"label": f"OTIF {mlabel}", "value": "N/A", "icon": "target", "tone": "success",
-                    "foot": "Chưa có chuyến giao hoàn tất trong tháng"}
-        return {"label": f"OTIF {mlabel}", "value": f"{v:.1f}%", "icon": "target", "tone": "success",
-                "foot": "Giao đúng hạn & đủ"}
-    kpis, todos, charts = [], [], []
-
-    def todo(label, count, url, tone="primary", icon="circle-dot"):
-        if count:
-            todos.append({"label": label, "count": count, "url": url, "tone": tone, "icon": icon})
-
-    active_trips = InboundTrip.objects.exclude(status__in=["RECEIVED", "CANCELLED"])
-
-    if role in ("DIRECTOR", "ADMIN"):
-        # Doanh thu = hóa đơn bán đã ghi sổ (cùng điều kiện với biểu đồ 6 tháng để 2 số luôn khớp)
-        rev_qs = Invoice.objects.filter(invoice_type="SALE").exclude(status__in=["DRAFT", "CANCELLED"])
-        revenue = rev_qs.filter(invoice_date__gte=sel_ms, invoice_date__lte=sel_me)             .aggregate(s=Sum("subtotal"))["s"] or D0
-        n_inv = rev_qs.filter(invoice_date__gte=sel_ms, invoice_date__lte=sel_me).count()
-        stock_value = StockQuant.objects.aggregate(s=Sum(F("on_hand") * F("product__avg_cost")))["s"] or D0
-        ar = aging("AR")[1]["total"]
-        kpis = [
-            {"label": f"Doanh thu {mlabel}", "value": revenue, "fmt": "money", "icon": "badge-dollar-sign",
-             "tone": "primary", "foot": f"{sel_ms:%d/%m} – {min(sel_me, today):%d/%m/%Y} · {n_inv} hóa đơn"
-             if n_inv else "Chưa có hóa đơn bán ghi sổ trong tháng"},
-            {"label": "Giá trị tồn kho", "value": stock_value, "fmt": "money", "icon": "warehouse", "tone": "info",
-             "foot": "Theo giá vốn bình quân"},
-            otif_kpi(),
-            {"label": "Công nợ phải thu", "value": ar, "fmt": "money", "icon": "hand-coins", "tone": "warn",
-             "foot": "Tổng số dư"},
-        ]
-        todo("PO chờ duyệt (≥ 50 triệu)", PurchaseOrder.objects.filter(status="PENDING_APPROVAL").count(),
-             "/app/purchase/orders?status=PENDING_APPROVAL", "warn", "shopping-cart")
-        todo("SO vượt hạn mức / dưới giá sàn", SalesOrder.objects.filter(status="PENDING_APPROVAL").count(),
-             "/app/sales/orders?status=PENDING_APPROVAL", "warn", "receipt")
-        todo("Phân bổ thiếu hàng chờ duyệt", Allocation.objects.filter(status="PROPOSED").count(),
-             "/app/sales/allocations", "danger", "split")
-        todo("GRN lệch > 2% chờ duyệt", GoodsReceipt.objects.filter(status="PENDING_APPROVAL").count(),
-             "/app/warehouse/receipts?status=PENDING_APPROVAL", "danger", "package-check")
-        todo("Hóa đơn mua lệch 3 bên", Bill.objects.filter(status="MISMATCH").count(),
-             "/app/accounting/bills?status=MISMATCH", "danger", "file-check-2")
-        todo("Kiểm kê chờ duyệt", InventoryCount.objects.filter(status="PENDING_APPROVAL").count(),
-             "/app/inventory/counts", "warn", "clipboard-check")
-        # biểu đồ doanh thu 6 tháng
-        start6 = (ms - timedelta(days=150)).replace(day=1)
-        rev = {r["m"].strftime("%m/%Y") if hasattr(r["m"], "strftime") else str(r["m"]): float(r["v"] or 0)
-               for r in Invoice.objects.filter(invoice_type="SALE", invoice_date__gte=start6)
-               .exclude(status__in=["DRAFT", "CANCELLED"]).annotate(m=TruncMonth("invoice_date"))
-               .values("m").annotate(v=Sum("subtotal"))}
-        labels, d = [], start6
-        while d <= ms:
-            labels.append(d.strftime("%m/%Y"))
-            d = (d + timedelta(days=32)).replace(day=1)
-        charts.append({"id": "rev", "type": "bar", "title": "Doanh thu 6 tháng (triệu ₫)", "labels": labels,
-                       "datasets": [{"label": "Doanh thu", "data": [round(rev.get(l, 0) / 1e6, 1) for l in labels],
-                                     "color": "primary"}]})
-        by_status = dict(active_trips.values_list("status").annotate(n=Count("id")))
-        charts.append({"id": "trip", "type": "doughnut", "title": "Chuyến Inbound đang chạy",
-                       "labels": [dict(InboundTrip.STATUS)[k] for k in by_status],
-                       "datasets": [{"label": "Chuyến", "data": list(by_status.values())}]})
-
-    elif role == "PURCHASER":
-        summary = stock_summary()
-        below = [s for s in summary.values() if s["level"] != "OK" and s["product"].track_rop]
-        kpis = [
-            {"label": "PR chờ xử lý", "value": PurchaseRequisition.objects.filter(status="SUBMITTED").count(),
-             "icon": "file-plus-2", "tone": "primary"},
-            {"label": "PO đang mở", "value": PurchaseOrder.objects.filter(status__in=["APPROVED", "SENT", "PARTIAL"]).count(),
-             "icon": "shopping-cart", "tone": "info"},
-            {"label": "Chuyến Inbound đang chạy", "value": active_trips.count(), "icon": "truck", "tone": "warn"},
-            {"label": "Chuyến trễ mốc", "value": active_trips.filter(is_late=True, status__in=InboundTrip.ACTIVE).count(), "icon": "alarm-clock",
-             "tone": "danger"},
-        ]
-        todo("Đề xuất mua (PR) cần lập PO", PurchaseRequisition.objects.filter(status="SUBMITTED").count(),
-             "/app/purchase/requisitions?status=SUBMITTED", "primary", "file-plus-2")
-        todo("PO đã duyệt – chưa gửi NCC", PurchaseOrder.objects.filter(status="APPROVED").count(),
-             "/app/purchase/orders?status=APPROVED", "warn", "send")
-        todo("PO đã gửi – chưa xếp chuyến",
-             PurchaseOrder.objects.filter(status__in=["SENT", "PARTIAL"], lines__qty__gt=F("lines__qty_on_trips")).distinct().count(),
-             "/app/purchase/orders?status=SENT", "info", "truck")
-        todo("Chuyến trễ mốc hành trình", active_trips.filter(is_late=True, status__in=InboundTrip.ACTIVE).count(), "/app/inbound/board", "danger",
-             "alarm-clock")
-        todo("Vật tư chạm ROP / dưới SS", len(below), "/app/inventory/replenishment?level=low", "danger", "trending-down")
-        labels, values = _series_by_day(PurchaseOrder.objects.exclude(status__in=["DRAFT", "CANCELLED"]),
-                                        "created_at", Sum("total_amount"), 14)
-        charts.append({"id": "po", "type": "bar", "title": "Giá trị PO 14 ngày (triệu ₫)", "labels": labels,
-                       "datasets": [{"label": "PO", "data": [round(v / 1e6, 1) for v in values], "color": "primary"}]})
-        charts.append({"id": "lv", "type": "doughnut", "title": "Tình trạng tồn theo ROP",
-                       "labels": ["Bình thường", "Chạm ROP", "Dưới SS", "Hết hàng"],
-                       "datasets": [{"label": "SP", "data": [sum(1 for s in summary.values() if s["level"] == k)
-                                                             for k in ["OK", "BELOW_ROP", "BELOW_SS", "STOCKOUT"]]}]})
-
-    elif role == "DISPATCHER":
-        open_so = SalesOrder.objects.filter(status__in=["CONFIRMED", "PARTIAL", "PENDING_APPROVAL"])
-        short = SalesOrderLine.objects.filter(atp_status__in=["SHORT", "BACKORDER"],
-                                              so__status__in=["CONFIRMED", "PARTIAL"]).values("so").distinct().count()
-        kpis = [
-            {"label": "Đơn bán đang mở", "value": open_so.count(), "icon": "receipt", "tone": "primary"},
-            {"label": "Đơn thiếu hàng / backorder", "value": short, "icon": "package-x", "tone": "danger"},
-            {"label": "Chuyến giao hôm nay", "value": DeliveryTrip.objects.filter(planned_date=today).exclude(status="CANCELLED").count(),
-             "icon": "route", "tone": "warn"},
-            otif_kpi(),
-        ]
-        todo("Đơn chờ xếp chuyến giao", orders_waiting_delivery().count(), "/app/fulfillment/planning", "primary", "route")
-        todo("Đơn từ cổng khách hàng mới", SalesOrder.objects.filter(source="PORTAL", status="DRAFT").count(),
-             "/app/sales/orders?status=DRAFT", "info", "globe")
-        todo("Đơn có backorder", short, "/app/sales/orders?stock=short", "danger", "package-x")
-        todo("Chuyến chưa phát lệnh soạn", DeliveryTrip.objects.filter(status="PLANNED").count(),
-             "/app/fulfillment/planning", "warn", "clipboard-list")
-        labels, values = _series_by_day(SalesOrder.objects.exclude(status="CANCELLED"), "created_at", Count("id"), 14)
-        charts.append({"id": "so", "type": "line", "title": "Số đơn bán 14 ngày", "labels": labels,
-                       "datasets": [{"label": "Đơn", "data": values, "color": "primary"}]})
-        by = dict(open_so.values_list("status").annotate(n=Count("id")))
-        charts.append({"id": "sost", "type": "doughnut", "title": "Đơn đang mở theo trạng thái",
-                       "labels": [dict(SalesOrder.STATUS)[k] for k in by], "datasets": [{"label": "Đơn", "data": list(by.values())}]})
-
-    elif role == "WAREHOUSE":
-        slots_today = UnloadingSlot.objects.filter(start_at__date=today).exclude(status="CANCELLED")
-        kpis = [
-            {"label": "Lịch hạ tải hôm nay", "value": slots_today.count(), "icon": "calendar-clock", "tone": "primary"},
-            {"label": "Xe tới cổng chờ hạ", "value": InboundTrip.objects.filter(status="ARRIVED").count(),
-             "icon": "truck", "tone": "warn"},
-            {"label": "Lệnh soạn chờ", "value": Picking.objects.exclude(status="DONE").count(), "icon": "package-open",
-             "tone": "info"},
-            {"label": "Phiếu xuất chờ ghi sổ", "value": DeliveryTrip.objects.filter(status="READY").count(),
-             "icon": "package-minus", "tone": "success"},
-        ]
-        todo("Lịch hạ tải cần xác nhận", slots_today.filter(status="PROPOSED").count(), "/app/warehouse/slots", "primary",
-             "calendar-check")
-        todo("Xe tới cổng – cần check-in", InboundTrip.objects.filter(status="ARRIVED").count(), "/app/warehouse/slots",
-             "warn", "log-in")
-        todo("Phiếu nhập GRN nháp", GoodsReceipt.objects.filter(status="DRAFT").count(),
-             "/app/warehouse/receipts?status=DRAFT", "info", "package-check")
-        todo("Lệnh soạn hàng chờ thực hiện", Picking.objects.exclude(status="DONE").count(), "/app/fulfillment/picking",
-             "warn", "package-open")
-        todo("Hàng trả về chờ nhập lại", SalesReturn.objects.filter(status="DRAFT").count(), "/app/fulfillment/returns",
-             "danger", "undo-2")
-        todo("Phiếu kiểm kê đang đếm", InventoryCount.objects.filter(status__in=["COUNTING", "RECOUNT"]).count(),
-             "/app/inventory/counts", "primary", "clipboard-check")
-        l1, v_in = _series_by_day(StockMove.objects.filter(qty__gt=0, move_type__in=["IN_PURCHASE", "IN_RETURN"]), "at", Sum("qty"))
-        _, v_out = _series_by_day(StockMove.objects.filter(qty__lt=0, move_type__in=["OUT_SALE", "OUT_INTERNAL"]), "at", Sum("qty"))
-        charts.append({"id": "io", "type": "bar", "title": "Nhập / xuất 14 ngày (SL)", "labels": l1,
-                       "datasets": [{"label": "Nhập", "data": v_in, "color": "primary"},
-                                    {"label": "Xuất", "data": [abs(v) for v in v_out], "color": "warn"}]})
-
-    elif role == "ACCOUNTANT":
-        ar_rows, ar = aging("AR")
-        ap_rows, ap = aging("AP")
-        kpis = [
-            {"label": "Phải thu", "value": ar["total"], "fmt": "money", "icon": "hand-coins", "tone": "primary"},
-            {"label": "Phải trả", "value": ap["total"], "fmt": "money", "icon": "wallet", "tone": "info"},
-            {"label": "Phải thu quá hạn", "value": ar["total"] - ar["current"], "fmt": "money", "icon": "alarm-clock",
-             "tone": "danger"},
-            {"label": "Dòng giao chờ lập HĐ", "value": invoiceable_lines().count(), "icon": "file-text", "tone": "warn"},
-        ]
-        todo("Điểm giao B2B chờ lập hóa đơn", invoiceable_lines().values("stop").distinct().count(),
-             "/app/accounting/invoices/new", "primary", "file-plus")
-        todo("Hóa đơn bán nháp chờ ghi sổ", Invoice.objects.filter(status="DRAFT").count(),
-             "/app/accounting/invoices?status=DRAFT", "info", "file-text")
-        todo("Hóa đơn mua khớp – chờ ghi sổ", Bill.objects.filter(status__in=["MATCHED", "ACCEPTED"]).count(),
-             "/app/accounting/bills?status=MATCHED", "success", "file-check-2")
-        todo("Hóa đơn mua lệch 3 bên", Bill.objects.filter(status="MISMATCH").count(),
-             "/app/accounting/bills?status=MISMATCH", "danger", "alert-triangle")
-        todo("Hóa đơn bán đến hạn 7 ngày tới",
-             Invoice.objects.filter(status__in=["POSTED", "PARTIAL"], due_date__range=(today, today + timedelta(days=7))).count(),
-             "/app/accounting/debts", "warn", "calendar")
-        from apps.accounting.services import BUCKETS
-        charts.append({"id": "aging", "type": "bar", "title": "Tuổi nợ (triệu ₫)", "labels": [b[1] for b in BUCKETS],
-                       "datasets": [{"label": "Phải thu", "data": [round(float(ar[b]) / 1e6, 1) for b, _ in BUCKETS], "color": "primary"},
-                                    {"label": "Phải trả", "data": [round(float(ap[b]) / 1e6, 1) for b, _ in BUCKETS], "color": "warn"}]})
-
-    alerts = alerts_for(u)[:6]
-    return render(request, "core/dashboard.html", {
-        "title": "Dashboard", "kpis": kpis, "todos": todos, "charts": charts, "alerts": alerts, "today": today,
-        "month_opts": month_opts if role in ("DIRECTOR", "ADMIN", "DISPATCHER") else None,
-        "sel_month": sel_ms.strftime("%Y-%m"),
-        "recent_trips": active_trips.select_related("vehicle", "po__supplier").order_by("eta")[:5]
-        if role in ("ADMIN", "DIRECTOR", "PURCHASER", "WAREHOUSE") else None,
-    })
+    d_from, d_to, period = resolve_period(request)
+    blocks = DASH_BLOCKS.get(role, ["alerts"])
+    ctx = {"title": "Dashboard", "today": today, "d_from": d_from, "d_to": d_to, "period": period, "periods": PERIODS,
+           "period_text": period_label(d_from, d_to), "pq": period_qs(d_from, d_to), "blocks": blocks,
+           "queue": dash.queue(u, today), "kpis": kpi_cards(d_from, d_to, u)}
+    if "stock" in blocks:
+        ctx["stock"] = dash.stock_health()
+        ctx["stock_url"] = "/app/inventory/replenishment?level=low" if can_open(u, "/app/inventory/replenishment") else None
+    if "aging" in blocks:
+        ctx["aging"] = dash.ar_aging()
+    if "demand" in blocks:
+        ctx["demand"] = dash.demand_12m(d_to, today)
+        ctx["demand_unit"] = request.GET.get("unit") or DEMAND_UNIT.get(role, "ton")
+        rev = Invoice.objects.filter(invoice_type="SALE", invoice_date__range=(d_from, d_to)) \
+            .exclude(status__in=["DRAFT", "CANCELLED"]).aggregate(s=Sum("subtotal"))["s"] or D0
+        ctx["revenue"] = rev
+    if "arrivals" in blocks:
+        ctx["arrivals"] = dash.arrivals(today)
+    if "trends" in blocks:
+        ctx["trends"] = dash.weekly_trends(d_to)
+    if "alerts" in blocks:
+        ctx["alert_groups"] = dash.alert_groups(u)
+    ctx["charts"] = {k: ctx[k] for k in ("demand", "trends") if k in ctx}
+    ctx["links"] = {url: can_open(u, url) for url in ("/app/reports/otif", "/app/reports/unloading",
+                                                         "/app/accounting/debts", "/app/warehouse/slots",
+                                                         "/app/accounting/invoices", "/app/sales/orders")}
+    return render(request, "core/dashboard.html", ctx)
 
 
 # ------------------------------------------------------------------ Cảnh báo / tìm kiếm
 @login_required
 def alerts(request):
+    from .dashboard import ALERT_LABELS, alert_groups
     from .stale import maybe_scan_stale
     maybe_scan_stale()
     qs = alerts_for(request.user) if request.GET.get("all") != "1" else Alert.objects.all()
+    typ = request.GET.get("type")
+    if typ:
+        qs = qs.filter(alert_type=typ)
     page, qs_str = paginate(request, qs, 30)
-    return render(request, "core/alerts.html", {"title": "Cảnh báo", "page_obj": page, "qs": qs_str})
+    for a in page:
+        a.type_label = ALERT_LABELS.get(a.alert_type, a.alert_type)
+    return render(request, "core/alerts.html", {"title": "Cảnh báo", "page_obj": page, "qs": qs_str,
+                                                "groups": alert_groups(request.user), "type": typ,
+                                                "type_label": ALERT_LABELS.get(typ, typ) if typ else None})
 
 
 @login_required

@@ -6,95 +6,169 @@
     <h1 class="page-title">Xin chào, {{ user.display_name }} 👋</h1>
     <div class="page-sub">Tổng quan dành cho vai trò <b class="text-primary">{{ user.get_role_display }}</b></div>
   </div>
-  {% if month_opts %}<form class="toolbar"><label class="text-muted" style="font-size:13px">Xem KPI theo tháng</label>
-    <select class="input" name="month" onchange="this.form.submit()" style="width:200px">{% for m in month_opts %}<option value="{{ m.v }}" {% if m.v == sel_month %}selected{% endif %}>{{ m.l }}</option>{% endfor %}</select></form>{% endif %}
+  {% include "partials/period_filter.html" %}
 </div>
 
-<div class="grid g-4" style="margin-bottom:24px">
-  {% for k in kpis %}
-  <div class="card kpi">
-    <div class="ico tone-{{ k.tone }}"><i data-lucide="{{ k.icon }}"></i></div>
-    <div class="label">{{ k.label }}</div>
-    <div class="value">{% if k.fmt == "money" %}{{ k.value|money_short }}{% else %}{{ k.value }}{% endif %}</div>
-    {% if k.foot %}<div class="foot">{{ k.foot }}</div>{% endif %}
-  </div>
-  {% endfor %}
+{# STT 80: Việc chờ bạn – số 0 thì ẩn, bấm mở đúng danh sách đã lọc #}
+<section class="dash-queue" aria-label="Việc chờ bạn">
+  <div class="dq-title">Việc chờ bạn <span class="text-muted">· hiện tại</span></div>
+  {% for q in queue %}
+  <a href="{{ q.url }}" class="dq-item tone-{{ q.tone }}"><i data-lucide="{{ q.icon }}"></i><span class="dq-n">{{ q.count }}</span><span class="dq-l">{{ q.label }}</span></a>
+  {% empty %}<span class="dq-empty"><i data-lucide="party-popper"></i> Không có việc tồn đọng.</span>{% endfor %}
+</section>
+
+{# STT 81: 6 KPI dự án – cùng hàm & cùng kỳ với trang Báo cáo #}
+<div class="grid g-3 kpi-grid" style="margin-bottom:20px">
+  {% for k in kpis %}{% include "partials/kpi_tile.html" %}{% endfor %}
 </div>
 
-<div class="grid g-main">
-  <div class="grid" style="align-content:start">
-    {% for c in charts %}
-    <div class="card">
-      <div class="card-head"><h3 class="card-title">{{ c.title }}</h3></div>
-      <div class="card-body"><div style="height:{% if c.type == 'doughnut' %}240{% else %}280{% endif %}px"><canvas id="ch-{{ c.id }}"></canvas></div></div>
+<div class="dash-grid">
+  {% if stock %}{# STT 82 #}
+  <section class="card dash-card">
+    <div class="card-head"><div><h3 class="card-title">Sức khỏe tồn kho</h3>
+      <div class="text-muted" style="font-size:12px">{{ stock.n_risk }}/{{ stock.n }} mã dưới ROP · giá trị tồn {{ stock.stock_value|money_short }} ₫ · hiện tại</div></div>
+      {% if stock_url %}<a href="{{ stock_url }}" class="btn btn-soft btn-sm">Xem SS/ROP</a>{% endif %}</div>
+    <div class="card-body">
+      <div class="bullet-legend text-muted"><span><i class="lg-bar"></i>Tồn dự kiến</span><span><i class="lg-ss"></i>SS</span><span><i class="lg-rop"></i>ROP</span><span>· sắp theo số ngày đủ bán</span></div>
+      {% for r in stock.rows %}
+      <a href="{{ r.url }}" class="bullet-row" title="{{ r.product.code }}: tồn dự kiến {{ r.projected|floatformat:1 }} · SS {{ r.ss|floatformat:1 }} · ROP {{ r.rop|floatformat:1 }} {{ r.product.base_uom.code }} · đủ {% if r.days is None %}—{% else %}{{ r.days|floatformat:1 }} ngày{% endif %}">
+        <span class="br-name"><b>{{ r.product.code }}</b><span class="text-muted">{{ r.product.name|truncatechars:26 }}</span></span>
+        <span class="br-track"><span class="br-fill tone-bg-{{ r.tone }}" style="width:{{ r.w|floatformat:1 }}%"></span>
+          <span class="br-ss" style="left:{{ r.ss_x|clamp_pct }}%"></span><span class="br-rop" style="left:{{ r.rop_x|clamp_pct }}%"></span></span>
+        <span class="br-val"><b>{{ r.projected|floatformat:0 }}</b> {{ r.product.base_uom.code }}<span class="br-status {{ r.tone }}">{{ r.tone_label }}</span></span>
+        <span class="br-days">{% if r.days is None %}—{% else %}{{ r.days|floatformat:1 }} ngày{% endif %}</span>
+      </a>
+      {% empty %}<div class="empty">Chưa có mã theo dõi SS/ROP.</div>{% endfor %}
+      <details class="table-view"><summary>Xem dạng bảng</summary><table class="tbl"><thead><tr><th>Mã</th><th class="num">Tồn dự kiến</th><th class="num">SS</th><th class="num">ROP</th><th class="num">Đủ (ngày)</th><th>Tình trạng</th></tr></thead>
+        <tbody>{% for r in stock.rows %}<tr><td>{{ r.product.code }}</td><td class="num">{{ r.projected|floatformat:1 }}</td><td class="num">{{ r.ss|floatformat:1 }}</td><td class="num">{{ r.rop|floatformat:1 }}</td><td class="num">{% if r.days is None %}—{% else %}{{ r.days|floatformat:1 }}{% endif %}</td><td>{{ r.tone_label }}</td></tr>{% endfor %}</tbody></table></details>
     </div>
-    {% empty %}
-    <div class="card card-body empty">Chưa có biểu đồ cho vai trò này.</div>
-    {% endfor %}
+  </section>
+  {% endif %}
 
-    {% if recent_trips %}
-    <div class="card">
-      <div class="card-head"><h3 class="card-title">Chuyến Inbound sắp tới</h3><a href="/app/inbound/board" class="btn btn-soft btn-sm">Bảng điều phối</a></div>
-      <div class="table-wrap"><table class="tbl">
-        <thead><tr><th>Chuyến</th><th>NCC</th><th>Xe</th><th>Trạng thái</th><th>ETA</th></tr></thead>
-        <tbody>
-        {% for t in recent_trips %}
-          <tr class="{% if t.late_active %}row-danger{% endif %}">
-            <td><a class="code" href="/app/inbound/trips/{{ t.pk }}">{{ t.code }}</a></td>
-            <td>{{ t.po.supplier.name }}</td><td>{{ t.vehicle.plate }}</td>
-            <td>{% status_badge t %} {% if t.late_active %}<span class="badge badge-danger">Trễ mốc</span>{% endif %}</td>
-            <td>{{ t.eta|vn_dt }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table></div>
+  {% if aging %}{# STT 83 #}
+  <section class="card dash-card">
+    <div class="card-head"><div><h3 class="card-title">Công nợ phải thu theo tuổi nợ</h3>
+      <div class="text-muted" style="font-size:12px">Tổng phải thu {{ aging.total|money_short }} ₫ · hiện tại</div></div>
+      {% if links|get_item:"/app/accounting/debts" %}<a href="/app/accounting/debts?kind=AR" class="btn btn-soft btn-sm">Chi tiết tuổi nợ</a>{% endif %}</div>
+    <div class="card-body">
+      <div class="aging-legend text-muted">{% for b in aging.bands %}<span><i style="background:{{ b.color }}"></i>{{ b.label }}</span>{% endfor %}</div>
+      {% for r in aging.rows %}
+      <div class="aging-row">
+        <span class="ar-name">{{ r.partner.name|truncatechars:28 }}{% if r.blocked %} <span class="badge badge-danger" title="Có nợ quá hạn trên {{ aging.block_days }} ngày – đơn mới bị chặn chờ Giám đốc duyệt"><i data-lucide="ban" style="width:11px"></i>Quá hạn &gt; {{ aging.block_days }} ngày</span>{% endif %}</span>
+        <span class="ar-track">{% for s in r.segs %}<span class="ar-seg" style="width:{{ s.w|floatformat:2 }}%;background:{{ s.color }}" title="{{ r.partner.name }} · {{ s.label }}: {{ s.value|money_short }} ₫"></span>{% endfor %}</span>
+        <span class="ar-total">{{ r.total|money_short }}</span>
+      </div>
+      {% empty %}<div class="empty">Không có công nợ phải thu.</div>{% endfor %}
+      {% if aging.more %}<div class="text-muted" style="font-size:12px;margin-top:6px">+ {{ aging.more }} khách khác</div>{% endif %}
+      <details class="table-view"><summary>Xem dạng bảng</summary><table class="tbl"><thead><tr><th>Khách hàng</th>{% for b in aging.bands %}<th class="num">{{ b.label }}</th>{% endfor %}<th class="num">Tổng</th></tr></thead>
+        <tbody>{% for r in aging.rows %}<tr><td>{{ r.partner.name }}</td><td class="num">{{ r.bands.current|vnd }}</td><td class="num">{{ r.bands.d30|vnd }}</td><td class="num">{{ r.bands.d60|vnd }}</td><td class="num">{{ r.bands.over60|vnd }}</td><td class="num"><b>{{ r.total|vnd }}</b></td></tr>{% endfor %}</tbody></table></details>
     </div>
-    {% endif %}
-  </div>
+  </section>
+  {% endif %}
 
-  <div class="grid" style="align-content:start">
-    <div class="card">
-      <div class="card-head"><h3 class="card-title">Việc cần làm</h3><span class="badge badge-primary">{{ todos|length }}</span></div>
-      <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
-        {% for t in todos %}
-        <a href="{{ t.url }}" style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;border:1px solid var(--line-soft)" class="hover:shadow">
-          <div class="tone-{{ t.tone }}" style="width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex-shrink:0"><i data-lucide="{{ t.icon }}" style="width:18px"></i></div>
-          <div style="flex:1;font-weight:500">{{ t.label }}</div>
-          <span class="badge badge-{{ t.tone }}" style="font-weight:700">{{ t.count }}</span>
-        </a>
-        {% empty %}
-        <div class="empty"><i data-lucide="party-popper"></i><div style="margin-top:8px">Không có việc tồn đọng. Tuyệt vời!</div></div>
+  {% if demand %}{# STT 84 #}
+  <section class="card dash-card dash-wide" x-data="{unit: '{{ demand_unit }}'}">
+    <div class="card-head"><div><h3 class="card-title">Nhu cầu & doanh thu 12 tháng</h3>
+      <div class="text-muted" style="font-size:12px">Cột = đơn đã xác nhận theo tháng · đường nét đứt = dự báo (module dự báo nhu cầu){% if revenue %} · doanh thu hóa đơn kỳ {{ period_text }}: <b>{{ revenue|money_short }} ₫</b>{% endif %}</div></div>
+      <div class="toolbar seg-toggle"><button type="button" class="btn btn-sm" :class="unit === 'ton' ? 'btn-primary' : 'btn-outline'" @click="unit = 'ton'; dashDemand(unit)">Theo tấn</button>
+        <button type="button" class="btn btn-sm" :class="unit === 'money' ? 'btn-primary' : 'btn-outline'" @click="unit = 'money'; dashDemand(unit)">Theo tiền</button>
+        {% if links|get_item:"/app/sales/orders" %}<a href="/app/sales/orders" class="btn btn-soft btn-sm">Đơn bán</a>{% endif %}</div></div>
+    <div class="card-body"><div class="chart-box" style="height:300px"><canvas id="ch-demand"></canvas></div>
+      {% if not demand.has_forecast %}<div class="text-muted" style="font-size:12px;margin-top:6px">Kỳ xem đã qua – dự báo chỉ hiện khi kỳ xem kết thúc ở tháng hiện tại.</div>{% endif %}
+      <details class="table-view"><summary>Xem dạng bảng</summary><table class="tbl"><thead><tr><th>Tháng</th><th class="num">Thực tế (tấn)</th><th class="num">Dự báo (tấn)</th><th class="num">Thực tế (triệu ₫)</th><th class="num">Dự báo (triệu ₫)</th></tr></thead>
+        <tbody id="demand-table"></tbody></table></details>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if arrivals %}{# STT 85 #}
+  <section class="card dash-card dash-wide">
+    <div class="card-head"><div><h3 class="card-title">Hàng về hôm nay – mai</h3>
+      <div class="text-muted" style="font-size:12px">Mỗi dòng một bến · thanh = chuyến theo lịch hạ tải / ETA · {{ arrivals.rows|length }} chuyến</div></div>
+      {% if links|get_item:"/app/warehouse/slots" %}<a href="/app/warehouse/slots" class="btn btn-soft btn-sm">Lịch hạ tải</a>{% endif %}</div>
+    <div class="card-body">
+      <div class="tl">
+        <div class="tl-axis"><span class="tl-name"></span><span class="tl-scale">{% for t in arrivals.ticks %}<span class="tl-tick" style="left:{{ t.x|floatformat:2 }}%">{{ t.label }}</span>{% endfor %}</span></div>
+        {% for lane in arrivals.lanes %}
+        <div class="tl-row"><span class="tl-name">{{ lane.name }}</span><span class="tl-scale">
+          {% for t in arrivals.ticks %}<span class="tl-grid" style="left:{{ t.x|floatformat:2 }}%"></span>{% endfor %}
+          {% if arrivals.now_x is not None %}<span class="tl-now" style="left:{{ arrivals.now_x|floatformat:2 }}%" title="Bây giờ"></span>{% endif %}
+          {% for b in lane.bars %}<a href="{{ b.url }}" class="tl-bar{% if b.late %} late{% endif %}" style="left:{{ b.left|floatformat:2 }}%;width:{{ b.w|floatformat:2 }}%" title="{{ b.trip.code }} · {{ b.trip.vehicle.plate }} · {{ b.trip.po.supplier.name }} · {{ b.start|vn_dt }}–{{ b.end|hm }}{% if b.late %} · TRỄ{% endif %}"><span>{{ b.trip.code }}</span></a>{% endfor %}
+        </span></div>
         {% endfor %}
       </div>
+      <div class="bullet-legend text-muted" style="margin-top:8px"><span><i class="lg-bar"></i>Chuyến theo lịch</span><span><i class="lg-late"></i>Trễ</span><span><i class="lg-now"></i>Bây giờ</span></div>
+      <details class="table-view"><summary>Xem dạng bảng</summary><table class="tbl"><thead><tr><th>Chuyến</th><th>Xe</th><th>NCC</th><th>Bến</th><th>Từ</th><th>Đến</th><th></th></tr></thead>
+        <tbody>{% for b in arrivals.rows %}<tr><td><a class="code" href="{{ b.url }}">{{ b.trip.code }}</a></td><td>{{ b.trip.vehicle.plate }}</td><td>{{ b.trip.po.supplier.name }}</td><td>{% if b.slot %}{{ b.slot.dock.code }}{% else %}Chưa xếp{% endif %}</td><td>{{ b.start|vn_dt }}</td><td>{{ b.end|vn_dt }}</td><td>{% if b.late %}<span class="badge badge-danger">Trễ</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="7" class="empty">Không có xe về trong hôm nay – mai.</td></tr>{% endfor %}</tbody></table></details>
     </div>
-    <div class="card">
-      <div class="card-head"><h3 class="card-title">Cảnh báo mới</h3><a href="/app/alerts" class="text-primary" style="font-size:13px">Xem tất cả</a></div>
-      <div class="card-body" style="display:flex;flex-direction:column;gap:12px">
-        {% for a in alerts %}
-        <a href="{{ a.url|default:'/app/alerts' }}" style="display:flex;gap:10px">
-          <span class="dot-i" style="margin-top:6px;background:{% if a.level == 'CRIT' %}var(--danger){% elif a.level == 'WARN' %}var(--warn){% else %}var(--primary){% endif %}"></span>
-          <div><div style="font-weight:500">{{ a.title }}</div><div class="text-muted" style="font-size:12px">{{ a.created_at|vn_dt }} · {{ a.message|truncatechars:70 }}</div></div>
-        </a>
-        {% empty %}<div class="text-muted">Không có cảnh báo.</div>{% endfor %}
-      </div>
+  </section>
+  {% endif %}
+
+  {% if trends %}{# STT 85: xu hướng theo tuần, có vạch mục tiêu – mỗi biểu đồ một trục #}
+  <section class="card dash-card">
+    <div class="card-head"><div><h3 class="card-title">OTIF theo tuần</h3><div class="text-muted" style="font-size:12px">12 tuần tới {{ d_to|vn_d }} · mục tiêu 95%</div></div>
+      {% if links|get_item:"/app/reports/otif" %}<a href="/app/reports/otif?{{ pq }}" class="btn btn-soft btn-sm">Báo cáo OTIF</a>{% endif %}</div>
+    <div class="card-body"><div class="chart-box" style="height:220px"><canvas id="ch-otif"></canvas></div></div>
+  </section>
+  <section class="card dash-card">
+    <div class="card-head"><div><h3 class="card-title">Thời gian chờ hạ tải theo tuần</h3><div class="text-muted" style="font-size:12px">Trung bình phút · mục tiêu ≤ 30 phút</div></div>
+      {% if links|get_item:"/app/reports/unloading" %}<a href="/app/reports/unloading?{{ pq }}" class="btn btn-soft btn-sm">Báo cáo chờ hạ tải</a>{% endif %}</div>
+    <div class="card-body"><div class="chart-box" style="height:220px"><canvas id="ch-wait"></canvas></div>
+      <details class="table-view"><summary>Xem dạng bảng (OTIF & chờ hạ tải)</summary><table class="tbl"><thead><tr><th>Tuần</th><th class="num">OTIF %</th><th class="num">Chờ hạ tải (phút)</th></tr></thead>
+        <tbody>{% for w in trends.weeks %}<tr><td>{{ w }}</td><td class="num">{{ trends.otif|get_item_idx:forloop.counter0|default_if_none:"—" }}</td><td class="num">{{ trends.wait|get_item_idx:forloop.counter0|default_if_none:"—" }}</td></tr>{% endfor %}</tbody></table></details>
     </div>
-  </div>
+  </section>
+  {% endif %}
+
+  {% if "alerts" in blocks %}{# STT 86 #}
+  <section class="card dash-card">
+    <div class="card-head"><h3 class="card-title">Cảnh báo theo loại</h3><a href="/app/alerts" class="btn btn-soft btn-sm">Tất cả cảnh báo</a></div>
+    <div class="card-body"><div class="alert-groups">
+      {% for g in alert_groups %}<a href="{{ g.url }}" class="alert-chip"><span>{{ g.label }}</span><b>{{ g.n }}</b></a>
+      {% empty %}<span class="text-muted">Không có cảnh báo đang mở.</span>{% endfor %}</div></div>
+  </section>
+  {% endif %}
 </div>
-{{ charts|json_script:"charts-data" }}
+{{ charts|json_script:"dash-data" }}
 {% endblock %}
 {% block scripts %}
 <script>
-  const PALETTE = [TONE.primary, TONE.warn, TONE.success, TONE.danger, TONE.info, TONE.purple, TONE.yellow, TONE.ink];
-  JSON.parse(document.getElementById("charts-data").textContent).forEach(c => {
-    const el = document.getElementById("ch-" + c.id); if (!el) return;
-    const ds = c.datasets.map((d, i) => c.type === "doughnut"
-      ? { label: d.label, data: d.data, backgroundColor: PALETTE, borderWidth: 0 }
-      : { label: d.label, data: d.data, backgroundColor: TONE[d.color] || PALETTE[i], borderColor: TONE[d.color] || PALETTE[i],
-          borderRadius: 6, tension: .35, fill: false, pointRadius: 3, maxBarThickness: 28 });
-    new Chart(el, { type: c.type, data: { labels: c.labels, datasets: ds },
-      options: { maintainAspectRatio: false, cutout: c.type === "doughnut" ? "68%" : undefined,
-        plugins: { legend: { display: c.type === "doughnut" || ds.length > 1, position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } } },
-        scales: c.type === "doughnut" ? {} : { x: { grid: { display: false } }, y: { grid: { color: TONE.line }, beginAtZero: true } } } });
-  });
+  const DD = JSON.parse(document.getElementById("dash-data").textContent);
+  const ACTUAL = TONE.primary, FORECAST = "#3F7FD0";  // cặp màu đã kiểm định (validate_palette) trên nền thẻ
+  const axis = { grid: { color: TONE.line }, border: { display: false }, ticks: { color: TONE.muted } };
+  let demandChart = null;
+  function dashDemand(unit) {
+    if (!DD.demand) return;
+    const d = DD.demand, s = d[unit], u = unit === "ton" ? "tấn" : "triệu ₫";
+    const ds = [{ type: "bar", label: "Thực tế (" + u + ")", data: s.actual, backgroundColor: ACTUAL, borderRadius: { topLeft: 4, topRight: 4 },
+                  borderSkipped: "bottom", maxBarThickness: 24, order: 2 }];
+    if (d.has_forecast) ds.push({ type: "line", label: "Dự báo (" + u + ")", data: s.forecast, borderColor: FORECAST, borderWidth: 2,
+                                  borderDash: [6, 4], pointRadius: 4, pointBackgroundColor: FORECAST, pointBorderColor: "#F2EAE5",
+                                  pointBorderWidth: 2, spanGaps: false, order: 1 });
+    if (demandChart) demandChart.destroy();
+    demandChart = new Chart(document.getElementById("ch-demand"), { data: { labels: d.labels, datasets: ds },
+      options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } },
+                   tooltip: { callbacks: { label: c => c.raw == null ? null : `${c.dataset.label}: ${c.raw.toLocaleString("vi-VN")}` } } },
+        scales: { x: { grid: { display: false }, ticks: { color: TONE.muted, maxRotation: 0, autoSkip: true } }, y: { ...axis, beginAtZero: true } } } });
+    const tb = document.getElementById("demand-table");
+    if (tb) tb.innerHTML = d.labels.map((l, i) => `<tr><td>${l}</td><td class="num">${d.ton.actual[i] ?? "—"}</td><td class="num">${d.ton.forecast[i] ?? "—"}</td><td class="num">${d.money.actual[i] ?? "—"}</td><td class="num">${d.money.forecast[i] ?? "—"}</td></tr>`).join("");
+  }
+  function trendChart(id, label, data, target, unit, max) {
+    const el = document.getElementById(id); if (!el) return;
+    new Chart(el, { type: "line", data: { labels: DD.trends.labels, datasets: [
+        { label: label, data: data, borderColor: ACTUAL, borderWidth: 2, pointRadius: 4, pointBackgroundColor: ACTUAL,
+          pointBorderColor: "#F2EAE5", pointBorderWidth: 2, spanGaps: true, tension: .25 },
+        { label: "Mục tiêu " + target + unit, data: DD.trends.labels.map(() => target), borderColor: TONE.muted, borderWidth: 1.5,
+          borderDash: [5, 4], pointRadius: 0 } ] },
+      options: { maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8 } } },
+        scales: { x: { grid: { display: false }, ticks: { color: TONE.muted } }, y: { ...axis, beginAtZero: true, suggestedMax: max } } } });
+  }
+  dashDemand("{{ demand_unit|default:'ton' }}");
+  if (DD.trends) {
+    trendChart("ch-otif", "OTIF %", DD.trends.otif, DD.trends.otif_target, "%", 100);
+    trendChart("ch-wait", "Chờ hạ tải (phút)", DD.trends.wait, DD.trends.wait_target, " phút");
+  }
 </script>
 {% endblock %}

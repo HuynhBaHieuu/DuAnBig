@@ -1,0 +1,12 @@
+<form class="toolbar period-filter" method="get" x-data="{custom: '{{ period }}' === 'custom'}">
+  <label class="text-muted" style="font-size:13px">Kỳ xem</label>
+  <select class="input" name="period" style="width:150px" @change="custom = $event.target.value === 'custom'; if (!custom) $el.form.submit()">
+    {% for v, l in periods %}<option value="{{ v }}" {% if period == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+    <option value="custom" {% if period == "custom" %}selected{% endif %}>Tùy chọn…</option>
+  </select>
+  <template x-if="custom"><span class="toolbar">
+    <input type="date" class="input" name="from" value="{{ d_from|date:'Y-m-d' }}" style="width:150px">
+    <input type="date" class="input" name="to" value="{{ d_to|date:'Y-m-d' }}" style="width:150px">
+    <button class="btn btn-soft btn-sm">Xem</button></span></template>
+  <span class="badge badge-gray" title="Mọi thẻ KPI và biểu đồ theo kỳ trên trang dùng kỳ này">{{ period_text }}</span>
+</form>

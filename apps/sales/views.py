@@ -215,6 +215,8 @@ def so_detail(request, pk):
 @role_required("DIRECTOR", "DISPATCHER")
 def alloc_list(request):
     qs = Allocation.objects.select_related("product").annotate(n=Count("lines")).order_by("-id")
+    if request.GET.get("status"):
+        qs = qs.filter(status=request.GET["status"])
     page, qs_str = paginate(request, qs)
     return render(request, "sales/alloc_list.html", {"title": "Phân bổ khi thiếu hàng", "page_obj": page, "qs": qs_str})
 
