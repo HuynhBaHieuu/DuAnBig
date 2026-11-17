@@ -137,9 +137,10 @@ class DashboardTest(tf.Base):
         for cls in ("dz-hero", "dz-volume", "dz-fleet", "dz-sales"):
             self.assertIn(cls, html)
         self.assertNotIn("has-photo", html)                                 # chưa có ảnh -> hình minh họa
-        b = io.BytesIO(); Image.new("RGB", (40, 20), (230, 95, 43)).save(b, "PNG"); b.seek(0); b.name = "hero.png"
+        b = io.BytesIO(); Image.new("RGB", (40, 20), (230, 95, 43)).save(b, "PNG"); b.seek(0); b.name = "Ảnh kho Đà Nẵng (1).png"
         self.assertEqual(c.post("/app/dashboard/hero", {"image": b}).status_code, 302)
         name = SystemParam.objects.get(key="DASHBOARD_HERO_IMAGE").value
+        self.assertTrue(name.isascii() and " " not in name, name)       # Supabase từ chối key có dấu / khoảng trắng
         try:
             self.assertIn("has-photo", c.get("/app/dashboard").content.decode())
             self.assertEqual(self.client_for(self.purchaser).post("/app/dashboard/hero", {"op": "reset"}).status_code, 403)
@@ -148,3 +149,15 @@ class DashboardTest(tf.Base):
         finally:
             if default_storage.exists(name):
                 default_storage.delete(name)
+
+    def test_hero_storage_error_shows_message_not_500(self):
+        """Kho ảnh từ chối (vd. Supabase "Invalid key") -> báo lỗi trên Dashboard, không lỗi 500."""
+        import io
+        from unittest import mock
+        from PIL import Image
+        from apps.core.services import BusinessError
+        b = io.BytesIO(); Image.new("RGB", (40, 20)).save(b, "PNG"); b.seek(0); b.name = "x.png"
+        with mock.patch("django.core.files.storage.default_storage.save", side_effect=BusinessError("Không lưu được ảnh")):
+            r = self.client_for(self.director).post("/app/dashboard/hero", {"image": b}, follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Không lưu được ảnh")

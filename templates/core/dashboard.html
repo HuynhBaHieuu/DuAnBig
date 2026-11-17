@@ -10,7 +10,7 @@
     <div class="dz-pill dz-period">{% include "partials/period_filter.html" %}</div>
     {% if can_hero %}<div class="dz-hero-tools" x-data="{o:false}">
       <button type="button" class="dz-round" @click="o=!o" title="Đổi ảnh doanh nghiệp"><i data-lucide="image-plus"></i></button>
-      <form x-show="o" x-cloak @click.outside="o=false" method="post" action="/app/dashboard/hero" enctype="multipart/form-data" class="dz-hero-pop card card-body">{% csrf_token %}
+      <form x-show="o" x-cloak @click.outside="o=false" method="post" action="/app/dashboard/hero" enctype="multipart/form-data" data-shrink-max="2200" class="dz-hero-pop card card-body">{% csrf_token %}
         <b>Ảnh doanh nghiệp</b><span class="text-muted" style="font-size:12px">Ảnh ngang, nên ≥ 1600 × 500 px (kho, bãi xe, nhà máy…)</span>
         <input type="file" name="image" accept="image/*" required>
         <div class="toolbar"><button class="btn btn-primary btn-sm">Tải lên</button>

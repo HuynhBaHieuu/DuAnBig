@@ -155,10 +155,13 @@ def dashboard_hero(request):
     from apps.sales.services import check_image
 
     from .services import BusinessError
+    from .storage import ascii_filename
     row = SystemParam.objects.filter(key="DASHBOARD_HERO_IMAGE").first()
+    old = row.value if row else None
     if request.POST.get("op") == "reset":
         if row:
             row.delete()
+            _drop_stored(old)
         messages.success(request, "Đã quay lại hình minh họa mặc định.")
         return redirect("/app/dashboard")
     f = request.FILES.get("image")
@@ -166,15 +169,28 @@ def dashboard_hero(request):
         if not f:
             raise BusinessError("Chọn ảnh doanh nghiệp (JPG / PNG).")
         check_image(f, "Ảnh doanh nghiệp")
+        # Tên ảnh từ máy / điện thoại hay có dấu tiếng Việt, khoảng trắng: Supabase Storage từ chối key ngoài ASCII
+        # ("Invalid key") -> trước đây lỗi 500, không đổi được ảnh. Đổi tên về ASCII; lỗi lưu báo trên Dashboard.
+        name = default_storage.save(f"branding/{ascii_filename(f.name)}", f)
     except BusinessError as e:
         messages.error(request, str(e))
         return redirect("/app/dashboard")
-    name = default_storage.save(f"branding/{f.name}", f)
     SystemParam.objects.update_or_create(key="DASHBOARD_HERO_IMAGE",
                                          defaults={"value": name, "description": "Ảnh doanh nghiệp đầu Dashboard"})
     audit("UPDATE", None, {"Ảnh Dashboard": name}, model="SystemParam")
+    if old and old != name:
+        _drop_stored(old)
     messages.success(request, "Đã cập nhật ảnh doanh nghiệp trên Dashboard.")
     return redirect("/app/dashboard")
+
+
+def _drop_stored(name):
+    """Xóa ảnh doanh nghiệp cũ trên kho ảnh (lỗi xóa không chặn thao tác)."""
+    from django.core.files.storage import default_storage
+    try:
+        default_storage.delete(name)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ------------------------------------------------------------------ Cảnh báo / tìm kiếm

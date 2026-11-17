@@ -82,7 +82,9 @@ document.addEventListener("submit", async e => {
     for (const i of form.querySelectorAll("input[type=file]")) {
       if (!i.name || !i.files.length) continue;
       fd.delete(i.name);
-      for (const f of i.files) fd.append(i.name, await shrinkImage(f));
+      // data-shrink-max: cạnh dài tối đa (vd. ảnh doanh nghiệp đầu Dashboard cần nét hơn ảnh POD)
+      const max = +form.dataset.shrinkMax || 1280;
+      for (const f of i.files) fd.append(i.name, await shrinkImage(f, max, max > 1280 ? 0.85 : 0.78));
     }
     if (!isAsync) {  // form thường: gán lại file đã thu nhỏ rồi GỬI LẠI form (đã preventDefault ở trên)
       if (window.DataTransfer) {
