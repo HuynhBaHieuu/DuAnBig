@@ -6,8 +6,11 @@
 - GIỮ tài khoản đang có (mật khẩu, vai trò, trạng thái không đổi). Tài khoản trùng tên đăng nhập với bộ demo được
   gắn lại tài xế / khách hàng / nhà máy theo bộ demo; tài khoản có trong bộ demo mà database chưa có thì được tạo
   (mật khẩu Tracon@123); tài khoản chỉ có trên database thì gắn lại theo mã cũ nếu mã đó còn trong danh mục mới.
+- Tự chạy migrate nếu database đích còn migration chưa áp dụng.
+- Không đòi file demo dựng đúng phiên bản code: bảng / cột mới (có giá trị mặc định) tự điền mặc định, cột đã bỏ
+  thì bỏ qua. Chỉ từ chối khi code thêm cột bắt buộc không có mặc định -> khi đó mới cần dựng lại bằng build_demo.
 - Dời mọi ngày giờ theo số ngày từ hôm dựng tới hôm nay -> chạy lại hôm nào cũng thấy "hôm nay" như lúc dựng.
-  Nên chạy sau 07:30 (giờ chốt dữ liệu của build_demo).
+  Chạy trước giờ chốt dữ liệu (07:30) thì dời ít đi 1 ngày, để không có mốc giờ nào nằm ở tương lai.
 - Đưa vài ảnh minh họa (ảnh mốc, POD, chữ ký) lên kho ảnh đang cấu hình (Supabase Storage hoặc thư mục media).
 Chạy lại bao nhiêu lần cũng về cùng một trạng thái xuất phát (dùng sau mỗi lần diễn tập).
 """
@@ -19,7 +22,8 @@ from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
 from django.core.management.color import no_style
 from django.db import connections, models, transaction
-from django.db.migrations.recorder import MigrationRecorder
+from django.core.management import call_command
+from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
 KEEP = {"core.user", "core.user_groups", "core.user_user_permissions", "core.systemparam",
@@ -52,27 +56,36 @@ class Command(BaseCommand):
         if not opts["yes"]:
             raise CommandError(f"Lệnh này XÓA toàn bộ chứng từ và danh mục trên {host}, giữ tài khoản. "
                                "Sao lưu trước, rồi chạy lại với --yes.")
-        src_mig = set(MigrationRecorder(connections["source"]).applied_migrations())
-        dst_mig = set(MigrationRecorder(target).applied_migrations())
-        if src_mig - dst_mig:
-            raise CommandError("Database đích chưa migrate đủ – chạy: python manage.py migrate")
-        mine = {k for k in dst_mig - src_mig if k[0].startswith(("core", "masterdata", "inventory", "purchasing",
-                                                                   "sales", "accounting"))}
-        if mine:
-            raise CommandError(f"Code đã có migration mới hơn file demo ({sorted(mine)[:3]}…) – dựng lại file bằng "
-                               "build_demo rồi nạp.")
-        from apps.core.models import SystemParam, User
+        executor = MigrationExecutor(target)
+        if executor.migration_plan(executor.loader.graph.leaf_nodes()):
+            self.stdout.write("Database đích còn migration chưa chạy – đang chạy migrate…")
+            call_command("migrate", interactive=False, verbosity=1, stdout=self.stdout)
+        from apps.core.models import AuditLog, SystemParam, User
         bd = SystemParam.objects.using("source").filter(key="DEMO_BUILD_DATE").first()
         if not bd:
             raise CommandError("File nguồn không phải file của build_demo (thiếu DEMO_BUILD_DATE).")
-        delta = timedelta(days=(timezone.localdate() - date.fromisoformat(bd.value)).days)
-        if delta.days < 0:
+        # giờ chốt dữ liệu = mốc nhật ký cuối cùng trong file (build_demo chốt lúc 07:30 của ngày dựng)
+        end = AuditLog.objects.using("source").order_by("-at").values_list("at", flat=True).first()
+        end = timezone.localtime(end) if end else None
+        build_day = date.fromisoformat(bd.value)
+        now = timezone.localtime()
+        days = (now.date() - build_day).days
+        if end and end.date() == build_day and now.time() < end.time():
+            days -= 1
+            self.stdout.write(f"Đang trước giờ chốt dữ liệu {end:%H:%M} – dời ít đi 1 ngày (dữ liệu kết thúc "
+                              f"{end:%H:%M} hôm qua).")
+        if days < -1:
             raise CommandError("Ngày dựng dữ liệu sau hôm nay – kiểm tra giờ máy.")
+        delta = timedelta(days=days)
         if delta.days > 21:
             self.stdout.write(self.style.WARNING(f"File demo dựng cách đây {delta.days} ngày – mã chứng từ (PO-YYMM-…) sẽ "
                                                  "lệch tháng so với ngày. Nên dựng lại bằng build_demo."))
         all_models = [m for m in apps.get_models(include_auto_created=True)
                       if m._meta.managed and not m._meta.proxy and m._meta.label_lower not in KEEP]
+        plan, bad = self.column_plan(all_models)
+        if bad:
+            raise CommandError("Code đã thêm cột bắt buộc mà file demo không có: " + ", ".join(bad[:6])
+                               + " – dựng lại file bằng: python manage.py build_demo (cần database SQLite trống), rồi nạp.")
         t0 = _time.time()
         user_fk = {m: [f for f in m._meta.concrete_fields if f.is_relation and f.related_model is User]
                    for m in all_models}
@@ -117,7 +130,10 @@ class Command(BaseCommand):
                 User.objects.using(db).filter(pk=u.pk).update(**{f"{kind}_id": new_id})
                 (relinked if new_id else unlinked).append(u.username)
             for m in all_models:
-                rows = list(m._base_manager.using("source").all())
+                if plan[m] is None:  # bảng mới, file demo chưa có -> để trống
+                    continue
+                cols = plan[m]
+                rows = [m(**dict(zip(cols, r))) for r in m._base_manager.using("source").values_list(*cols)]
                 if not rows:
                     continue
                 shift = m._meta.label_lower not in NO_SHIFT and delta.days
@@ -134,6 +150,10 @@ class Command(BaseCommand):
                         if v is not None:
                             setattr(o, a, umap.get(v))
                 auto = [f for f in m._meta.concrete_fields if getattr(f, "auto_now", False) or getattr(f, "auto_now_add", False)]
+                for f in auto:  # cột tự đóng dấu giờ mà file chưa có -> lấy giờ hiện tại
+                    if f.attname not in cols and not f.null:
+                        for o in rows:
+                            setattr(o, f.attname, timezone.now())
                 saved = [(f, f.auto_now, f.auto_now_add) for f in auto]
                 try:  # giữ nguyên created_at / updated_at của dữ liệu demo (không để bulk_create đóng dấu giờ hiện tại)
                     for f in auto:
@@ -152,7 +172,7 @@ class Command(BaseCommand):
                     UserSiteAccess.objects.using(db).bulk_create(
                         [UserSiteAccess(user=u, site=s) for s in Site.objects.using(db).filter(customer_id=u.customer_id)])
         self.stdout.write(self.style.SUCCESS(f"✔ Đã nạp {total} bản ghi lên {host} trong {_time.time() - t0:.0f}s "
-                                             f"(dời ngày +{delta.days})."))
+                                             f"(dời ngày {delta.days:+d})."))
         if created:
             self.stdout.write(f"  Tạo tài khoản mới (mật khẩu Tracon@123): {', '.join(created)}")
         if relinked:
@@ -166,6 +186,29 @@ class Command(BaseCommand):
             from apps.inventory.services import run_replenishment
             res = run_replenishment()
             self.stdout.write(f"  Đã tính lại SS/ROP: {res}")
+
+    def column_plan(self, all_models):
+        """Mỗi model: danh sách cột chép được từ file nguồn (None = bảng chưa có trong file).
+        Cột code mới thêm: dùng giá trị mặc định nếu có (hoặc cho phép trống); không có thì báo `bad`."""
+        src = connections["source"]
+        with src.cursor() as cur:
+            tables = set(src.introspection.table_names(cur))
+            plan, bad = {}, []
+            for m in all_models:
+                if m._meta.db_table not in tables:
+                    plan[m] = None
+                    continue
+                have = {c.name for c in src.introspection.get_table_description(cur, m._meta.db_table)}
+                cols = []
+                for f in m._meta.concrete_fields:
+                    if f.column in have:
+                        cols.append(f.attname)
+                    elif not (f.has_default() or f.null or getattr(f, "auto_now", False)
+                              or getattr(f, "auto_now_add", False) or f.get_internal_type() in ("CharField", "TextField")
+                              and f.blank):
+                        bad.append(f"{m._meta.label}.{f.name}")
+                plan[m] = cols
+        return plan, bad
 
     def upload_files(self, settings):
         from django.core.files.storage import default_storage
