@@ -302,9 +302,25 @@ class Command(BaseCommand):
             record_milestone(trip, ms, user or self.u_drv, photo=fake_image(f"{trip.code} - {ms.name}") if ms.photo_required else None,
                              note="Cập nhật từ di động")
 
+    def arrive_and_checkin(self, trip):
+        """Xe tới cổng (ghi arrived_at – STT 89) rồi check-in vào bến đã xếp ở mốc "Còn 2 giờ";
+        chưa có lịch (vd. chạy trong test, xếp bến sau commit) thì tạo lịch ở bến trống đầu tiên."""
+        from apps.masterdata.models import Dock
+        from apps.purchasing import services as ps
+        from apps.purchasing.models import UnloadingSlot
+        ps.gate_arrive(trip)
+        slot = UnloadingSlot.objects.filter(trip=trip).exclude(status="CANCELLED").first()
+        if slot is None:
+            dock, _, dur = ps.gate_dock(trip)
+            dock = dock or Dock.objects.filter(warehouse=trip.po.warehouse, is_active=True).order_by("code").first()
+            now = timezone.now()
+            slot = UnloadingSlot.objects.create(trip=trip, dock=dock, start_at=now, end_at=now + dur, status="CONFIRMED")
+        return ps.check_in(slot, self.u_wh), slot
+
     def purchasing_flows(self):
         from apps.purchasing import services as ps
-        from apps.purchasing.models import GoodsReceipt, PurchaseRequisition, PurchaseRequisitionLine, TripMilestone, UnloadingSlot
+        from apps.purchasing.models import (GoodsReceipt, InboundTrip, PurchaseRequisition, PurchaseRequisitionLine,
+                                            TripMilestone, UnloadingSlot)
         from apps.core.services import next_doc_no
         now = timezone.now()
 
@@ -320,14 +336,13 @@ class Command(BaseCommand):
             po = self.make_po(sup, items, "Đơn lịch sử")
             self.approve_send(po, sent_days_ago=lt)
             t = self.trip(po, veh, drv, -10)
-            self.run_milestones(t, 99, self.u_pur)
-            t.refresh_from_db()
-            slot = UnloadingSlot.objects.get(trip=t)
-            gr = ps.check_in(slot, self.u_wh)
+            self.run_milestones(t, 99, self.u_pur)     # quy trình 2 mốc: Rời nhà máy + Còn 2 giờ (kho xếp bến)
+            gr, slot = self.arrive_and_checkin(t)       # "Xe tới cổng" ghi arrived_at (STT 89) rồi check-in
             ps.submit_grn(gr, self.u_wh)
-            # dời mốc thời gian để báo cáo chờ hạ tải có ý nghĩa
-            UnloadingSlot.objects.filter(pk=slot.pk).update(checked_in_at=t.arrived_at + timedelta(minutes=wait),
-                                                            done_at=t.arrived_at + timedelta(minutes=wait + 50))
+            # lùi giờ tới cổng để KPI-4 (chờ hạ tải = check-in − tới cổng) có số liệu
+            slot.refresh_from_db()
+            InboundTrip.objects.filter(pk=t.pk).update(arrived_at=slot.checked_in_at - timedelta(minutes=wait))
+            UnloadingSlot.objects.filter(pk=slot.pk).update(done_at=slot.checked_in_at + timedelta(minutes=50))
             self.hist_pos.append(po)
 
         # 2) PO lớn chờ Director duyệt (≥ 50 triệu)
@@ -343,30 +358,31 @@ class Command(BaseCommand):
         self.approve_send(po)
         self.trip(po, "51D-111.11", "TX03", 2)
 
-        # 5) Chuyến đang chạy của tài xế demo (taixe) – đã qua 2 mốc
+        # 5) Chuyến đang chạy của tài xế demo (taixe) – đã báo "Rời nhà máy", còn mốc "Còn 2 giờ" để bấm thử
         po = self.make_po(self.s_thep, [("THEP-D16", 400), ("THEP-D10", 300)])
         self.approve_send(po)
         t = self.trip(po, "51C-123.45", "TX01", -2)
-        self.run_milestones(t, 2)
+        self.run_milestones(t, 1)
 
         # 6) Chuyến trễ mốc (không cập nhật mốc từ lúc xuất phát)
         po = self.make_po(self.s_thep, [("THEP-D16", 300)])
         self.approve_send(po)
         self.trip(po, "61C-333.33", "TX04", -3)
 
-        # 7) Chuyến đã tới cổng – chờ thủ kho check-in
+        # 7) Chuyến đã tới cổng – chờ ngoài cổng 20 phút, chờ thủ kho check-in
         po = self.make_po(self.s_da, [("CAT-VANG", 10), ("DA-1X2", 6)])
         self.approve_send(po, sent_days_ago=1.5)
         t = self.trip(po, "51D-222.22", "TX03", -3)
         self.run_milestones(t, 99, self.u_pur)
+        ps.gate_arrive(t)
+        InboundTrip.objects.filter(pk=t.pk).update(arrived_at=now - timedelta(minutes=20))
 
         # 8) GRN lệch > 2% chờ Director duyệt
         po = self.make_po(self.s_ong, [("ONG-PVC90", 200)])
         self.approve_send(po, sent_days_ago=2.5)
         t = self.trip(po, "61C-444.44", "TX04", -5)
         self.run_milestones(t, 99, self.u_pur)
-        t.refresh_from_db()
-        gr = ps.check_in(UnloadingSlot.objects.get(trip=t), self.u_wh)
+        gr, _ = self.arrive_and_checkin(t)
         line = gr.lines.first()
         line.qty_received = line.qty_expected - 12
         line.qty_damaged = 3

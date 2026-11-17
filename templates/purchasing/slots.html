@@ -41,9 +41,12 @@
             <form method="post" action="/app/warehouse/slots/{{ s.pk }}" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%">{% csrf_token %}<input type="hidden" name="op" value="checkin">
               {% if s.ci.early_min %}<span class="badge badge-gray">Sớm {{ s.ci.early_min|dur }} so với lịch</span>{% elif s.ci.late_min %}<span class="badge {% if s.ci.need_reason %}badge-danger{% else %}badge-gray{% endif %}">Muộn {{ s.ci.late_min|dur }}</span>{% endif %}
               {% if s.ci.need_reason %}<input class="input input-sm" name="reason" required maxlength="255" placeholder="Lý do tới muộn (bắt buộc)" style="flex:1;min-width:180px">{% endif %}
-              <button class="btn btn-primary btn-sm" title="Xe tới cổng: vào bến trống đầu tiên ngay, không chờ tới giờ lịch"><i data-lucide="log-in"></i>Xe tới cổng – vào {{ s.ci.free_now.code }}</button></form>
+              {% if s.trip.arrived_at %}<span class="badge badge-warn">Chờ ngoài cổng từ {{ s.trip.arrived_at|hm }}</span>{% endif %}
+              <button class="btn btn-primary btn-sm" title="Xe tới cổng: vào bến trống đầu tiên ngay, không chờ tới giờ lịch"><i data-lucide="log-in"></i>{% if s.trip.arrived_at %}Vào bến {{ s.ci.free_now.code }}{% else %}Xe tới cổng – vào {{ s.ci.free_now.code }}{% endif %}</button></form>
             {% else %}
             <div class="text-muted" style="font-size:12px;width:100%"><span class="badge badge-warn">Mọi bến đang bận</span>{% if s.ci.next_free.0 %} bến trống sớm nhất {{ s.ci.next_free.0.code }} lúc {{ s.ci.next_free.1|hm }}{% endif %}.</div>
+            {% if s.trip.arrived_at %}<span class="badge badge-warn">Chờ ngoài cổng từ {{ s.trip.arrived_at|hm }}</span>
+            {% else %}<form method="post" action="/app/warehouse/slots/{{ s.pk }}">{% csrf_token %}<input type="hidden" name="op" value="checkin"><button class="btn btn-soft btn-sm" title="Ghi giờ xe tới cổng ngay – thời gian chờ hạ tải (KPI-4) tính từ lúc này"><i data-lucide="log-in"></i>Xe tới cổng – chờ bến</button></form>{% endif %}
             {% endif %}
           {% endif %}{% endif %}
         </div>
@@ -52,8 +55,8 @@
     </div></div>
     {% if waiting %}<div class="card"><div class="card-head"><h3 class="card-title">Chuyến chưa có lịch</h3></div><div class="card-body">
       <div class="text-muted" style="font-size:12px;margin-bottom:6px">Bến được xếp khi xe báo mốc "còn 2 giờ"; xe tới cổng thì vào bến trống đầu tiên.</div>
-      {% for t in waiting %}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><a href="/app/inbound/trips/{{ t.pk }}"><b>{{ t.code }}</b> · {{ t.vehicle.plate }}<div class="text-muted" style="font-size:12px">ETA {{ t.eta|hm }}</div></a>
-        {% if user.role in "WAREHOUSE DIRECTOR ADMIN" %}<form method="post" action="/app/warehouse/gate/{{ t.pk }}">{% csrf_token %}<button class="btn btn-soft btn-sm" title="Xe đã tới cổng: vào bến trống đầu tiên & check-in"><i data-lucide="log-in"></i>Xe tới cổng</button></form>{% endif %}</div>{% endfor %}
+      {% for t in waiting %}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><a href="/app/inbound/trips/{{ t.pk }}"><b>{{ t.code }}</b> · {{ t.vehicle.plate }}<div class="text-muted" style="font-size:12px">{% if t.arrived_at %}<span class="badge badge-warn">Chờ ngoài cổng từ {{ t.arrived_at|hm }}</span>{% else %}ETA {{ t.eta|hm }}{% endif %}</div></a>
+        {% if user.role in "WAREHOUSE DIRECTOR ADMIN" %}<form method="post" action="/app/warehouse/gate/{{ t.pk }}">{% csrf_token %}<button class="btn btn-soft btn-sm" title="Xe đã tới cổng: ghi giờ tới cổng, vào bến trống đầu tiên & check-in (bến bận thì chờ ngoài cổng)"><i data-lucide="log-in"></i>{% if t.arrived_at %}Vào bến{% else %}Xe tới cổng{% endif %}</button></form>{% endif %}</div>{% endfor %}
     </div></div>{% endif %}
   </div>
 </div>

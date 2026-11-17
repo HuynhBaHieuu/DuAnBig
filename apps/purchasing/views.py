@@ -460,7 +460,11 @@ def slots(request):
 
 
 def _gate(request, trip):
-    gr = svc.gate_checkin(trip, request.user, reason=request.POST.get("reason", ""))
+    try:
+        gr = svc.gate_checkin(trip, request.user, reason=request.POST.get("reason", ""))
+    except svc.GateBusy as e:  # giờ tới cổng đã lưu – xe chờ ngoài cổng (STT 89)
+        messages.warning(request, str(e))
+        return redirect(request.META.get("HTTP_REFERER") or "/app/warehouse/slots")
     slot = UnloadingSlot.objects.get(trip=trip, status="CHECKED_IN")
     messages.success(request, f"Xe {trip.vehicle.plate} vào bến {slot.dock.code}. Mở phiếu nhập {gr.code}.")
     return redirect(f"/app/warehouse/receipts/{gr.pk}")

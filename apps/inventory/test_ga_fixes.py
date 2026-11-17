@@ -2,7 +2,7 @@
 from datetime import timedelta
 from decimal import Decimal as D
 
-from django.test import Client
+from django.test import Client, TestCase
 from django.utils import timezone
 
 from apps.core.services import BusinessError
@@ -116,6 +116,32 @@ class Stt74GateCheckin(tf.SlotBase):
         slot = self.make_slot(timezone.now() + timedelta(hours=1))
         with self.assertRaisesMessage(BusinessError, "Tất cả bến đang bận"):
             ps.gate_checkin(slot.trip, self.warehouse_user)
+
+    def test_stt89_busy_gate_records_arrival_and_wait(self):
+        """STT 89: bến bận vẫn ghi giờ tới cổng (xe "Chờ ngoài cổng"); check-in sau không ghi đè -> KPI-4 > 0."""
+        from apps.purchasing.models import InboundTrip
+        from apps.reports.kpi import wait_data
+        b1 = self.make_slot(timezone.now() - timedelta(minutes=10), status="CHECKED_IN")
+        b2 = self.make_slot(timezone.now() - timedelta(minutes=10), dock=self.dock2, status="CHECKED_IN")
+        slot = self.make_slot(timezone.now() + timedelta(minutes=30))
+        c = Client()
+        c.force_login(self.warehouse_user)
+        r = c.post(f"/app/warehouse/slots/{slot.pk}", {"op": "checkin"}, follow=True)
+        self.assertContains(r, "chờ ngoài cổng")
+        t = InboundTrip.objects.get(pk=slot.trip_id)
+        self.assertEqual((t.status, t.get_status_display()), ("ARRIVED", "Chờ ngoài cổng"))
+        self.assertIsNotNone(t.arrived_at)
+        arrived = t.arrived_at - timedelta(minutes=25)                   # xe đã chờ 25 phút
+        InboundTrip.objects.filter(pk=t.pk).update(arrived_at=arrived)
+        UnloadingSlot.objects.filter(pk__in=[b1.pk, b2.pk]).update(status="DONE", end_at=timezone.now() - timedelta(minutes=1))
+        ps.gate_checkin(t, self.warehouse_user)                          # có bến trống: chỉ ghi checked_in_at
+        t.refresh_from_db()
+        slot.refresh_from_db()
+        self.assertEqual(t.arrived_at, arrived)
+        self.assertEqual(slot.status, "CHECKED_IN")
+        self.assertGreaterEqual(slot.wait_minutes, 25)
+        rows = wait_data(TODAY(), TODAY())["rows"]
+        self.assertIn(slot.wait_minutes, [x["wait"] for x in rows])
 
     def test_late_needs_reason_and_trip_without_slot(self):
         slot = self.make_slot(timezone.now() - timedelta(hours=4))
@@ -326,3 +352,16 @@ class Stt64FactoryIsolation(tf.Base):
         c.post(f"/factory/orders/{po_a.pk}", {"note": "giao trễ 1 ngày"})
         po_a.refresh_from_db()
         self.assertEqual((po_a.supplier_ack_by, po_a.supplier_ack_note), (u, "giao trễ 1 ngày"))
+
+
+class Stt90SeedDemo(TestCase):
+    def test_seed_demo_runs_with_two_milestones(self):
+        """STT 90: seed_demo chạy được theo quy trình 2 mốc và có số liệu chờ hạ tải (KPI-4)."""
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.purchasing.models import InboundTrip
+        from apps.reports.kpi import wait_data
+        call_command("seed_demo", stdout=StringIO())
+        waits = [x["wait"] for x in wait_data(TODAY() - timedelta(days=30), TODAY())["rows"]]
+        self.assertTrue(any(w > 0 for w in waits))
+        self.assertTrue(InboundTrip.objects.filter(status="ARRIVED", arrived_at__isnull=False).exists())

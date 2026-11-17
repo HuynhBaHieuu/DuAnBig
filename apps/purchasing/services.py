@@ -629,20 +629,48 @@ def gate_dock(trip, slot=None, now=None):
 def checkin_state(slot, now=None):
     """Tình trạng check-in (màn Lịch hạ tải): late_min = muộn hơn giờ kết thúc slot; need_reason khi muộn quá
     SLOT_CHECKIN_TOLERANCE_MIN; free_now = bến trống đầu tiên ngay lúc này (xe vào luôn, không chờ tới giờ slot);
-    next_free = (bến, giờ) trống sớm nhất khi mọi bến đang bận."""
+    next_free = (bến, giờ) trống sớm nhất khi mọi bến đang bận. Xe đã bấm "Xe tới cổng" (đang chờ bến) -> sớm/muộn
+    tính theo giờ tới cổng, không theo lúc bến trống (STT 89)."""
     now = now or timezone.now()
+    arr = slot.trip.arrived_at or now
     tol = int(param("SLOT_CHECKIN_TOLERANCE_MIN") or 60)
-    early = max(0, int((slot.start_at - now).total_seconds() // 60))
-    late = max(0, int((now - slot.end_at).total_seconds() // 60))
+    early = max(0, int((slot.start_at - arr).total_seconds() // 60))
+    late = max(0, int((arr - slot.end_at).total_seconds() // 60))
     free, nxt, _ = gate_dock(slot.trip, slot, now)
     return {"early_min": early, "late_min": late, "need_reason": late > tol, "tolerance": tol,
             "free_now": free, "next_free": nxt}
 
 
-@transaction.atomic
+class GateBusy(BusinessError):
+    """Mọi bến đang bận: giờ tới cổng ĐÃ được ghi, xe "Chờ ngoài cổng" (không phải lỗi thao tác)."""
+
+
+def gate_arrive(trip):
+    """STT 89: bấm "Xe tới cổng" ghi arrived_at NGAY (kể cả khi mọi bến bận), xe chuyển sang "Chờ ngoài cổng".
+    Bấm lại khi có bến trống không ghi đè giờ tới cổng -> KPI-4 thời gian chờ = checked_in_at − arrived_at.
+    Giao dịch riêng: lỗi ở bước check-in sau đó (bến bận, thiếu lý do) không làm mất giờ tới cổng."""
+    with transaction.atomic():
+        t = InboundTrip.objects.select_for_update().get(pk=trip.pk)
+        if t.status not in ("ARRIVED", "IN_TRANSIT", "LOADED"):
+            raise BusinessError("Xe chưa xuất phát / đã nhập kho – không check-in được.")
+        if not t.arrived_at:
+            t.arrived_at, t.status, t.is_late = timezone.now(), "ARRIVED", False
+            t.save()
+            resolve_alerts("MILESTONE_LATE", "inbound_trip", t.pk)
+    trip.arrived_at, trip.status = t.arrived_at, t.status
+    return t
+
+
 def gate_checkin(trip, user, reason=""):
-    """STT 74 / 49: xe tới cổng -> vào bến trống đầu tiên và check-in ngay (dời lịch đã xếp nếu cần, tạo lịch nếu
-    chưa có). Mọi bến đang bận -> báo giờ bến trống sớm nhất, xe chờ. Tới muộn quá ngưỡng -> bắt nhập lý do."""
+    """STT 74 / 49 / 89: xe tới cổng -> ghi giờ tới cổng, rồi vào bến trống đầu tiên và check-in ngay (dời lịch đã
+    xếp nếu cần, tạo lịch nếu chưa có). Mọi bến đang bận -> GateBusy (giờ tới cổng vẫn lưu, xe chờ ngoài cổng).
+    Tới muộn quá ngưỡng (tính theo giờ tới cổng) -> bắt nhập lý do."""
+    gate_arrive(trip)
+    return _gate_checkin(trip, user, reason)
+
+
+@transaction.atomic
+def _gate_checkin(trip, user, reason=""):
     trip = InboundTrip.objects.select_for_update().select_related("po__warehouse").get(pk=trip.pk)
     if trip.status not in ("ARRIVED", "IN_TRANSIT", "LOADED"):
         raise BusinessError("Xe chưa xuất phát / đã nhập kho – không check-in được.")
@@ -650,16 +678,18 @@ def gate_checkin(trip, user, reason=""):
     if slot and slot.status not in ("PROPOSED", "CONFIRMED"):
         raise BusinessError("Xe đã check-in.")
     now = timezone.now().replace(second=0, microsecond=0)
+    arr = trip.arrived_at or now
     reason = (reason or "").strip()
     tol = int(param("SLOT_CHECKIN_TOLERANCE_MIN") or 60)
-    if slot and (now - slot.end_at) > timedelta(minutes=tol) and not reason:
-        raise BusinessError(f"Xe tới muộn {_dur(int((now - slot.end_at).total_seconds() // 60))} so với lịch "
+    if slot and (arr - slot.end_at) > timedelta(minutes=tol) and not reason:
+        raise BusinessError(f"Xe tới muộn {_dur(int((arr - slot.end_at).total_seconds() // 60))} so với lịch "
                             f"{timezone.localtime(slot.start_at):%H:%M}–{timezone.localtime(slot.end_at):%H:%M}. "
                             "Vui lòng nhập lý do.")
     dock, nxt, dur = gate_dock(trip, slot, now)
     if dock is None:
         when = f" – bến trống sớm nhất {nxt[0].code} lúc {timezone.localtime(nxt[1]):%H:%M}" if nxt and nxt[0] else ""
-        raise BusinessError(f"Tất cả bến đang bận{when}. Xe chờ ngoài cổng.")
+        raise GateBusy(f"Tất cả bến đang bận{when}. Đã ghi giờ tới cổng {timezone.localtime(arr):%H:%M} – "
+                       "xe chờ ngoài cổng, bấm lại khi có bến trống.")
     note = ""
     if slot is None:
         slot = UnloadingSlot.objects.create(trip=trip, dock=dock, start_at=now, end_at=now + dur, status="CONFIRMED")
@@ -685,9 +715,9 @@ def check_in(slot, user, reason=""):
         raise BusinessError("Xe chưa tới cổng.")
     now = timezone.now()
     reason = (reason or "").strip()
-    if not trip.arrived_at:
+    if not trip.arrived_at:  # check-in không qua "Xe tới cổng": coi như tới cổng lúc này (chờ 0 phút)
         trip.arrived_at = now
-    slot.status, slot.checked_in_at = "CHECKED_IN", now
+    slot.status, slot.checked_in_at = "CHECKED_IN", now  # chỉ ghi giờ check-in, không ghi đè giờ tới cổng (STT 89)
     if reason:
         slot.checkin_reason = reason[:255]
     slot.save()

@@ -137,7 +137,7 @@ class PurchaseOrderLine(models.Model):
 
 class InboundTrip(TimeStamped):
     STATUS = [("PLANNED", "Chờ bốc"), ("AT_FACTORY", "Tại nhà máy"), ("LOADED", "Đã bốc"),
-              ("IN_TRANSIT", "Đang vận chuyển"), ("ARRIVED", "Tới cổng"), ("UNLOADING", "Đang hạ tải"),
+              ("IN_TRANSIT", "Đang vận chuyển"), ("ARRIVED", "Chờ ngoài cổng"), ("UNLOADING", "Đang hạ tải"),
               ("RECEIVED", "Đã nhập kho"), ("CANCELLED", "Đã hủy")]
     # 5 cột Kanban của bảng điều phối
     KANBAN = [("Chờ bốc", ["PLANNED", "AT_FACTORY"]), ("Đã bốc", ["LOADED"]), ("Đang đi", ["IN_TRANSIT"]),
