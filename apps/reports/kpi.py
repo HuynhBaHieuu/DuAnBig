@@ -198,6 +198,8 @@ def kpi_cards(d_from, d_to, user=None, trend=True):
     for code, label, unit, target, higher, url, fn in KPI_DEFS:
         v, prev = fn(d_from, d_to), fn(p_from, p_to)
         delta = (v - prev) if (v is not None and prev is not None) else None
+        if delta is not None and abs(delta) < 0.05:  # hiển thị 1 chữ số thập phân: chênh < 0,05 coi như không đổi
+            delta = 0
         card = {"code": code, "label": label, "unit": unit, "target": target, "higher": higher, "value": v,
                 "prev": prev, "delta": delta,
                 "better": None if not delta else (delta > 0) == higher,

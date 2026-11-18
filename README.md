@@ -67,9 +67,18 @@ dời ngày theo hôm nạp; chạy lại bao nhiêu lần cũng về cùng tr�
 $env:USE_SQLITE="1"; $env:SQLITE_NAME="demo.sqlite3"; $env:SUPABASE_URL=""
 python manage.py migrate; python manage.py build_demo
 Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME, Env:SUPABASE_URL
-# 2) Nạp lên Supabase (sao lưu database trước; chạy sau 07:30 trong ngày)
-python manage.py migrate
+# 2) Nạp lên Supabase (sao lưu database trước). Giờ nào cũng được; lệnh tự chạy migrate nếu còn thiếu.
+#    File demo cũ vẫn nạp được sau khi code có migration mới – chỉ khi code thêm cột bắt buộc mới phải dựng lại (bước 1).
 python manage.py load_demo demo.sqlite3 --yes
+```
+
+**Kiểm tra toàn bộ trang sau mỗi lần sửa code** (trên máy, dữ liệu demo – không đụng Supabase, ~20 giây):
+
+```powershell
+$env:USE_SQLITE="1"; $env:SQLITE_NAME="check.sqlite3"; $env:SUPABASE_URL=""
+python manage.py load_demo demo.sqlite3 --yes   # chỉ cần lần đầu, hoặc khi muốn dữ liệu sạch
+python manage.py check_pages                    # mở ~800 trang theo 9 vai trò; báo trang lỗi + file/dòng gây lỗi
+Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME, Env:SUPABASE_URL
 ```
 
 `vercel.json` đặt function ở region **dub1 (Dublin)** cho gần Supabase `eu-west-1`. Nếu project Supabase ở khu vực khác, đổi `regions` cho tương ứng (vd. Singapore `ap-southeast-1` → `sin1`).

@@ -23,7 +23,7 @@
   <div class="grid" style="align-content:start">
     <form method="post" class="card card-body toolbar">{% csrf_token %}<input type="hidden" name="op" value="new_trip"><input type="hidden" name="planned_date" value="{{ date }}">
       <b style="margin-right:8px">Thêm chuyến</b>
-      <select class="input" name="vehicle" style="width:200px" required>{% for v in vehicles %}<option value="{{ v.pk }}">{{ v.plate }} · {{ v.capacity_ton }}t</option>{% endfor %}</select>
+      <select class="input" name="vehicle" style="width:200px" required>{% for v in vehicles %}<option value="{{ v.pk }}">{{ v.plate }} · {{ v.capacity_ton|num:-1 }} tấn</option>{% endfor %}</select>
       <select class="input" name="driver" style="width:300px" required x-data @change="$el.style.color = $el.selectedOptions[0].dataset.busy ? 'var(--danger-ink)' : ''">
         <option value="">— Chọn tài xế —</option>
         {% for d in drivers %}<option value="{{ d.pk }}" {% if d.avail_code != "FREE" %}data-busy="1" style="color:var(--danger-ink)"{% endif %} {% if d.avail_code == "EXPIRED" %}disabled{% endif %}>{{ d.name }} · {{ d.avail_label }}</option>{% endfor %}</select>
@@ -39,7 +39,7 @@
         </div>
         <div class="card-body">
           {% with ton=t.total_ton %}
-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Tải: <b>{{ ton|num:2 }}</b> / {{ t.vehicle.capacity_ton }} tấn</span><span>{{ t.stops.all|length }} điểm giao</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Tải: <b>{{ ton|num:-2 }}</b> / {{ t.vehicle.capacity_ton|num:-1 }} tấn</span><span>{{ t.stops.all|length }} điểm giao</span></div>
           <div class="bar" style="margin-bottom:14px"><i style="width:{% widthratio ton t.vehicle.capacity_ton 100 %}%;background:var(--primary)"></i></div>
           {% endwith %}
           <div class="dropzone" data-trip="{{ t.pk }}" {% if t.status == "PLANNED" %}@dragover.prevent="$el.classList.add('over')" @dragleave="$el.classList.remove('over')" @drop.prevent="drop({{ t.pk }}, $el)"{% endif %}>
@@ -47,7 +47,7 @@
             <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;margin-bottom:6px">
               <span class="avatar sm">{{ s.seq }}</span>
               <div style="flex:1;min-width:0"><b>{{ s.so.code }}</b> · {{ s.so.customer.name|truncatechars:24 }}<div class="text-muted" style="font-size:12px">{{ s.site.name }}</div>
-                <div style="font-size:11px" class="text-muted">{% for l in s.lines.all %}{{ l.so_line.product.code }}×{{ l.qty_planned|qty:l.product }} {% endfor %}</div></div>
+                <div style="font-size:11px" class="text-muted">{% for l in s.lines.all %}{{ l.so_line.product.code }}×{{ l.qty_planned|qty:l.so_line.product }} {% endfor %}</div></div>
               {% if t.status == "PLANNED" %}<button type="button" class="btn btn-outline btn-sm" @click="remove({{ s.pk }})">✕</button>{% else %}{% status_badge s %}{% endif %}
             </div>
             {% empty %}<div class="text-muted" style="text-align:center;padding:16px 0;font-size:13px">{% if t.status == "PLANNED" %}Thả đơn vào đây{% else %}—{% endif %}</div>{% endfor %}

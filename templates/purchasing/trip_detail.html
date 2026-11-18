@@ -16,7 +16,7 @@
 {% if overdue_min %}<div class="flash flash-error"><i data-lucide="alarm-clock"></i><div>Chuyến <b>quá hạn {{ overdue_min|dur }}</b> so với kế hoạch: mốc “{{ next_ms.name }}” dự kiến {{ next_ms.planned_at|vn_dt }} nhưng chưa được cập nhật. Các mốc còn lại đã tự dời lịch (“Dự kiến lại”), ETA được tính lại theo thời gian thực.</div></div>{% endif %}
 <div class="grid g-4" style="margin-bottom:20px">
   {% include "partials/kpi.html" with label="ETA hiện tại" value=trip.eta|vn_dt icon="clock" tone="primary" %}
-  {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|stringformat:"s"|add:" tấn" icon="truck" tone="info" %}
+  {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|num:-1|add:" tấn" icon="truck" tone="info" %}
   {% include "partials/kpi.html" with label="Tài xế" value=trip.driver.name foot=trip.driver.phone icon="user" tone="warn" %}
   {% include "partials/kpi.html" with label="Tổng tải" value=trip.total_ton|num:-1|add:" tấn" foot=trip.carrier.name|default:"Xe nội bộ" icon="weight" tone="success" %}
 </div>
