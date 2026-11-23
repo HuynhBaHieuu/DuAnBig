@@ -9,6 +9,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.db.models import Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from .context_processors import alerts_for
@@ -21,9 +22,15 @@ D0 = Decimal(0)
 
 
 # ------------------------------------------------------------------ Đăng nhập (MH-01)
+def _safe_next(request):
+    nxt = request.GET.get("next") or ""
+    ok = url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+    return nxt if ok else ""
+
+
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect(request.user.home_url)
+        return redirect(_safe_next(request) or request.user.home_url)
     error = None
     if request.method == "POST":
         username = request.POST.get("username", "").strip()
@@ -40,7 +47,7 @@ def login_view(request):
                 user.save(update_fields=["failed_login_count", "locked_until"])
                 login(request, user)
                 audit("LOGIN", user, user=user)
-                return redirect(request.GET.get("next") or user.home_url)
+                return redirect(_safe_next(request) or user.home_url)
             if u:
                 u.failed_login_count += 1
                 if u.failed_login_count >= param("LOGIN_MAX_FAIL", int):
@@ -54,7 +61,68 @@ def login_view(request):
                 audit("LOGIN_FAIL", u, user=u)
             else:
                 error = "Sai tên đăng nhập hoặc mật khẩu."
-    return render(request, "core/login.html", {"error": error})
+        # Post/Redirect/Get: không trả trang từ POST -> F5/Back không hỏi "gửi lại biểu mẫu", không gửi lại mã CSRF cũ
+        request.session["login_error"], request.session["login_username"] = error, username
+        return redirect(request.get_full_path())
+    error = request.session.pop("login_error", None)
+    username = request.session.pop("login_username", "")
+    return render(request, "core/login.html", {"error": error, "username": username, **LANDING})
+
+
+def intro_view(request):
+    """Trang giới thiệu cho người đã đăng nhập (mọi vai trò). Chưa đăng nhập thì trang giới thiệu chính là /login."""
+    if not request.user.is_authenticated:
+        return redirect("/login")
+    return render(request, "core/login.html", {"member": True, **LANDING})
+
+
+def csrf_failure(request, reason=""):
+    """Mã CSRF cũ ở trang đăng nhập (tab mở lâu, đã đăng nhập ở tab khác, bấm Back…): quay lại /login kèm lời nhắc
+    thay vì trang 403. Các trang khác vẫn dùng trang lỗi mặc định của Django."""
+    if request.path.rstrip("/") == "/login":
+        request.session["login_error"] = "Trang đăng nhập đã cũ (mở quá lâu hoặc vừa đăng nhập ở tab khác). Vui lòng đăng nhập lại."
+        request.session["login_username"] = request.POST.get("username", "").strip()
+        return redirect(request.get_full_path())
+    from django.views.csrf import csrf_failure as default_failure
+    return default_failure(request, reason=reason)
+
+
+# Nội dung trang giới thiệu ở /login (ảnh trong static/img/landing, nguồn ghi ở NGUON-ANH.md)
+_IMG = "img/landing/"
+LANDING = {
+    "trail": [
+        {"img": _IMG + "t-xe-tai-deo.webp", "name": "Tuyến đèo", "tag": "Vận tải"},
+        {"img": _IMG + "t-container.webp", "name": "Bãi container", "tag": "Inbound"},
+        {"img": _IMG + "t-thep-cuon.webp", "name": "Thép cuộn", "tag": "Vật tư"},
+        {"img": _IMG + "t-xe-nang.webp", "name": "Xe nâng", "tag": "Kho"},
+        {"img": _IMG + "t-xe-tai-ham.webp", "name": "Chuyến đêm", "tag": "Giao hàng"},
+        {"img": _IMG + "t-kho-ke.webp", "name": "Dãy kệ", "tag": "Tồn kho"},
+        {"img": _IMG + "t-cang.webp", "name": "Cảng biển", "tag": "Inbound"},
+        {"img": _IMG + "t-can-cau.webp", "name": "Công trình", "tag": "Khách hàng"},
+    ],
+    "cases": [
+        {"img": _IMG + "ph-kho-hang.webp", "peek": _IMG + "t-kho-ke.webp", "name": "Kho & Tồn kho", "tag": "WMS",
+         "alt": "Kho hàng với các dãy kệ và pallet"},
+        {"img": _IMG + "ph-thep.webp", "peek": _IMG + "t-thep-cuon.webp", "name": "Dự báo & SS/ROP", "tag": "Vật tư",
+         "alt": "Bó thép thanh xếp chồng"},
+        {"img": _IMG + "ph-cang-inbound.webp", "peek": _IMG + "t-container.webp", "name": "Điều phối Inbound", "tag": "Mốc hành trình",
+         "alt": "Cảng container lúc chạng vạng", "wide": True},
+        {"img": _IMG + "ph-giao-hang.webp", "peek": _IMG + "t-xe-tai-deo.webp", "name": "Giao hàng & POD", "tag": "Outbound",
+         "alt": "Xe nâng xếp hàng lên xe tải"},
+        {"img": _IMG + "ph-cong-trinh.webp", "peek": _IMG + "t-can-cau.webp", "name": "Cổng khách hàng", "tag": "Công trình",
+         "alt": "Công nhân đổ bê tông tại công trình"},
+    ],
+    "services": [
+        {"no": "01", "tag": "Mua hàng", "name": "Mua hàng & Inbound", "img": _IMG + "ph-cang-inbound.webp",
+         "desc": "Đề xuất mua (PR), đơn mua (PO), điều phối inbound theo mốc hành trình và lịch hạ tải tại kho."},
+        {"no": "02", "tag": "Kho", "name": "Kho & Tồn kho", "img": _IMG + "ph-kho-hang.webp",
+         "desc": "Nhập – xuất – kiểm kê, sổ kho, điều chỉnh tồn; cảnh báo mã dưới SS/ROP theo dự báo nhu cầu."},
+        {"no": "03", "tag": "Bán hàng", "name": "Đơn bán & Giao hàng", "img": _IMG + "ph-giao-hang.webp",
+         "desc": "Đơn bán, kế hoạch giao hàng theo tải trọng xe, xác nhận giao hàng POD có ảnh và chữ ký."},
+        {"no": "04", "tag": "Tài chính", "name": "Công nợ & Báo cáo", "img": _IMG + "ph-cong-trinh.webp",
+         "desc": "Công nợ phải thu theo tuổi nợ, chặn đơn khi quá hạn, dashboard KPI riêng cho từng vai trò."},
+    ],
+}
 
 
 @require_POST

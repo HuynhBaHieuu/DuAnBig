@@ -119,6 +119,7 @@ urlpatterns = [
     path("", core.home),
     path("login", core.login_view),                                        # MH-01
     path("logout", core.logout_view),
+    path("gioi-thieu", core.intro_view),                                   # trang giới thiệu cho mọi vai trò đã đăng nhập
     path("app/", include(app_patterns)),
     path("m/", include(mobile_patterns)),
     path("portal/", include(portal_patterns)),

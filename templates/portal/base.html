@@ -12,8 +12,10 @@
       <a href="/portal/orders" class="{% if '/portal/orders' in p %}active{% endif %}">Theo dõi đơn & ETA</a>
       <a href="/portal/documents" class="{% if p == '/portal/documents' %}active{% endif %}">Chứng từ</a>
       <a href="/portal/debts" class="{% if p == '/portal/debts' %}active{% endif %}">Công nợ</a>
+      <a href="/gioi-thieu" class="portal-nav-intro">Giới thiệu</a>{# chỉ hiện trong menu ☰ trên màn hẹp #}
       {% endwith %}
     </nav>
+    <a href="/gioi-thieu" class="portal-intro-btn" title="Trang giới thiệu" aria-label="Trang giới thiệu"><i data-lucide="info"></i></a>
     <div class="user-chip"><div class="user-chip-text"><div class="name">{{ user.display_name }}</div><div class="role">{{ user.customer.name }}</div></div>
       <form method="post" action="/logout">{% csrf_token %}<button class="avatar" style="border:0;cursor:pointer" title="Đăng xuất">{{ user.initials }}</button></form></div>
   </div>

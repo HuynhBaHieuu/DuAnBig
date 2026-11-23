@@ -1,39 +1,137 @@
-{% extends "base.html" %}
-{% block title %}Đăng nhập{% endblock %}
+{% extends "base.html" %}{% load static %}
+{% block title %}{% if member %}Giới thiệu{% else %}Đăng nhập{% endif %}{% endblock %}
+{% block head %}
+  {% comment %}Trang giới thiệu + đăng nhập (MH-01). Bố cục phỏng theo template "Kineta" (Framer), tông đen–cam TRACON 80.
+     BBH Bartle chỉ có chữ Latin không dấu -> chỉ dùng cho chữ "TRACON 80"; chữ to có dấu dùng Archivo bản rộng (wdth 125).{% endcomment %}
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800;125,900&family=BBH+Bartle&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@1,6..72,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}?v=6">
+{% endblock %}
 {% block body %}
-<div class="login-wrap">
-  <div class="login-art">
-    <div style="display:flex;align-items:center;gap:12px;position:relative;z-index:1">
-      <div class="brand-mark"><span></span><span></span><span></span><span></span></div>
-      <div class="brand-name" style="color:#fff">TRACON 80</div>
+<div class="ld" id="top"{% if member %} data-home="{{ user.home_url }}"{% endif %}>
+
+  {# ===== Thanh trên cố định ===== #}
+  <header class="ld-header">
+    <a href="#top" class="ld-logo" aria-label="TRACON 80 – về đầu trang"><span class="ld-logo-ring"></span><span class="ld-logo-text">TRACON 80</span></a>
+    <div class="ld-header-right">
+      <button type="button" class="ld-btn ld-btn-sm" data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</button>
+      <button type="button" class="ld-burger" aria-label="Mở menu" aria-expanded="false" aria-controls="ld-menu" data-menu-toggle><span></span><span></span></button>
     </div>
-    <div style="position:relative;z-index:1;max-width:460px">
-      <h1 style="font-size:40px;line-height:1.15;margin:0 0 16px;letter-spacing:-.02em">Quản lý chuỗi cung ứng, <span style="color:var(--primary)">kho & đơn hàng</span></h1>
-      <p style="opacity:.8;font-size:16px;line-height:1.6;margin:0">Mua hàng → Inbound theo mốc hành trình → Nhập kho → Đơn bán → Giao hàng POD → Công nợ. Một hệ thống cho toàn bộ TRACON 80.</p>
-      <div style="display:flex;gap:28px;margin-top:36px">
-        <div><div style="font-size:26px;font-weight:700">9</div><div style="opacity:.7;font-size:13px">vai trò RBAC</div></div>
-        <div><div style="font-size:26px;font-weight:700">13</div><div style="opacity:.7;font-size:13px">module nghiệp vụ</div></div>
-        <div><div style="font-size:26px;font-weight:700">0</div><div style="opacity:.7;font-size:13px">phụ thuộc GPS</div></div>
+  </header>
+
+  {# ===== Menu toàn màn hình (cam) ===== #}
+  <nav class="ld-menu" id="ld-menu" aria-hidden="true">
+    <a href="#gioi-thieu" data-menu-link>Giới thiệu</a>
+    <a href="#phan-he" data-menu-link>Phân hệ</a>
+    <a href="#dang-nhap" data-menu-link data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</a>
+  </nav>
+
+  {# ===== Hero ===== #}
+  <section class="ld-hero" data-trail>
+    <div class="ld-hero-bg" data-parallax="0.35"><img src="{% static 'img/landing/hero-xe-tai-hoang-hon.webp' %}" alt="Đoàn xe tải chạy trên cao tốc lúc hoàng hôn" fetchpriority="high"></div>
+    <div class="ld-hero-tint"></div>
+    <div class="ld-hero-center">
+      <h1 class="ld-wordmark">TRACON 80</h1>
+      <p class="ld-eyebrow">Kho bãi · Điều phối · Giao hàng</p>    </div>
+    {# vệt ảnh chạy theo chuột: JS lấy lần lượt từng khung #}
+    <div class="ld-trail" aria-hidden="true">
+      {% for t in trail %}<figure class="ld-trail-item"><img src="{% static t.img %}" alt=""><figcaption><span>{{ t.name }}</span><span>{{ t.tag }}</span></figcaption></figure>{% endfor %}
+    </div>
+  </section>
+
+  {# ===== Giới thiệu ===== #}
+  <section class="ld-about" id="gioi-thieu">
+    <h2 class="ld-statement" data-words>Chúng tôi đưa <em>xi măng, thép và vật tư</em> từ cảng, từ kho <em>đến đúng công trình</em> — đúng giờ, đúng số lượng, có chứng từ cho từng chuyến xe.</h2>
+    <div class="ld-about-grid">
+      <div class="ld-about-img" data-blur-in><img src="{% static 'img/landing/gt-xe-nang-kho.webp' %}" alt="Xe nâng trong kho hàng" loading="lazy"></div>
+      <div class="ld-about-text">
+        <p>TRACON 80 là hệ thống quản lý chuỗi cung ứng và điều phối vận tải nội bộ của Công ty TNHH TRACON 80. Một luồng dữ liệu duy nhất đi từ đề xuất mua, inbound theo mốc hành trình, nhập kho, đơn bán, giao hàng có xác nhận POD cho tới công nợ — mỗi vai trò thấy đúng phần việc của mình.</p>
+        <dl class="ld-stats">
+          <div><dt>9</dt><dd>vai trò phân quyền</dd></div>
+          <div><dt>13</dt><dd>phân hệ nghiệp vụ</dd></div>
+          <div><dt>0</dt><dd>phụ thuộc GPS</dd></div>
+        </dl>
+        <button type="button" class="ld-btn" data-login-open>{% if member %}Quay lại hệ thống{% else %}Đăng nhập hệ thống{% endif %}</button>
       </div>
     </div>
-    <div style="opacity:.6;font-size:12px;position:relative;z-index:1">© Công ty TNHH TRACON 80</div>
-  </div>
-  <div class="login-form">
-    <form method="post" style="width:100%;max-width:380px">{% csrf_token %}
-      <h2 style="font-size:28px;margin:0 0 6px">Đăng nhập</h2>
-      <p class="text-muted" style="margin:0 0 28px">Chào mừng trở lại! Nhập tài khoản được cấp.</p>
-      {% if error %}<div class="flash flash-error"><i data-lucide="alert-octagon"></i><div>{{ error }}</div></div>{% endif %}
-      <div class="field" style="margin-bottom:16px"><label>Tên đăng nhập</label>
-        <input name="username" autofocus required value="{{ request.POST.username|default:'' }}" placeholder="vd: director"></div>
-      <div class="field" style="margin-bottom:24px" x-data="{s:false}"><label>Mật khẩu</label>
-        <div style="position:relative">
-          <input :type="s?'text':'password'" name="password" required placeholder="••••••••">
-          <button type="button" @click="s=!s" style="position:absolute;right:10px;top:9px;border:0;background:none;color:var(--muted);cursor:pointer;font-size:12px" x-text="s?'Ẩn':'Hiện'"></button>
-        </div>
+  </section>
+
+  {# ===== Phân hệ nổi bật (lưới ảnh 2-1-2) ===== #}
+  <section class="ld-cases" id="phan-he">
+    <div class="ld-cases-head">
+      <h2 class="ld-h2 ld-upper" data-blur-in>Phân hệ nổi bật</h2>
+      <button type="button" class="ld-btn" data-login-open>Vào hệ thống</button>
+    </div>
+    <div class="ld-cases-grid">
+      {% for c in cases %}
+      <button type="button" class="ld-case{% if c.wide %} is-wide{% endif %}" data-login-open data-peek="{% static c.peek %}" data-peek-name="{{ c.name }}" data-peek-tag="{{ c.tag }}" aria-label="{{ c.name }} – {% if member %}vào hệ thống{% else %}đăng nhập để sử dụng{% endif %}">
+        <span class="ld-case-img"><img src="{% static c.img %}" alt="{{ c.alt }}" loading="lazy"></span>
+        <span class="ld-case-cap"><span>{{ c.name }}</span><span>{{ c.tag }}</span></span>
+      </button>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ===== Danh sách phân hệ ===== #}
+  <section class="ld-services">
+    <p class="ld-eyebrow">— Phân hệ</p>
+    <h2 class="ld-h2" data-blur-in>Một hệ thống, trọn chuỗi.</h2>
+    <div class="ld-svc-list">
+      {% for s in services %}
+      <div class="ld-svc" data-peek="{% static s.img %}" data-peek-tall>
+        <p class="ld-eyebrow">{{ s.no }} — {{ s.tag }}</p>
+        <h3 class="ld-h2">{{ s.name }}</h3>
+        <p class="ld-svc-desc">{{ s.desc }}</p>
       </div>
-      <button class="btn btn-primary btn-lg" style="width:100%">Đăng nhập</button>
-      <p class="text-muted" style="font-size:12px;margin-top:20px;text-align:center">Tài khoản sẽ bị khóa 15 phút nếu nhập sai mật khẩu 5 lần.</p>
-    </form>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ===== Đăng nhập (khối cuối trang, trùng form với ngăn kéo) ===== #}
+  <section class="ld-cta" id="dang-nhap">
+    <p class="ld-eyebrow">{% if member %}— {{ user.display_name }} · {{ user.get_role_display }}{% else %}— Tài khoản nội bộ{% endif %}</p>
+    <h2 class="ld-h2" data-blur-in>Sẵn sàng vào ca?</h2>
+    <button type="button" class="ld-btn ld-btn-solid" data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</button>
+  </section>
+
+  {# ===== Chân trang ===== #}
+  <footer class="ld-footer">
+    <div class="ld-footer-top">
+      <ul><li><a href="#phan-he">Mua hàng &amp; Inbound</a></li><li><a href="#phan-he">Kho &amp; Tồn kho</a></li><li><a href="#phan-he">Đơn bán &amp; Giao hàng</a></li><li><a href="#phan-he">Công nợ &amp; Báo cáo</a></li></ul>
+      <ul><li><a href="#top">Trang đầu</a></li><li><a href="#gioi-thieu">Giới thiệu</a></li><li><a href="#phan-he">Phân hệ</a></li><li><a href="#dang-nhap" data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</a></li></ul>
+      <ul class="ld-footer-right"><li>Công ty TNHH TRACON 80</li><li>Hệ thống WMS nội bộ</li><li>Tài khoản do quản trị viên cấp</li></ul>
+    </div>
+    <div class="ld-footer-mark" aria-hidden="true"><span data-fit>TRACON 80</span></div>
+    <div class="ld-footer-bottom"><span>© {% now "Y" %} TRACON 80</span><span>Quản lý chuỗi cung ứng &amp; điều phối vận tải</span></div>
+  </footer>
+
+  {# ===== Ảnh xem trước bám theo chuột (dùng chung cho thẻ & hàng phân hệ) ===== #}
+  <div class="ld-peek" aria-hidden="true"><img alt=""><div class="ld-peek-cap"><span></span><span></span></div></div>
+
+  {# ===== Ngăn kéo đăng nhập (chỉ khi chưa đăng nhập; /gioi-thieu cho người đã đăng nhập thì các nút dẫn về trang chủ vai trò) ===== #}
+  {% if not member %}
+  <div class="ld-login{% if error or request.GET.next %} is-open{% endif %}" id="ld-login" role="dialog" aria-modal="true" aria-labelledby="ld-login-title" {% if not error and not request.GET.next %}aria-hidden="true"{% endif %}>
+    <div class="ld-login-backdrop" data-login-close></div>
+    <div class="ld-login-panel">
+      <button type="button" class="ld-login-x" aria-label="Đóng" data-login-close><span></span><span></span></button>
+      <form method="post" class="ld-form">{% csrf_token %}
+        <p class="ld-eyebrow">— TRACON 80 WMS</p>
+        <h2 id="ld-login-title" class="ld-h2">Đăng nhập</h2>
+        <p class="ld-form-sub">Chào mừng trở lại! Nhập tài khoản được cấp.</p>
+        {% if error %}<div class="ld-error" role="alert">{{ error }}</div>{% endif %}
+        <label class="ld-field"><span>Tên đăng nhập</span>
+          <input name="username" autocomplete="username" required value="{{ username|default:'' }}" placeholder="vd: director"></label>
+        <label class="ld-field"><span>Mật khẩu</span>
+          <span class="ld-pw"><input type="password" name="password" autocomplete="current-password" required placeholder="••••••••">
+            <button type="button" class="ld-pw-toggle" data-pw-toggle aria-label="Hiện mật khẩu">Hiện</button></span></label>
+        <button class="ld-btn ld-btn-solid ld-btn-block">Đăng nhập</button>
+        <p class="ld-form-note">Tài khoản sẽ bị khóa 15 phút nếu nhập sai mật khẩu 5 lần.</p>
+      </form>
+    </div>
   </div>
+  {% endif %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'js/vendor/lenis-1.1.13.min.js' %}"></script>
+<script src="{% static 'js/landing.js' %}?v=3"></script>
 {% endblock %}

@@ -27,6 +27,7 @@
         <input name="q" value="{{ request.GET.q|default:'' }}" placeholder="Tìm mã chứng từ, sản phẩm, khách hàng...">
       </form>
       <div style="flex:1"></div>
+      <a href="/gioi-thieu" class="icon-btn" title="Trang giới thiệu" aria-label="Trang giới thiệu"><i data-lucide="info"></i></a>
       <a href="/app/alerts" class="icon-btn" title="Cảnh báo"><i data-lucide="bell"></i>{% if alert_count %}<span class="dot"></span>{% endif %}</a>
       <a href="/app/reports/" class="icon-btn" title="Báo cáo"><i data-lucide="bar-chart-3"></i></a>
       <div class="user-chip" x-data="{o:false}" style="position:relative">

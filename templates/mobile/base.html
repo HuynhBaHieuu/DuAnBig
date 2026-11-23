@@ -7,7 +7,10 @@
         {% block back %}<div class="brand-mark"><span></span><span></span><span></span><span></span></div>{% endblock %}
         <div><div style="font-size:12px;opacity:.75">{% block kicker %}TRACON 80 · Tài xế{% endblock %}</div><div style="font-size:20px;font-weight:700">{% block heading %}{{ title }}{% endblock %}</div></div>
       </div>
-      <form method="post" action="/logout">{% csrf_token %}<button style="background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:50%;width:38px;height:38px;cursor:pointer" title="Đăng xuất"><i data-lucide="log-out" style="width:18px"></i></button></form>
+      <div style="display:flex;gap:8px">
+        <a href="/gioi-thieu" style="background:rgba(255,255,255,.15);color:#fff;border-radius:50%;width:38px;height:38px;display:grid;place-items:center" title="Trang giới thiệu" aria-label="Trang giới thiệu"><i data-lucide="info" style="width:18px"></i></a>
+        <form method="post" action="/logout">{% csrf_token %}<button style="background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:50%;width:38px;height:38px;cursor:pointer" title="Đăng xuất"><i data-lucide="log-out" style="width:18px"></i></button></form>
+      </div>
     </div>
   </div>
   <div class="m-body">

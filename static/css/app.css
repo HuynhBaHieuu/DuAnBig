@@ -570,19 +570,35 @@ a.dz-card:hover { box-shadow: 0 0 0 2px var(--primary-100); }
 @media (max-width: 480px) { .dz-mini-grid { grid-template-columns: 1fr; } .dz-pin span:last-child { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
 
 /* ---------- Gà STT 91: cổng khách hàng trên điện thoại ---------- */
-.portal-bar { max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 28px; }
+.portal-bar { max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; gap: 20px; }
 .portal-brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.portal-nav { flex: 1; }
+.portal-nav { flex: 1 0 auto; } /* không co nhỏ hơn nội dung -> mục menu không đè lên nút ⓘ */
+.portal-nav a { white-space: nowrap; padding: 9px 13px; } /* mỗi mục 1 dòng, không bẻ chữ */
+.portal-nav-intro { display: none; }
+.portal-intro-btn { flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+  color: #fff; background: rgba(255,255,255,.1); transition: background .15s; }
+.portal-intro-btn:hover { background: rgba(255,255,255,.18); }
+.portal-intro-btn svg { width: 20px; height: 20px; }
+.portal-top .user-chip { min-width: 0; }
+.portal-top .user-chip-text { min-width: 0; max-width: 200px; }
+.portal-top .user-chip-text .name, .portal-top .user-chip-text .role { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.portal-top .user-chip .avatar { flex-shrink: 0; }
 .portal-burger { display: none; margin-left: auto; width: 42px; height: 42px; border-radius: 12px; border: 0; cursor: pointer;
   background: rgba(255,255,255,.1); color: #fff; place-items: center; }
 .portal-burger svg { width: 20px; height: 20px; }
 .portal-main { max-width: 1200px; margin: 0 auto; padding: 28px 24px 60px; }
-@media (max-width: 900px) {
+/* menu cổng khách thu vào ☰ khi không đủ chỗ cho 1 hàng (logo + 5 mục + nút ⓘ + tên ≈ 1180px) */
+@media (max-width: 1180px) {
+  .portal-nav { flex: 1 1 100%; }
   .portal-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
   .portal-burger { display: grid; }
   .portal-nav { display: none; order: 9; flex-basis: 100%; flex-direction: column; gap: 2px; padding-bottom: 8px; }
   .portal-nav.open { display: flex; }
   .portal-nav a { margin: 0; }
+  .portal-nav-intro { display: block; }
+  .portal-intro-btn { display: none; }
+}
+@media (max-width: 900px) {
   .portal-top .user-chip { padding: 3px; }
   .portal-top .user-chip-text { display: none; }
   .portal-main { padding: 18px 16px 48px; }

@@ -15,6 +15,7 @@ DEBUG = os.getenv("DJANGO_DEBUG", "0" if ON_VERCEL else "1") == "1"
 ALLOWED_HOSTS = [h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",") if h.strip()]
 if ON_VERCEL:
     ALLOWED_HOSTS += [".vercel.app"]
+CSRF_FAILURE_VIEW = "apps.core.views.csrf_failure"  # trang đăng nhập: mã CSRF cũ -> quay lại /login có lời nhắc
 CSRF_TRUSTED_ORIGINS = ["https://*.vercel.app"] + [
     o.strip() for o in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if o.strip()]
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
