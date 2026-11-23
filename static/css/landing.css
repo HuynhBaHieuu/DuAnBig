@@ -120,7 +120,8 @@ html.lenis, html.lenis body { height: auto; }
 .ld-about-img img { width: 100%; height: 100%; object-fit: cover; }
 .ld-about-text { padding: 0 96px 0 72px; max-width: 632px; }
 .ld-about-text p { font-size: 16px; line-height: 19.2px; }
-.ld-stats { display: flex; gap: 40px; margin: 36px 0 40px; }
+.ld-about-addr { margin-top: 14px !important; font-size: 11px !important; line-height: 13.2px !important; letter-spacing: .02em; text-transform: uppercase; color: var(--ld-dim); }
+.ld-stats { display: flex; flex-wrap: wrap; gap: 28px 36px; margin: 36px 0 40px; }
 .ld-stats dt { font-family: var(--ld-display); font-variation-settings: "wdth" 125; font-weight: 800; font-size: 28px; line-height: 1; color: var(--ld-accent); }
 .ld-stats dd { margin-top: 8px; font-size: 11px; line-height: 13.2px; letter-spacing: .02em; text-transform: uppercase; color: var(--ld-dim); }
 
@@ -132,12 +133,19 @@ html.lenis, html.lenis body { height: auto; }
 .ld-cases { padding: 400px var(--ld-gutter) 0; }
 .ld-cases-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 32px; }
 .ld-cases-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.ld-case { position: relative; display: block; width: 100%; text-align: left; cursor: pointer; }
+.ld-case { position: relative; display: block; width: 100%; text-align: left; }
+button.ld-case { cursor: pointer; }
 .ld-case.is-wide { grid-column: 1 / -1; }
 .ld-case-img { display: block; height: 598px; overflow: hidden; background: #111; }
 .ld-case-img img { width: 100%; height: 100%; object-fit: cover; transition: transform 1.2s cubic-bezier(.2,.7,.2,1), filter .6s; }
 .ld-case:hover .ld-case-img img { transform: scale(1.03); }
 .ld-case-cap { display: none; }
+/* khối "Nguồn hàng": 2 nhà máy cạnh nhau, ảnh ngang, tên nhà máy luôn hiện dưới ảnh */
+.ld-cases-tight { padding-top: 200px; }
+.ld-cases-note { max-width: 420px; font-size: 16px; line-height: 19.2px; color: var(--ld-soft); text-align: right; }
+.ld-cases-grid.is-pair .ld-case-img { height: auto; aspect-ratio: 16 / 10; }
+.ld-case-cap.is-always { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 14px 2px 0; font-size: 20px; line-height: 1.2; letter-spacing: -.01em; }
+.ld-case-cap.is-always span:last-child { font-family: var(--ld-mono); font-size: 11px; text-transform: uppercase; color: var(--ld-dim); }
 
 /* ảnh xem trước bám chuột */
 .ld-peek { position: fixed; left: 0; top: 0; z-index: 30; width: 220px; height: 220px; pointer-events: none; overflow: hidden;
@@ -235,6 +243,8 @@ html.lenis, html.lenis body { height: auto; }
   .ld-stats { gap: 24px; }
   .ld-cases { padding-top: 160px; }
   .ld-cases-head { flex-direction: column; align-items: flex-start; margin-bottom: 24px; }
+  .ld-cases-note { text-align: left; }
+  .ld-cases-tight { padding-top: 120px; }
   .ld-cases-grid { grid-template-columns: 1fr; gap: 24px; }
   .ld-case { cursor: pointer; }
   .ld-case-img { height: auto; aspect-ratio: 5 / 6; }

@@ -87,39 +87,63 @@ def csrf_failure(request, reason=""):
     return default_failure(request, reason=reason)
 
 
-# Nội dung trang giới thiệu ở /login (ảnh trong static/img/landing, nguồn ghi ở NGUON-ANH.md)
+# Nội dung trang giới thiệu ở /login và /gioi-thieu (ảnh trong static/img/landing, nguồn ghi ở NGUON-ANH.md).
+# Ảnh nhà máy lấy từ trang chính thức của Xi măng Nghi Sơn (nghison.com.vn) và Vicem Hoàng Mai (ximanghoangmai.vn).
 _IMG = "img/landing/"
 LANDING = {
+    "company": {
+        "name": "Công ty TNHH TRACON 80",
+        "address": "18/11 Hàn Thuyên, Nam Đông Hà, tỉnh Quảng Trị",
+        "slogan": "Đúng vật tư – Đúng thời điểm – Đúng công trình",
+    },
+    "stats": [("2024", "năm thành lập"), ("47", "nhân sự"), ("4", "nhóm hàng"), ("2", "nhà máy cung ứng")],
     "trail": [
-        {"img": _IMG + "t-xe-tai-deo.webp", "name": "Tuyến đèo", "tag": "Vận tải"},
-        {"img": _IMG + "t-container.webp", "name": "Bãi container", "tag": "Inbound"},
-        {"img": _IMG + "t-thep-cuon.webp", "name": "Thép cuộn", "tag": "Vật tư"},
-        {"img": _IMG + "t-xe-nang.webp", "name": "Xe nâng", "tag": "Kho"},
-        {"img": _IMG + "t-xe-tai-ham.webp", "name": "Chuyến đêm", "tag": "Giao hàng"},
-        {"img": _IMG + "t-kho-ke.webp", "name": "Dãy kệ", "tag": "Tồn kho"},
-        {"img": _IMG + "t-cang.webp", "name": "Cảng biển", "tag": "Inbound"},
-        {"img": _IMG + "t-can-cau.webp", "name": "Công trình", "tag": "Khách hàng"},
+        {"img": _IMG + "t-xi-mang-bao.webp", "name": "Xi măng bao", "tag": "Chủ lực"},
+        {"img": _IMG + "t-nghi-son.webp", "name": "Nghi Sơn", "tag": "Thanh Hóa"},
+        {"img": _IMG + "t-thep-cuon.webp", "name": "Thép cuộn", "tag": "Thép"},
+        {"img": _IMG + "t-xe-cau.webp", "name": "Xe cẩu", "tag": "Đội xe"},
+        {"img": _IMG + "t-ton.webp", "name": "Tôn lợp", "tag": "Tôn"},
+        {"img": _IMG + "t-hoang-mai.webp", "name": "Hoàng Mai", "tag": "Nghệ An"},
+        {"img": _IMG + "t-ong-nhua.webp", "name": "Ống nhựa", "tag": "Ống"},
+        {"img": _IMG + "t-xe-nang.webp", "name": "Xe nâng", "tag": "Kho tổng"},
+        {"img": _IMG + "t-cong-trinh.webp", "name": "Công trình", "tag": "Thi công"},
+        {"img": _IMG + "t-xe-tai-deo.webp", "name": "Giao hàng", "tag": "Quảng Trị"},
     ],
+    # Nhóm hàng – lưới 2-1-2
     "cases": [
-        {"img": _IMG + "ph-kho-hang.webp", "peek": _IMG + "t-kho-ke.webp", "name": "Kho & Tồn kho", "tag": "WMS",
-         "alt": "Kho hàng với các dãy kệ và pallet"},
-        {"img": _IMG + "ph-thep.webp", "peek": _IMG + "t-thep-cuon.webp", "name": "Dự báo & SS/ROP", "tag": "Vật tư",
-         "alt": "Bó thép thanh xếp chồng"},
-        {"img": _IMG + "ph-cang-inbound.webp", "peek": _IMG + "t-container.webp", "name": "Điều phối Inbound", "tag": "Mốc hành trình",
-         "alt": "Cảng container lúc chạng vạng", "wide": True},
-        {"img": _IMG + "ph-giao-hang.webp", "peek": _IMG + "t-xe-tai-deo.webp", "name": "Giao hàng & POD", "tag": "Outbound",
-         "alt": "Xe nâng xếp hàng lên xe tải"},
-        {"img": _IMG + "ph-cong-trinh.webp", "peek": _IMG + "t-can-cau.webp", "name": "Cổng khách hàng", "tag": "Công trình",
-         "alt": "Công nhân đổ bê tông tại công trình"},
+        {"img": _IMG + "nh-xi-mang-bao.webp", "peek": _IMG + "t-xi-mang-bao.webp", "name": "Xi măng bao", "tag": "Mặt hàng chủ lực",
+         "alt": "Bao xi măng xếp chồng trong kho"},
+        {"img": _IMG + "nm-nghi-son-silo.webp", "peek": _IMG + "t-nghi-son.webp", "name": "Xi măng rời PCB40", "tag": "Xe bồn",
+         "alt": "Silo xi măng rời và xe nhận hàng tại nhà máy Nghi Sơn"},
+        {"img": _IMG + "nh-thep.webp", "peek": _IMG + "t-thep-kho.webp", "name": "Thép", "tag": "Thép xây dựng",
+         "alt": "Bó thép xây dựng", "wide": True},
+        {"img": _IMG + "nh-ton.webp", "peek": _IMG + "t-ton.webp", "name": "Tôn", "tag": "Tôn lợp",
+         "alt": "Tấm tôn sóng"},
+        {"img": _IMG + "nh-ong-nhua.webp", "peek": _IMG + "t-ong-nhua.webp", "name": "Ống nhựa", "tag": "Ống",
+         "alt": "Ống nhựa xếp chồng"},
     ],
+    # Nhà máy cung ứng xi măng & VLXD (ảnh chính thức của nhà máy)
+    "factories": [
+        {"img": _IMG + "nm-nghi-son.webp", "peek": _IMG + "nm-nghi-son-thap.webp", "name": "Xi măng Nghi Sơn", "tag": "Thanh Hóa",
+         "alt": "Nhà máy Xi măng Nghi Sơn, Thanh Hóa"},
+        {"img": _IMG + "nm-hoang-mai.webp", "peek": _IMG + "nm-hoang-mai-cong.webp", "name": "Vicem Hoàng Mai", "tag": "Nghệ An",
+         "alt": "Nhà máy Xi măng Vicem Hoàng Mai, Nghệ An"},
+    ],
+    "customers": [
+        {"no": "01", "tag": "B2B", "name": "Doanh nghiệp xây dựng", "img": _IMG + "kh-nha-thau.webp",
+         "desc": "Các công ty xây dựng, nhà thầu ở phía Nam Quảng Trị: TX. Quảng Trị, Hải Lăng, Triệu Phong."},
+        {"no": "02", "tag": "Nội bộ", "name": "Công trình nội bộ", "img": _IMG + "kh-noi-bo.webp",
+         "desc": "Các công trình do chính TRACON 80 thi công — vật tư cấp thẳng từ kho tổng Quảng Trị."},
+    ],
+    # Phân hệ của hệ thống quản lý (trang này cũng là cổng đăng nhập)
     "services": [
-        {"no": "01", "tag": "Mua hàng", "name": "Mua hàng & Inbound", "img": _IMG + "ph-cang-inbound.webp",
-         "desc": "Đề xuất mua (PR), đơn mua (PO), điều phối inbound theo mốc hành trình và lịch hạ tải tại kho."},
-        {"no": "02", "tag": "Kho", "name": "Kho & Tồn kho", "img": _IMG + "ph-kho-hang.webp",
+        {"no": "01", "tag": "Mua hàng", "name": "Mua hàng & Inbound", "img": _IMG + "nm-nghi-son-silo.webp",
+         "desc": "Đề xuất mua (PR), đơn mua (PO) tới nhà máy, điều phối xe nhận hàng theo mốc hành trình và lịch hạ tải tại kho."},
+        {"no": "02", "tag": "Kho", "name": "Kho & Tồn kho", "img": _IMG + "ph-thep-kho.webp",
          "desc": "Nhập – xuất – kiểm kê, sổ kho, điều chỉnh tồn; cảnh báo mã dưới SS/ROP theo dự báo nhu cầu."},
         {"no": "03", "tag": "Bán hàng", "name": "Đơn bán & Giao hàng", "img": _IMG + "ph-giao-hang.webp",
          "desc": "Đơn bán, kế hoạch giao hàng theo tải trọng xe, xác nhận giao hàng POD có ảnh và chữ ký."},
-        {"no": "04", "tag": "Tài chính", "name": "Công nợ & Báo cáo", "img": _IMG + "ph-cong-trinh.webp",
+        {"no": "04", "tag": "Tài chính", "name": "Công nợ & Báo cáo", "img": _IMG + "kh-nha-thau.webp",
          "desc": "Công nợ phải thu theo tuổi nợ, chặn đơn khi quá hạn, dashboard KPI riêng cho từng vai trò."},
     ],
 }

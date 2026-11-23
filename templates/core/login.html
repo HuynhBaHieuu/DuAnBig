@@ -4,7 +4,7 @@
   {% comment %}Trang giới thiệu + đăng nhập (MH-01). Bố cục phỏng theo template "Kineta" (Framer), tông đen–cam TRACON 80.
      BBH Bartle chỉ có chữ Latin không dấu -> chỉ dùng cho chữ "TRACON 80"; chữ to có dấu dùng Archivo bản rộng (wdth 125).{% endcomment %}
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800;125,900&family=BBH+Bartle&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@1,6..72,500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/landing.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}?v=7">
 {% endblock %}
 {% block body %}
 <div class="ld" id="top"{% if member %} data-home="{{ user.home_url }}"{% endif %}>
@@ -21,59 +21,91 @@
   {# ===== Menu toàn màn hình (cam) ===== #}
   <nav class="ld-menu" id="ld-menu" aria-hidden="true">
     <a href="#gioi-thieu" data-menu-link>Giới thiệu</a>
-    <a href="#phan-he" data-menu-link>Phân hệ</a>
+    <a href="#nhom-hang" data-menu-link>Nhóm hàng</a>
+    <a href="#nguon-hang" data-menu-link>Nguồn hàng</a>
     <a href="#dang-nhap" data-menu-link data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</a>
   </nav>
 
   {# ===== Hero ===== #}
   <section class="ld-hero" data-trail>
-    <div class="ld-hero-bg" data-parallax="0.35"><img src="{% static 'img/landing/hero-xe-tai-hoang-hon.webp' %}" alt="Đoàn xe tải chạy trên cao tốc lúc hoàng hôn" fetchpriority="high"></div>
+    <div class="ld-hero-bg" data-parallax="0.35"><img src="{% static 'img/landing/hero-xe-tai-hoang-hon.webp' %}" alt="Xe tải chở vật liệu xây dựng trên đường lúc hoàng hôn" fetchpriority="high"></div>
     <div class="ld-hero-tint"></div>
     <div class="ld-hero-center">
       <h1 class="ld-wordmark">TRACON 80</h1>
-      <p class="ld-eyebrow">Kho bãi · Điều phối · Giao hàng</p>    </div>
+      <p class="ld-eyebrow">Đúng vật tư · Đúng thời điểm · Đúng công trình</p>
+    </div>
     {# vệt ảnh chạy theo chuột: JS lấy lần lượt từng khung #}
     <div class="ld-trail" aria-hidden="true">
       {% for t in trail %}<figure class="ld-trail-item"><img src="{% static t.img %}" alt=""><figcaption><span>{{ t.name }}</span><span>{{ t.tag }}</span></figcaption></figure>{% endfor %}
     </div>
   </section>
 
-  {# ===== Giới thiệu ===== #}
+  {# ===== Giới thiệu công ty ===== #}
   <section class="ld-about" id="gioi-thieu">
-    <h2 class="ld-statement" data-words>Chúng tôi đưa <em>xi măng, thép và vật tư</em> từ cảng, từ kho <em>đến đúng công trình</em> — đúng giờ, đúng số lượng, có chứng từ cho từng chuyến xe.</h2>
+    <h2 class="ld-statement" data-words>Chúng tôi đưa <em>xi măng, thép, tôn và ống nhựa</em> từ kho tổng Quảng Trị <em>đến đúng công trình</em> — đúng vật tư, đúng thời điểm.</h2>
     <div class="ld-about-grid">
-      <div class="ld-about-img" data-blur-in><img src="{% static 'img/landing/gt-xe-nang-kho.webp' %}" alt="Xe nâng trong kho hàng" loading="lazy"></div>
+      <div class="ld-about-img" data-blur-in><img src="{% static 'img/landing/ph-xe-cau.webp' %}" alt="Xe cẩu tự hành chở vật liệu" loading="lazy"></div>
       <div class="ld-about-text">
-        <p>TRACON 80 là hệ thống quản lý chuỗi cung ứng và điều phối vận tải nội bộ của Công ty TNHH TRACON 80. Một luồng dữ liệu duy nhất đi từ đề xuất mua, inbound theo mốc hành trình, nhập kho, đơn bán, giao hàng có xác nhận POD cho tới công nợ — mỗi vai trò thấy đúng phần việc của mình.</p>
+        <p>{{ company.name }} có trụ sở và kho tổng tại tỉnh Quảng Trị, kinh doanh vật liệu xây dựng và thi công công trình. Với kho tổng Quảng Trị, đội xe nội bộ, cẩu và xe nâng, chúng tôi cung ứng vật tư cho các nhà thầu phía Nam Quảng Trị và cho chính những công trình do TRACON 80 thi công.</p>
+        <p class="ld-about-addr">{{ company.address }}</p>
         <dl class="ld-stats">
-          <div><dt>9</dt><dd>vai trò phân quyền</dd></div>
-          <div><dt>13</dt><dd>phân hệ nghiệp vụ</dd></div>
-          <div><dt>0</dt><dd>phụ thuộc GPS</dd></div>
+          {% for v, k in stats %}<div><dt>{{ v }}</dt><dd>{{ k }}</dd></div>{% endfor %}
         </dl>
         <button type="button" class="ld-btn" data-login-open>{% if member %}Quay lại hệ thống{% else %}Đăng nhập hệ thống{% endif %}</button>
       </div>
     </div>
   </section>
 
-  {# ===== Phân hệ nổi bật (lưới ảnh 2-1-2) ===== #}
-  <section class="ld-cases" id="phan-he">
+  {# ===== Nhóm hàng (lưới ảnh 2-1-2) ===== #}
+  <section class="ld-cases" id="nhom-hang">
     <div class="ld-cases-head">
-      <h2 class="ld-h2 ld-upper" data-blur-in>Phân hệ nổi bật</h2>
-      <button type="button" class="ld-btn" data-login-open>Vào hệ thống</button>
+      <h2 class="ld-h2 ld-upper" data-blur-in>Bốn nhóm hàng</h2>
+      <p class="ld-cases-note">Xi măng là mặt hàng chủ lực: xi măng bao và xi măng rời PCB40.</p>
     </div>
     <div class="ld-cases-grid">
       {% for c in cases %}
-      <button type="button" class="ld-case{% if c.wide %} is-wide{% endif %}" data-login-open data-peek="{% static c.peek %}" data-peek-name="{{ c.name }}" data-peek-tag="{{ c.tag }}" aria-label="{{ c.name }} – {% if member %}vào hệ thống{% else %}đăng nhập để sử dụng{% endif %}">
+      <div class="ld-case{% if c.wide %} is-wide{% endif %}" data-peek="{% static c.peek %}" data-peek-name="{{ c.name }}" data-peek-tag="{{ c.tag }}">
         <span class="ld-case-img"><img src="{% static c.img %}" alt="{{ c.alt }}" loading="lazy"></span>
         <span class="ld-case-cap"><span>{{ c.name }}</span><span>{{ c.tag }}</span></span>
-      </button>
+      </div>
       {% endfor %}
     </div>
   </section>
 
-  {# ===== Danh sách phân hệ ===== #}
-  <section class="ld-services">
-    <p class="ld-eyebrow">— Phân hệ</p>
+  {# ===== Nguồn hàng: 2 nhà máy (ảnh chính thức của nhà máy) ===== #}
+  <section class="ld-cases ld-cases-tight" id="nguon-hang">
+    <div class="ld-cases-head">
+      <div><p class="ld-eyebrow">— Nguồn hàng</p><h2 class="ld-h2 ld-upper" data-blur-in style="margin-top:16px">Hai nhà máy cung ứng</h2></div>
+      <p class="ld-cases-note">Xi măng và vật liệu xây dựng được nhập chủ yếu từ Xi măng Nghi Sơn (Thanh Hóa) và Vicem Hoàng Mai (Nghệ An).</p>
+    </div>
+    <div class="ld-cases-grid is-pair">
+      {% for c in factories %}
+      <div class="ld-case" data-peek="{% static c.peek %}" data-peek-name="{{ c.name }}" data-peek-tag="{{ c.tag }}">
+        <span class="ld-case-img"><img src="{% static c.img %}" alt="{{ c.alt }}" loading="lazy"></span>
+        <span class="ld-case-cap is-always"><span>{{ c.name }}</span><span>{{ c.tag }}</span></span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ===== Khách hàng ===== #}
+  <section class="ld-services" id="khach-hang">
+    <p class="ld-eyebrow">— Khách hàng</p>
+    <h2 class="ld-h2" data-blur-in>Chúng tôi cung ứng cho ai.</h2>
+    <div class="ld-svc-list">
+      {% for s in customers %}
+      <div class="ld-svc" data-peek="{% static s.img %}" data-peek-tall>
+        <p class="ld-eyebrow">{{ s.no }} — {{ s.tag }}</p>
+        <h3 class="ld-h2">{{ s.name }}</h3>
+        <p class="ld-svc-desc">{{ s.desc }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# ===== Phân hệ của hệ thống quản lý ===== #}
+  <section class="ld-services" id="phan-he">
+    <p class="ld-eyebrow">— Hệ thống quản lý</p>
     <h2 class="ld-h2" data-blur-in>Một hệ thống, trọn chuỗi.</h2>
     <div class="ld-svc-list">
       {% for s in services %}
@@ -86,7 +118,7 @@
     </div>
   </section>
 
-  {# ===== Đăng nhập (khối cuối trang, trùng form với ngăn kéo) ===== #}
+  {# ===== Đăng nhập (khối cuối trang) ===== #}
   <section class="ld-cta" id="dang-nhap">
     <p class="ld-eyebrow">{% if member %}— {{ user.display_name }} · {{ user.get_role_display }}{% else %}— Tài khoản nội bộ{% endif %}</p>
     <h2 class="ld-h2" data-blur-in>Sẵn sàng vào ca?</h2>
@@ -96,12 +128,12 @@
   {# ===== Chân trang ===== #}
   <footer class="ld-footer">
     <div class="ld-footer-top">
-      <ul><li><a href="#phan-he">Mua hàng &amp; Inbound</a></li><li><a href="#phan-he">Kho &amp; Tồn kho</a></li><li><a href="#phan-he">Đơn bán &amp; Giao hàng</a></li><li><a href="#phan-he">Công nợ &amp; Báo cáo</a></li></ul>
-      <ul><li><a href="#top">Trang đầu</a></li><li><a href="#gioi-thieu">Giới thiệu</a></li><li><a href="#phan-he">Phân hệ</a></li><li><a href="#dang-nhap" data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</a></li></ul>
-      <ul class="ld-footer-right"><li>Công ty TNHH TRACON 80</li><li>Hệ thống WMS nội bộ</li><li>Tài khoản do quản trị viên cấp</li></ul>
+      <ul><li><a href="#nhom-hang">Xi măng bao &amp; rời PCB40</a></li><li><a href="#nhom-hang">Thép</a></li><li><a href="#nhom-hang">Tôn</a></li><li><a href="#nhom-hang">Ống nhựa</a></li></ul>
+      <ul><li><a href="#gioi-thieu">Giới thiệu</a></li><li><a href="#nguon-hang">Nguồn hàng</a></li><li><a href="#khach-hang">Khách hàng</a></li><li><a href="#dang-nhap" data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</a></li></ul>
+      <ul class="ld-footer-right"><li>{{ company.name }}</li><li>{{ company.address }}</li><li>Kinh doanh VLXD · Thi công công trình</li></ul>
     </div>
     <div class="ld-footer-mark" aria-hidden="true"><span data-fit>TRACON 80</span></div>
-    <div class="ld-footer-bottom"><span>© {% now "Y" %} TRACON 80</span><span>Quản lý chuỗi cung ứng &amp; điều phối vận tải</span></div>
+    <div class="ld-footer-bottom"><span>© {% now "Y" %} {{ company.name }}</span><span>{{ company.slogan }}</span></div>
   </footer>
 
   {# ===== Ảnh xem trước bám theo chuột (dùng chung cho thẻ & hàng phân hệ) ===== #}
