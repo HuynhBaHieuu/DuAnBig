@@ -4,14 +4,15 @@
   {% comment %}Trang giới thiệu + đăng nhập (MH-01). Bố cục phỏng theo template "Kineta" (Framer), tông đen–cam TRACON 80.
      BBH Bartle chỉ có chữ Latin không dấu -> chỉ dùng cho chữ "TRACON 80"; chữ to có dấu dùng Archivo bản rộng (wdth 125).{% endcomment %}
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800;125,900&family=BBH+Bartle&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@1,6..72,500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/landing.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'css/landing.css' %}?v=9">
+  <link rel="icon" type="image/png" href="{% static 'img/brand/tracon80-mark.png' %}">
 {% endblock %}
 {% block body %}
 <div class="ld" id="top"{% if member %} data-home="{{ user.home_url }}"{% endif %}>
 
   {# ===== Thanh trên cố định ===== #}
   <header class="ld-header">
-    <a href="#top" class="ld-logo" aria-label="TRACON 80 – về đầu trang"><span class="ld-logo-ring"></span><span class="ld-logo-text">TRACON 80</span></a>
+    <a href="#top" class="ld-logo" aria-label="TRACON 80 – về đầu trang"><img class="ld-logo-mark" src="{% static 'img/brand/tracon80-mark-light.png' %}" alt="" width="502" height="256"></a>
     <div class="ld-header-right">
       <button type="button" class="ld-btn ld-btn-sm" data-login-open>{% if member %}Vào hệ thống{% else %}Đăng nhập{% endif %}</button>
       <button type="button" class="ld-burger" aria-label="Mở menu" aria-expanded="false" aria-controls="ld-menu" data-menu-toggle><span></span><span></span></button>
@@ -27,16 +28,12 @@
   </nav>
 
   {# ===== Hero ===== #}
-  <section class="ld-hero" data-trail>
+  <section class="ld-hero">
     <div class="ld-hero-bg" data-parallax="0.35"><img src="{% static 'img/landing/hero-xe-tai-hoang-hon.webp' %}" alt="Xe tải chở vật liệu xây dựng trên đường lúc hoàng hôn" fetchpriority="high"></div>
     <div class="ld-hero-tint"></div>
     <div class="ld-hero-center">
-      <h1 class="ld-wordmark">TRACON 80</h1>
+      <h1 class="ld-hero-logo"><img src="{% static 'img/brand/tracon80-logo-light.png' %}" alt="TRACON 80 – Construction Solutions" width="1000" height="482"></h1>
       <p class="ld-eyebrow">Đúng vật tư · Đúng thời điểm · Đúng công trình</p>
-    </div>
-    {# vệt ảnh chạy theo chuột: JS lấy lần lượt từng khung #}
-    <div class="ld-trail" aria-hidden="true">
-      {% for t in trail %}<figure class="ld-trail-item"><img src="{% static t.img %}" alt=""><figcaption><span>{{ t.name }}</span><span>{{ t.tag }}</span></figcaption></figure>{% endfor %}
     </div>
   </section>
 
@@ -64,7 +61,7 @@
     </div>
     <div class="ld-cases-grid">
       {% for c in cases %}
-      <div class="ld-case{% if c.wide %} is-wide{% endif %}" data-peek="{% static c.peek %}" data-peek-name="{{ c.name }}" data-peek-tag="{{ c.tag }}">
+      <div class="ld-case{% if c.wide %} is-wide{% endif %}">
         <span class="ld-case-img"><img src="{% static c.img %}" alt="{{ c.alt }}" loading="lazy"></span>
         <span class="ld-case-cap"><span>{{ c.name }}</span><span>{{ c.tag }}</span></span>
       </div>
@@ -80,7 +77,7 @@
     </div>
     <div class="ld-cases-grid is-pair">
       {% for c in factories %}
-      <div class="ld-case" data-peek="{% static c.peek %}" data-peek-name="{{ c.name }}" data-peek-tag="{{ c.tag }}">
+      <div class="ld-case">
         <span class="ld-case-img"><img src="{% static c.img %}" alt="{{ c.alt }}" loading="lazy"></span>
         <span class="ld-case-cap is-always"><span>{{ c.name }}</span><span>{{ c.tag }}</span></span>
       </div>
@@ -94,7 +91,7 @@
     <h2 class="ld-h2" data-blur-in>Chúng tôi cung ứng cho ai.</h2>
     <div class="ld-svc-list">
       {% for s in customers %}
-      <div class="ld-svc" data-peek="{% static s.img %}" data-peek-tall>
+      <div class="ld-svc">
         <p class="ld-eyebrow">{{ s.no }} — {{ s.tag }}</p>
         <h3 class="ld-h2">{{ s.name }}</h3>
         <p class="ld-svc-desc">{{ s.desc }}</p>
@@ -109,7 +106,7 @@
     <h2 class="ld-h2" data-blur-in>Một hệ thống, trọn chuỗi.</h2>
     <div class="ld-svc-list">
       {% for s in services %}
-      <div class="ld-svc" data-peek="{% static s.img %}" data-peek-tall>
+      <div class="ld-svc">
         <p class="ld-eyebrow">{{ s.no }} — {{ s.tag }}</p>
         <h3 class="ld-h2">{{ s.name }}</h3>
         <p class="ld-svc-desc">{{ s.desc }}</p>
@@ -136,9 +133,6 @@
     <div class="ld-footer-bottom"><span>© {% now "Y" %} {{ company.name }}</span><span>{{ company.slogan }}</span></div>
   </footer>
 
-  {# ===== Ảnh xem trước bám theo chuột (dùng chung cho thẻ & hàng phân hệ) ===== #}
-  <div class="ld-peek" aria-hidden="true"><img alt=""><div class="ld-peek-cap"><span></span><span></span></div></div>
-
   {# ===== Ngăn kéo đăng nhập (chỉ khi chưa đăng nhập; /gioi-thieu cho người đã đăng nhập thì các nút dẫn về trang chủ vai trò) ===== #}
   {% if not member %}
   <div class="ld-login{% if error or request.GET.next %} is-open{% endif %}" id="ld-login" role="dialog" aria-modal="true" aria-labelledby="ld-login-title" {% if not error and not request.GET.next %}aria-hidden="true"{% endif %}>
@@ -146,7 +140,7 @@
     <div class="ld-login-panel">
       <button type="button" class="ld-login-x" aria-label="Đóng" data-login-close><span></span><span></span></button>
       <form method="post" class="ld-form">{% csrf_token %}
-        <p class="ld-eyebrow">— TRACON 80 WMS</p>
+        <img class="ld-form-logo" src="{% static 'img/brand/tracon80-logo-light.png' %}" alt="TRACON 80" width="1000" height="482">
         <h2 id="ld-login-title" class="ld-h2">Đăng nhập</h2>
         <p class="ld-form-sub">Chào mừng trở lại! Nhập tài khoản được cấp.</p>
         {% if error %}<div class="ld-error" role="alert">{{ error }}</div>{% endif %}
@@ -165,5 +159,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{% static 'js/vendor/lenis-1.1.13.min.js' %}"></script>
-<script src="{% static 'js/landing.js' %}?v=3"></script>
+<script src="{% static 'js/landing.js' %}?v=4"></script>
 {% endblock %}

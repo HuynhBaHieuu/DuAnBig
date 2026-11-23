@@ -1,10 +1,9 @@
-// Trang giới thiệu + đăng nhập (/login): cuộn mượt Lenis, chữ hiện dần theo cuộn, vệt ảnh theo chuột ở hero,
-// ảnh xem trước bám chuột, menu cam, ngăn kéo đăng nhập. Không phụ thuộc Alpine/htmx.
+// Trang giới thiệu + đăng nhập (/login): cuộn mượt Lenis, chữ hiện dần theo cuộn,
+// menu cam, ngăn kéo đăng nhập. Không phụ thuộc Alpine/htmx.
 (() => {
   const root = document.querySelector(".ld");
   if (!root) return;
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const finePointer = matchMedia("(pointer: fine)").matches;
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
   // ---------- cuộn mượt ----------
@@ -73,55 +72,6 @@
     if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); }
   }), { rootMargin: "0px 0px -12% 0px" });
   document.querySelectorAll("[data-blur-in]").forEach(el => io.observe(el));
-
-  // ---------- vệt ảnh theo chuột ở hero ----------
-  const hero = document.querySelector("[data-trail]");
-  const trail = [...document.querySelectorAll(".ld-trail-item")];
-  if (hero && trail.length && finePointer && !reduce) {
-    let idx = 0, z = 1, lx = null, ly = null;
-    hero.addEventListener("pointermove", e => {
-      const r = hero.getBoundingClientRect();
-      const x = e.clientX - r.left, y = e.clientY - r.top;
-      if (lx !== null && Math.hypot(x - lx, y - ly) < 90) return;
-      lx = x; ly = y;
-      const it = trail[idx++ % trail.length];
-      it.getAnimations().forEach(a => a.cancel());
-      it.style.zIndex = ++z;
-      it.style.transform = `translate(${x - 88}px, ${y - 88}px)`;
-      it.animate(
-        [{ opacity: 0, transform: `translate(${x - 88}px, ${y - 88}px) scale(.9)` },
-         { opacity: 1, transform: `translate(${x - 88}px, ${y - 88}px) scale(1)`, offset: 0.12 },
-         { opacity: 1, transform: `translate(${x - 88}px, ${y - 88}px) scale(1)`, offset: 0.7 },
-         { opacity: 0, transform: `translate(${x - 88}px, ${y - 88}px) scale(.96)` }],
-        { duration: 1400, easing: "cubic-bezier(.2,.7,.2,1)", fill: "forwards" });
-    });
-  }
-
-  // ---------- ảnh xem trước bám chuột (thẻ phân hệ & hàng danh sách) ----------
-  const peek = document.querySelector(".ld-peek");
-  if (peek && finePointer && !reduce) {
-    const pImg = peek.querySelector("img"), [pName, pTag] = peek.querySelectorAll(".ld-peek-cap span");
-    let tx = 0, ty = 0, cx = 0, cy = 0, on = false;
-    const tick = () => {
-      cx += (tx - cx) * 0.18; cy += (ty - cy) * 0.18;
-      const w = peek.offsetWidth, h = peek.offsetHeight;
-      peek.style.transform = `translate3d(${cx - w / 2}px, ${cy - h / 2}px, 0) scale(${on ? 1 : 0.85})`;
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-    document.querySelectorAll("[data-peek]").forEach(el => {
-      el.addEventListener("pointerenter", e => {
-        pImg.src = el.dataset.peek;
-        pName.textContent = el.dataset.peekName || "";
-        pTag.textContent = el.dataset.peekTag || "";
-        peek.classList.toggle("is-tall", el.hasAttribute("data-peek-tall"));
-        if (!on) { cx = tx = e.clientX; cy = ty = e.clientY; }
-        on = true; peek.classList.add("is-on");
-      });
-      el.addEventListener("pointermove", e => { tx = e.clientX; ty = e.clientY; });
-      el.addEventListener("pointerleave", () => { on = false; peek.classList.remove("is-on"); });
-    });
-  }
 
   // ---------- chữ TRACON 80 ở chân trang vừa khít bề ngang ----------
   const fit = () => document.querySelectorAll("[data-fit]").forEach(el => {
