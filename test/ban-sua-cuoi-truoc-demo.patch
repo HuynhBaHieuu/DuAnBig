@@ -1,0 +1,246 @@
+From 8233909b1c47b22facad1eb006ac7399edb8062a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 11:46:01 +0700
+Subject: [PATCH] =?UTF-8?q?B=E1=BA=A3n=20s=E1=BB=ADa=20cu=E1=BB=91i=20tr?=
+ =?UTF-8?q?=C6=B0=E1=BB=9Bc=20demo:=20K=E1=BA=BF=20ho=E1=BA=A1ch=20giao=20?=
+ =?UTF-8?q?h=C3=A0ng=20l=E1=BB=97i=20500=20=C2=B7=20hi=E1=BB=83n=20th?=
+ =?UTF-8?q?=E1=BB=8B=20t=E1=BA=A3i=20tr=E1=BB=8Dng=20xe=20&=20KPI=20=C2=B7?=
+ =?UTF-8?q?=20l=E1=BB=87nh=20check=5Fpages?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Kế hoạch giao hàng lỗi 500 vào ngày có chuyến (templates/sales/planning.html dòng 50: dòng giao lấy sản phẩm qua so_line)
+- Tải trọng xe hiển thị kiểu Việt: 30 tấn thay 30.00t / 50.00 tấn (Kế hoạch giao, Lập chuyến Inbound, Chi tiết chuyến)
+- Thẻ KPI: chênh lệch < 0,05 coi như không đổi (không còn "▲ 0,0" màu đỏ)
+- Lệnh mới: python manage.py check_pages – mở ~800 trang theo 9 vai trò, báo trang lỗi kèm file/dòng
+- README: load_demo chạy giờ nào cũng được, tự migrate; cách dùng check_pages
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PAJQn9KVzUgPFd9Y1wiJCr
+---
+ README.md                                    |  13 ++-
+ apps/core/management/commands/check_pages.py | 101 +++++++++++++++++++
+ apps/reports/kpi.py                          |   2 +
+ templates/purchasing/trip_detail.html        |   2 +-
+ templates/purchasing/trip_form.html          |   4 +-
+ templates/sales/planning.html                |   6 +-
+ 6 files changed, 120 insertions(+), 8 deletions(-)
+ create mode 100644 apps/core/management/commands/check_pages.py
+
+diff --git a/README.md b/README.md
+index 1e5bb2b..11eacc5 100644
+--- a/README.md
++++ b/README.md
+@@ -67,11 +67,20 @@ dời ngày theo hôm nạp; chạy lại bao nhiêu lần cũng về cùng tr
+ $env:USE_SQLITE="1"; $env:SQLITE_NAME="demo.sqlite3"; $env:SUPABASE_URL=""
+ python manage.py migrate; python manage.py build_demo
+ Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME, Env:SUPABASE_URL
+-# 2) Nạp lên Supabase (sao lưu database trước; chạy sau 07:30 trong ngày)
+-python manage.py migrate
++# 2) Nạp lên Supabase (sao lưu database trước). Giờ nào cũng được; lệnh tự chạy migrate nếu còn thiếu.
++#    File demo cũ vẫn nạp được sau khi code có migration mới – chỉ khi code thêm cột bắt buộc mới phải dựng lại (bước 1).
+ python manage.py load_demo demo.sqlite3 --yes
+ ```
+ 
++**Kiểm tra toàn bộ trang sau mỗi lần sửa code** (trên máy, dữ liệu demo – không đụng Supabase, ~20 giây):
++
++```powershell
++$env:USE_SQLITE="1"; $env:SQLITE_NAME="check.sqlite3"; $env:SUPABASE_URL=""
++python manage.py load_demo demo.sqlite3 --yes   # chỉ cần lần đầu, hoặc khi muốn dữ liệu sạch
++python manage.py check_pages                    # mở ~800 trang theo 9 vai trò; báo trang lỗi + file/dòng gây lỗi
++Remove-Item Env:USE_SQLITE, Env:SQLITE_NAME, Env:SUPABASE_URL
++```
++
+ `vercel.json` đặt function ở region **dub1 (Dublin)** cho gần Supabase `eu-west-1`. Nếu project Supabase ở khu vực khác, đổi `regions` cho tương ứng (vd. Singapore `ap-southeast-1` → `sin1`).
+ 
+ **2. Đẩy code lên GitHub**, rồi vào vercel.com → *Add New Project* → chọn repo. File `vercel.json` đã cấu hình sẵn.
+diff --git a/apps/core/management/commands/check_pages.py b/apps/core/management/commands/check_pages.py
+new file mode 100644
+index 0000000..def55b5
+--- /dev/null
++++ b/apps/core/management/commands/check_pages.py
+@@ -0,0 +1,101 @@
++"""Tự mở toàn bộ trang của web theo từng vai trò để tìm trang lỗi (500) – chạy sau mỗi lần sửa code.
++
++    python manage.py check_pages            # mỗi loại trang mở tối đa 4 bản ghi
++    python manage.py check_pages --per 10   # kỹ hơn
++
++- Đăng nhập lần lượt bằng một tài khoản đang hoạt động của mỗi vai trò, bắt đầu từ trang chủ của vai trò đó rồi bấm
++  qua mọi liên kết nội bộ (chỉ MỞ trang – không bấm nút, không gửi form, không xóa gì).
++- Trang Kế hoạch giao hàng được mở thêm cho từng ngày trong --days ngày gần đây (trang đổi nội dung theo ngày).
++- Báo trang lỗi kèm nguyên nhân; lệnh kết thúc với mã lỗi 1 nếu có trang lỗi.
++Nên chạy trên máy với dữ liệu demo (SQLite: load_demo demo.sqlite3 --yes) thay vì trên Supabase.
++"""
++import re
++import traceback
++from collections import defaultdict, deque
++from datetime import timedelta
++
++from django.core.management.base import BaseCommand, CommandError
++from django.test import Client
++from django.utils import timezone
++
++START = {"DIRECTOR": ["/app/dashboard", "/app/master/", "/app/reports/"], "ADMIN": ["/app/dashboard", "/app/admin/audit"],
++         "PURCHASER": ["/app/dashboard"], "WAREHOUSE": ["/app/dashboard"], "DISPATCHER": ["/app/dashboard"],
++         "ACCOUNTANT": ["/app/dashboard"], "DRIVER": ["/m/trips"], "CUSTOMER": ["/portal/"], "SUPPLIER": ["/factory/"]}
++DATED = {"DIRECTOR", "DISPATCHER"}
++SKIP = re.compile(r"logout|/static/|/media/|/files/|^/django-admin/|/cron/|delete|cancel|\.(png|jpe?g|pdf|csv|xlsx)$")
++
++
++class Command(BaseCommand):
++    help = "Mở toàn bộ trang theo từng vai trò (chỉ xem), báo trang lỗi 500."
++
++    def add_arguments(self, parser):
++        parser.add_argument("--per", type=int, default=4, help="Số bản ghi tối đa mở cho mỗi loại trang")
++        parser.add_argument("--days", type=int, default=21, help="Số ngày gần đây mở trang Kế hoạch giao hàng")
++        parser.add_argument("--role", action="append", help="Chỉ kiểm tra vai trò này (vd. --role DRIVER)")
++
++    def handle(self, per, days, role, **opts):
++        import logging
++        import warnings
++
++        from apps.core.models import User
++        logging.disable(logging.CRITICAL)  # lỗi được gom lại ở cuối, không in log từng request
++        warnings.filterwarnings("ignore")
++        today = timezone.localdate()
++        dated = [f"/app/fulfillment/planning?date={(today + timedelta(days=d)).isoformat()}" for d in range(-days, 3)]
++        errors, total = [], 0
++        for r, starts in START.items():
++            if role and r not in role:
++                continue
++            u = User.objects.filter(role=r, is_active=True).order_by("pk").first()
++            if not u:
++                self.stdout.write(self.style.WARNING(f"{r:<10} bỏ qua – không có tài khoản đang hoạt động"))
++                continue
++            c = Client(HTTP_HOST="localhost", raise_request_exception=True)
++            c.force_login(u)
++            queue = deque(starts + (dated if r in DATED else []))
++            seen, count = set(), defaultdict(int)
++            n = 0
++            while queue:
++                url = queue.popleft()
++                if url in seen:
++                    continue
++                seen.add(url)
++                path, _, qs = url.partition("?")
++                kind = re.sub(r"\d+", "#", path) + ("?" + re.sub(r"=[^&]*", "=", qs) if qs else "")
++                if count[kind] >= per and url not in starts and url not in dated:
++                    continue
++                count[kind] += 1
++                n += 1
++                try:
++                    resp = c.get(url)
++                except Exception as e:  # noqa: BLE001 – báo mọi lỗi của trang
++                    errors.append((u.username, url, self.cause(e)))
++                    self.stdout.write(self.style.ERROR(f"  LỖI {u.username} {url}"))
++                    continue
++                if resp.status_code >= 500:
++                    errors.append((u.username, url, f"HTTP {resp.status_code}"))
++                    continue
++                if resp.status_code != 200 or "text/html" not in resp.get("Content-Type", ""):
++                    continue
++                for h in re.findall(r'href="(/[^"#]*)"', resp.content.decode(errors="ignore")):
++                    h = h.replace("&amp;", "&")
++                    if not SKIP.search(h) and h not in seen:
++                        queue.append(h)
++            total += n
++            self.stdout.write(f"{r:<10} {u.username:<12} {n} trang")
++        if errors:
++            self.stdout.write(self.style.ERROR(f"\n✘ {len(errors)} trang lỗi / {total} trang đã mở:"))
++            for un, url, why in errors:
++                self.stdout.write(f"  [{un}] {url}\n      {why}")
++            raise CommandError("Có trang lỗi – xem danh sách ở trên.")
++        self.stdout.write(self.style.SUCCESS(f"\n✔ Đã mở {total} trang, không trang nào lỗi."))
++
++    @staticmethod
++    def cause(e):
++        """Loại lỗi + dòng code / template gây lỗi (khung cuối thuộc dự án)."""
++        frames = [f for f in traceback.extract_tb(e.__traceback__) if "/site-packages/" not in f.filename]
++        where = f" @ {frames[-1].filename.split('/apps/')[-1]}:{frames[-1].lineno}" if frames else ""
++        tpl = getattr(e, "template_debug", None)
++        if tpl:
++            where += f" · template {tpl.get('name', '').split('/templates/')[-1]} dòng {tpl.get('line')}"
++        return f"{type(e).__name__}: {str(e)[:200]}{where}"
+diff --git a/apps/reports/kpi.py b/apps/reports/kpi.py
+index b5e7064..9b817b5 100644
+--- a/apps/reports/kpi.py
++++ b/apps/reports/kpi.py
+@@ -198,6 +198,8 @@ def kpi_cards(d_from, d_to, user=None, trend=True):
+     for code, label, unit, target, higher, url, fn in KPI_DEFS:
+         v, prev = fn(d_from, d_to), fn(p_from, p_to)
+         delta = (v - prev) if (v is not None and prev is not None) else None
++        if delta is not None and abs(delta) < 0.05:  # hiển thị 1 chữ số thập phân: chênh < 0,05 coi như không đổi
++            delta = 0
+         card = {"code": code, "label": label, "unit": unit, "target": target, "higher": higher, "value": v,
+                 "prev": prev, "delta": delta,
+                 "better": None if not delta else (delta > 0) == higher,
+diff --git a/templates/purchasing/trip_detail.html b/templates/purchasing/trip_detail.html
+index 06c18d9..f09317e 100644
+--- a/templates/purchasing/trip_detail.html
++++ b/templates/purchasing/trip_detail.html
+@@ -16,7 +16,7 @@
+ {% if overdue_min %}<div class="flash flash-error"><i data-lucide="alarm-clock"></i><div>Chuyến <b>quá hạn {{ overdue_min|dur }}</b> so với kế hoạch: mốc “{{ next_ms.name }}” dự kiến {{ next_ms.planned_at|vn_dt }} nhưng chưa được cập nhật. Các mốc còn lại đã tự dời lịch (“Dự kiến lại”), ETA được tính lại theo thời gian thực.</div></div>{% endif %}
+ <div class="grid g-4" style="margin-bottom:20px">
+   {% include "partials/kpi.html" with label="ETA hiện tại" value=trip.eta|vn_dt icon="clock" tone="primary" %}
+-  {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|stringformat:"s"|add:" tấn" icon="truck" tone="info" %}
++  {% include "partials/kpi.html" with label="Xe · tải trọng" value=trip.vehicle.plate foot=trip.vehicle.capacity_ton|num:-1|add:" tấn" icon="truck" tone="info" %}
+   {% include "partials/kpi.html" with label="Tài xế" value=trip.driver.name foot=trip.driver.phone icon="user" tone="warn" %}
+   {% include "partials/kpi.html" with label="Tổng tải" value=trip.total_ton|num:-1|add:" tấn" foot=trip.carrier.name|default:"Xe nội bộ" icon="weight" tone="success" %}
+ </div>
+diff --git a/templates/purchasing/trip_form.html b/templates/purchasing/trip_form.html
+index f46b544..2d0ba36 100644
+--- a/templates/purchasing/trip_form.html
++++ b/templates/purchasing/trip_form.html
+@@ -11,7 +11,7 @@
+         <td><input class="input num" type="number" step="0.001" min="0" name="q_{{ l.pk }}" value="{{ l.qty|sub:l.qty_on_trips }}" data-kg="{{ l.product.unit_weight_kg }}" @input="calc()"></td></tr>{% endfor %}</tbody>
+     </table></div>
+     <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+-      <div>Tổng: <b x-text="ton.toFixed(2)"></b> tấn / tải trọng <b x-text="cap"></b> tấn</div>
++      <div>Tổng: <b x-text="ton.toLocaleString('vi-VN', {maximumFractionDigits: 2})"></b> tấn / tải trọng <b x-text="cap.toLocaleString('vi-VN')"></b> tấn</div>
+       <div class="bar" style="width:220px"><i :style="`width:${Math.min(100, cap ? ton/cap*100 : 0)}%;background:${ton > cap ? 'var(--danger)' : 'var(--success)'}`"></i></div>
+     </div>
+     <div class="flash flash-error" style="margin:0 20px 20px" x-show="cap && ton > cap" x-cloak><i data-lucide="alert-octagon"></i>Vượt tải trọng xe!</div>
+@@ -19,7 +19,7 @@
+   <div class="card card-body" style="align-self:start;display:flex;flex-direction:column;gap:14px">
+     <div class="field"><label>Tuyến *</label><select name="route" required>{% for r in routes %}<option value="{{ r.pk }}" {% if po.route_id == r.pk %}selected{% endif %}>{{ r.name }} ({{ r.std_hours }}h)</option>{% endfor %}</select></div>
+     <div class="field"><label>Nhà xe 3PL</label><select name="carrier"><option value="">Theo xe</option>{% for c in carriers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}</select></div>
+-    <div class="field"><label>Xe *</label><select name="vehicle" required @change="cap = +$event.target.selectedOptions[0].dataset.cap; calc()"><option value="">— Chọn xe —</option>{% for v in vehicles %}<option value="{{ v.pk }}" data-cap="{{ v.capacity_ton }}">{{ v.plate }} · {{ v.capacity_ton }}t · {{ v.carrier.name|default:"Nội bộ" }}</option>{% endfor %}</select></div>
++    <div class="field"><label>Xe *</label><select name="vehicle" required @change="cap = +$event.target.selectedOptions[0].dataset.cap; calc()"><option value="">— Chọn xe —</option>{% for v in vehicles %}<option value="{{ v.pk }}" data-cap="{{ v.capacity_ton }}">{{ v.plate }} · {{ v.capacity_ton|num:-1 }} tấn · {{ v.carrier.name|default:"Nội bộ" }}</option>{% endfor %}</select></div>
+     <div class="field"><label>Tài xế *</label><select name="driver" required><option value="">— Chọn tài xế —</option>{% for d in drivers %}<option value="{{ d.pk }}" {% if d.avail_code != "FREE" %}style="color:var(--danger)"{% endif %} {% if d.avail_code == "EXPIRED" %}disabled{% endif %}>{{ d.name }} · {{ d.avail_label }} · bằng {{ d.license_class }} hạn {{ d.license_expiry|vn_d }}</option>{% endfor %}</select>
+       <div class="text-muted" style="font-size:12px;margin-top:4px">🟢 Rảnh · 🔴 Đang bận chuyến khác · ⛔ bằng lái hết hạn (không chọn được)</div></div>
+     <div class="field"><label>Giờ xuất phát dự kiến *</label><input type="datetime-local" name="planned_departure" required value="{{ po.pickup_date|default:today|date:'Y-m-d' }}T07:00"></div>
+diff --git a/templates/sales/planning.html b/templates/sales/planning.html
+index 22cf840..af31b1f 100644
+--- a/templates/sales/planning.html
++++ b/templates/sales/planning.html
+@@ -23,7 +23,7 @@
+   <div class="grid" style="align-content:start">
+     <form method="post" class="card card-body toolbar">{% csrf_token %}<input type="hidden" name="op" value="new_trip"><input type="hidden" name="planned_date" value="{{ date }}">
+       <b style="margin-right:8px">Thêm chuyến</b>
+-      <select class="input" name="vehicle" style="width:200px" required>{% for v in vehicles %}<option value="{{ v.pk }}">{{ v.plate }} · {{ v.capacity_ton }}t</option>{% endfor %}</select>
++      <select class="input" name="vehicle" style="width:200px" required>{% for v in vehicles %}<option value="{{ v.pk }}">{{ v.plate }} · {{ v.capacity_ton|num:-1 }} tấn</option>{% endfor %}</select>
+       <select class="input" name="driver" style="width:300px" required x-data @change="$el.style.color = $el.selectedOptions[0].dataset.busy ? 'var(--danger-ink)' : ''">
+         <option value="">— Chọn tài xế —</option>
+         {% for d in drivers %}<option value="{{ d.pk }}" {% if d.avail_code != "FREE" %}data-busy="1" style="color:var(--danger-ink)"{% endif %} {% if d.avail_code == "EXPIRED" %}disabled{% endif %}>{{ d.name }} · {{ d.avail_label }}</option>{% endfor %}</select>
+@@ -39,7 +39,7 @@
+         </div>
+         <div class="card-body">
+           {% with ton=t.total_ton %}
+-          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Tải: <b>{{ ton|num:2 }}</b> / {{ t.vehicle.capacity_ton }} tấn</span><span>{{ t.stops.all|length }} điểm giao</span></div>
++          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span>Tải: <b>{{ ton|num:-2 }}</b> / {{ t.vehicle.capacity_ton|num:-1 }} tấn</span><span>{{ t.stops.all|length }} điểm giao</span></div>
+           <div class="bar" style="margin-bottom:14px"><i style="width:{% widthratio ton t.vehicle.capacity_ton 100 %}%;background:var(--primary)"></i></div>
+           {% endwith %}
+           <div class="dropzone" data-trip="{{ t.pk }}" {% if t.status == "PLANNED" %}@dragover.prevent="$el.classList.add('over')" @dragleave="$el.classList.remove('over')" @drop.prevent="drop({{ t.pk }}, $el)"{% endif %}>
+@@ -47,7 +47,7 @@
+             <div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;margin-bottom:6px">
+               <span class="avatar sm">{{ s.seq }}</span>
+               <div style="flex:1;min-width:0"><b>{{ s.so.code }}</b> · {{ s.so.customer.name|truncatechars:24 }}<div class="text-muted" style="font-size:12px">{{ s.site.name }}</div>
+-                <div style="font-size:11px" class="text-muted">{% for l in s.lines.all %}{{ l.so_line.product.code }}×{{ l.qty_planned|qty:l.product }} {% endfor %}</div></div>
++                <div style="font-size:11px" class="text-muted">{% for l in s.lines.all %}{{ l.so_line.product.code }}×{{ l.qty_planned|qty:l.so_line.product }} {% endfor %}</div></div>
+               {% if t.status == "PLANNED" %}<button type="button" class="btn btn-outline btn-sm" @click="remove({{ s.pk }})">✕</button>{% else %}{% status_badge s %}{% endif %}
+             </div>
+             {% empty %}<div class="text-muted" style="text-align:center;padding:16px 0;font-size:13px">{% if t.status == "PLANNED" %}Thả đơn vào đây{% else %}—{% endif %}</div>{% endfor %}
+-- 
+2.43.0
+
